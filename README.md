@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # WID3010-JunoAssist
 
 ## WID3010: Autonomous Robots
@@ -246,4 +245,3 @@ The facial emotion module estimates visible expressions only. It must not be pre
 not:
 
 > "You are definitely stressed."
->>>>>>> bdb35ab (Add the first template for the code repository for the frontend and backend of the project)
