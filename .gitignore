@@ -1,0 +1,16 @@
+# Ignore the virtual environment folder
+.venv/
+venv/
+env/
+backend/.venv/
+
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.next/
+
+# Ignore Python bytecode (the stuff that speeds up execution but isn't code)
+__pycache__/
+*.pyc
+
+# Ignore local environment variables (secrets)
+.env

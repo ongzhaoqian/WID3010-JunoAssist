@@ -131,6 +131,8 @@ endif()
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
   include("/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/build/gtest/cmake_install.cmake")
+  include("/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/build/language_pkg/cmake_install.cmake")
+  include("/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/build/perception_pkg/cmake_install.cmake")
 
 endif()
 
