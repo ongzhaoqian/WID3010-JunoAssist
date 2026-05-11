@@ -12,7 +12,7 @@ Group 5
 - Anas Abdulrahman Mohamad
 
 The purpose of the code repository is for the mentioned group project.
-=======
+
 # JUNO Assist: Personal Daily Assistant Robot
 
 JUNO Assist is a feasible undergraduate robotics course prototype for a **Jupiter Robot-based personal daily assistant**. It supports wake-word activation, voice-confirmed start-up, a web dashboard, facial-emotion monitoring, schedule reminders, study timers, break recommendations, and simple natural-language commands.
