@@ -13,6 +13,9 @@ dashboard/.next/
 __pycache__/
 *.pyc
 
+# Ignore local databases generated during demos/development
+*.db
+
 # Ignore local environment variables/secrets
 .env
 
