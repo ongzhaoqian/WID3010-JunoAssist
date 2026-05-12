@@ -1,4 +1,5 @@
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const WS_BASE = API_BASE.replace("http://", "ws://").replace("https://", "wss://");
 
 export async function getJson(path) {
   const response = await fetch(`${API_BASE}${path}`);
@@ -25,5 +26,5 @@ export async function postJson(path, data = {}) {
 }
 
 export function statusSocket() {
-  return new WebSocket("ws://localhost:8000/ws/status");
+  return new WebSocket(`${WS_BASE}/ws/status`);
 }
