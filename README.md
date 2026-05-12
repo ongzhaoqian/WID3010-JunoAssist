@@ -177,6 +177,48 @@ The dashboard will run at:
 http://localhost:5173
 ```
 
+## Troubleshooting Guide
+
+If the backend could not be run, ensure the Python version on the local machine is updated to at least 3.12.0.
+
+```bash
+cd /tmp
+wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz
+tar xvf Python-3.12.0.tgz
+cd Python-3.12.0
+
+./configure --enable-optimizations --prefix=/usr/local
+make -j $(nproc)
+sudo make altinstall
+```
+
+Check the current Python version and ensure it is at least 3.12.0.
+
+```bash
+/usr/local/bin/python3.12 --version
+```
+
+Remove the old virtual environment and create a new venv with Python 3.12. 
+
+```bash
+rm -rf .venv
+python3.12 -m venv .venv
+```
+
+Activate the newly created virtual environment and upgrade the pip version to the latest one.
+
+```bash
+source .venv/bin/activate
+pip install --upgrade pip
+```
+
+Install dependencies and double check the Python version is at least 3.12.0.
+
+```bash
+pip install -r requirements.txt
+python --version
+```
+
 ## Demo Steps
 
 1. Start the backend.
