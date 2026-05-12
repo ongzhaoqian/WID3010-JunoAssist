@@ -10,11 +10,9 @@ Group 5
 - Vanness Liu Chuan Wei
 - Anas Abdulrahman Mohamad
 
-The purpose of the code repository is for the mentioned group project.
-
 # JUNO Assist: Personal Daily Assistant Robot
 
-JUNO Assist is a feasible undergraduate robotics course prototype for a **Jupiter Robot-based personal daily assistant**. It supports wake-word activation, voice-confirmed start-up, a web dashboard, facial-emotion monitoring, schedule reminders, study timers, break recommendations, and simple natural-language commands.
+JUNO Assist is a prototype for a **Jupiter Robot-based personal daily assistant**. It supports wake-word activation, voice-confirmed start-up, a web dashboard, facial-emotion monitoring, schedule reminders, study timers, break recommendations, and simple natural-language commands.
 
 The system is designed to run in two modes:
 
@@ -177,6 +175,48 @@ The dashboard will run at:
 http://localhost:5173
 ```
 
+## Troubleshooting Guide
+
+If the backend could not be run, ensure the Python version on the local machine is updated to at least 3.12.0.
+
+```bash
+cd /tmp
+wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz
+tar xvf Python-3.12.0.tgz
+cd Python-3.12.0
+
+./configure --enable-optimizations --prefix=/usr/local
+make -j $(nproc)
+sudo make altinstall
+```
+
+Check the current Python version and ensure it is at least 3.12.0.
+
+```bash
+/usr/local/bin/python3.12 --version
+```
+
+Remove the old virtual environment and create a new venv with Python 3.12. 
+
+```bash
+rm -rf .venv
+python3.12 -m venv .venv
+```
+
+Activate the newly created virtual environment and upgrade the pip version to the latest one.
+
+```bash
+source .venv/bin/activate
+pip install --upgrade pip
+```
+
+Install dependencies and double-check the Python version is at least 3.12.0.
+
+```bash
+pip install -r requirements.txt
+python --version
+```
+
 ## Demo Steps
 
 1. Start the backend.
@@ -245,58 +285,3 @@ The facial emotion module estimates visible expressions only. It must not be pre
 not:
 
 > "You are definitely stressed."
-
-
-sudo apt update
-sudo apt install -y \
-    build-essential \
-    libssl-dev \
-    zlib1g-dev \
-    libncurses5-dev \
-    libncursesw5-dev \
-    libreadline-dev \
-    libsqlite3-dev \
-    libgdbm-dev \
-    libdb5.3-dev \
-    libbz2-dev \
-    libexpat1-dev \
-    liblzma-dev \
-    tk-dev \
-    libffi-dev \
-    wget
-
-
-cd /tmp
-wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz
-tar xvf Python-3.12.0.tgz
-cd Python-3.12.0
-
-./configure --enable-optimizations --prefix=/usr/local
-make -j $(nproc)
-sudo make altinstall
-
-/usr/local/bin/python3.12 --version
-
-/usr/local/bin/python3.12 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-
-
-# Remove old virtual environment
-rm -rf .venv
-
-# Create new venv with Python 3.12
-python3.12 -m venv .venv
-
-# Activate it
-source .venv/bin/activate
-
-# Upgrade pip
-pip install --upgrade pip
-
-# Install dependencies
-pip install -r requirements.txt
-
-(.venv) $ python --version
-Python 3.12.x

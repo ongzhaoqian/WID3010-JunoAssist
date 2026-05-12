@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 import webbrowser
 from typing import Any
 
+from src.core.config import settings
+
 
 class JupiterInterface(ABC):
     """Hardware boundary for Jupiter Robot integration.
@@ -55,6 +57,7 @@ class MockJupiterInterface(JupiterInterface):
 
 
 def get_robot_interface() -> JupiterInterface:
-    # Replace this factory with a real JupiterRobotInterface when Jupiter SDK/ROS
-    # bindings are available in the deployment environment.
+    if settings.use_ros_robot:
+        from .ros_jupiter_interface import RosJupiterInterface
+        return RosJupiterInterface()
     return MockJupiterInterface()
