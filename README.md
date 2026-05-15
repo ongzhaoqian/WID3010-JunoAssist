@@ -7,7 +7,7 @@ Group 5
 - Wong Yoong Yee
 - Jonathan Siew Zunxian
 - Ong Zhao Qian
-- Vanness Liu Chuan Wei
+- Vanness Liu Chuen Wei
 - Anas Abdurahman Mohammad
 
 # JUNO Assist: Personal Daily Assistant Robot
