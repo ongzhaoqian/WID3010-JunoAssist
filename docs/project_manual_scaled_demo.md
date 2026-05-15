@@ -310,6 +310,53 @@ The project should be considered successful if the team can demonstrate:
 - Improve polish only: dashboard text, report screenshots, video editing, presentation flow.
 - Do not add major new features unless the MVP is already reliable.
 
+## Final Submission Evidence Checklist
+
+To make the submission strong, the final report/video should not only describe the system; it should prove that each rubric item is satisfied. The team should include the following evidence:
+
+| Rubric Item | Evidence to Include |
+|---|---|
+| HRI Elements | Screenshot/video of wake command, confirmation prompt, active mode, spoken response, dashboard feedback, and safe sleep mode. Explain why confirmation prevents accidental activation. |
+| Codes and Manual | GitHub repository link, clean folder structure screenshot, this manual, ROS guide, and clear explanation of how each module connects. |
+| ROS Development | RQT graph, ROS topic table, launch/package explanation, and short evidence that camera/audio/transcript/TTS topics exist. |
+| RQT Graph | Full RQT graph screenshot plus a labelled explanation of each node/topic in the report. |
+| Report Context | Clear problem statement: student productivity support under real robot/time constraints. Explain why the scaled MVP is realistic and reliable. |
+| Code Organization | Show `backend/`, `dashboard/`, `src/`, and `docs/` structure. Mention `.gitignore` cleanup for generated files. |
+| Vision Integration | Show camera topic path and dashboard emotion state. Be honest that current emotion classification is mock/simple but integrated through the vision pipeline. |
+| Speech Interaction (2-way) | Show user input through speech/transcript or dashboard backup, and robot output through `/juno/tts`/TTS/dashboard response. |
+| NLP/LLM Element | Explain rule-based NLP with examples of intents and responses. If asked about LLM, frame it as a future upgrade for open-ended dialogue. |
+| Notable Mention | Highlight hybrid ROS + web dashboard design, hardware abstraction layer, fallback mode, and emotion-aware break recommendation. |
+| Title/Video/GitHub | Place all three clearly on the first or last page of the report. |
+| Extra Manual/RQT | Submit this manual and extra RQT/topic screenshots as appendix evidence. |
+
+## Final Report Structure Recommendation
+
+Use this structure for the final report:
+
+1. **Title Page** — project title, team members, GitHub link, video link.
+2. **Problem Context** — student workload/productivity issue and why HRI is useful.
+3. **System Overview** — architecture diagram and explanation of backend, dashboard, ROS.
+4. **HRI Design** — wake word, confirmation, active/sleep modes, dashboard feedback, safety.
+5. **ROS Development** — packages, nodes, topics, launch file, ROS bridge.
+6. **Vision Integration** — camera topic, backend frame path, emotion state, limitation.
+7. **Speech Interaction** — user speech/transcript input and robot TTS output.
+8. **NLP/LLM Element** — intent classifier, response generator, future LLM extension.
+9. **Demo Flow and Results** — screenshots from dashboard, RQT, robot demo.
+10. **Limitations and Future Work** — limited robot access, mock emotion model, speech reliability.
+11. **Conclusion** — why the scaled MVP still fulfils the robotics/HRI objective.
+12. **Appendix** — manuals, extra RQT screenshots, topic tables, test evidence.
+
+## Grading Risk Notes
+
+The main risk is overclaiming. For a strong submission, the team should phrase the project as a **working integration prototype** rather than claiming full production-grade emotion recognition or open-domain AI. Strong marks should come from:
+
+- a complete end-to-end interaction loop,
+- clear ROS evidence,
+- clear HRI justification,
+- clean code organization,
+- honest scope control,
+- reliable demo video.
+
 ## Final Recommendation
 
 The project should not be expanded further. It is already broad enough for the rubric. The best strategy is to present JUNO Assist as a **practical HRI and ROS integration prototype** with a reliable scaled demo. Focus on demonstrating the full loop:
