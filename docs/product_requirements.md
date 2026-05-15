@@ -4,6 +4,8 @@
 > **Build system:** catkin_ws (`/src`) with packages connected to `/backend` via REST + WebSocket APIs  
 > **Database:** SQLite (`backend/juno_assist.db`)
 
+> **Python version note:** The supported minimum is **Python 3.10+**. The backend dependencies used on the integration branches (`fastapi`, `uvicorn`, `pydantic`, `python-multipart`, `pytest`) support Python 3.10+, and ROS Noetic robot-side scripts use `python3`. Python 3.12 can also be used for laptop/backend development, but it is not required as the project minimum.
+
 > **Branch note:** This document describes the target/final implementation contract. Some referenced source paths may exist on integration branches before they are merged into the final submission branch.
 
 ---
