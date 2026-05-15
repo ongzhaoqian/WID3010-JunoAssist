@@ -1,6 +1,6 @@
 # Facial Emotion Recognition — Technical Requirements
 
-> Companion to `product_requirements.md` § F4.  
+> Companion to `docs/product_requirements.md` § F4.  
 > Covers the full CV pipeline: face detection → CNN inference → class remapping → state determination.  
 > **Coding agent:** Backend-Vision (`backend/src/vision/`)
 

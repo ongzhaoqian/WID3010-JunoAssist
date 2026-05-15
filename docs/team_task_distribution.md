@@ -402,7 +402,7 @@ Vanness should own the vision story and make it credible without overpromising.
 4. **Report explanation**
    - Explain that the prototype estimates visible expression only.
    - State clearly that it is not a medical or psychological diagnosis.
-   - Describe future CNN path using `technical_requirements_emotion.md`.
+   - Describe future CNN path using `docs/technical_requirements_emotion.md`.
 
 5. **Evaluation notes**
    - Prepare simple evaluation criteria:

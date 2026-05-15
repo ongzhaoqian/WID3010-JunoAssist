@@ -105,7 +105,7 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 - `RosJupiterInterface` subscribes to `/camera/image_raw` via `_camera_callback` and stores the latest frame as `self.latest_frame` (converted from `sensor_msgs/Image` to OpenCV BGR via `cv_bridge`).
 - The backend retrieves the latest frame by calling `robot.get_camera_frame()`, which returns `self.latest_frame`.
 - The `EmotionDetector` (`vision/emotion_detector.py`) shall classify each frame into exactly one of: `Happy | Neutral | Tired | Stressed | Frustrated` (see `EmotionState` in `core/models.py`).
-- Smoothing and state determination logic is specified in `technical_requirements_emotion.md`.
+- Smoothing and state determination logic is specified in `docs/technical_requirements_emotion.md`.
 - The smoothed emotion and confidence shall be included in all `/ws/status` broadcasts and stored per NLP response for adaptive messaging.
 - When the detected emotion is `Tired` or `Stressed`, the backend shall automatically suggest a break via TTS and flag `break_recommended: true` in the WebSocket payload.
 - Emotion polling interval is configurable via `JUNO_EMOTION_UPDATE_SECONDS` (default `3.0`).
