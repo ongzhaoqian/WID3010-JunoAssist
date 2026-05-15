@@ -78,34 +78,37 @@ User
 
 ## Repository Structure
 
+This documentation branch contains the project documentation and workflow files. The implementation modules are developed on the integration branches and should be merged into the final submission branch before running the backend, dashboard, or ROS nodes.
+
+Current documentation branch layout:
+
 ```text
-juno-assist-jupiter/
-│
-├── backend/
-│   ├── main.py
-│   ├── requirements.txt
-│   ├── data/
-│   │   └── sample_schedule.json
-│   ├── src/
-│   │   ├── activation/
-│   │   ├── api/
-│   │   ├── calendar_module/
-│   │   ├── core/
-│   │   ├── nlp/
-│   │   ├── productivity/
-│   │   ├── robot/
-│   │   ├── speech/
-│   │   └── vision/
-│   └── tests/
-│
-├── dashboard/
-│   ├── package.json
-│   ├── index.html
-│   └── src/
-│
-└── docs/
-    ├── implementation_plan.md
-    └── jupiter_integration_notes.md
+WID3010-JunoAssist/
+├── .github/
+│   └── pull_request_template.md
+├── docs/
+│   ├── implementation_plan.md
+│   ├── jupiter_integration_notes.md
+│   ├── product_requirements.md
+│   ├── project_components.md
+│   ├── project_manual_scaled_demo.md
+│   ├── ros_integration_guide.md
+│   ├── team_task_distribution.md
+│   └── technical_requirements_emotion.md
+├── .gitignore
+└── README.md
+```
+
+Target final implementation layout after merging the code branches:
+
+```text
+WID3010-JunoAssist/
+├── backend/       # FastAPI assistant logic, NLP, productivity, vision, robot interface
+├── dashboard/     # React/Vite user dashboard
+├── src/           # ROS catkin packages: perception_pkg, language_pkg, juno_bringup
+├── docs/          # Manuals, requirements, integration notes, task distribution
+├── .github/       # Pull request template
+└── README.md
 ```
 
 ## Recommended Technology Stack
@@ -137,6 +140,8 @@ juno-assist-jupiter/
 
 ## Quick Start: Backend
 
+> These commands apply after the backend implementation branch has been merged into the working branch.
+
 ```bash
 cd backend
 python -m venv .venv
@@ -161,6 +166,8 @@ http://localhost:8000/docs
 
 ## Quick Start: Dashboard
 
+> These commands apply after the dashboard implementation branch has been merged into the working branch.
+
 Open a second terminal:
 
 ```bash
@@ -177,45 +184,23 @@ http://localhost:5173
 
 ## Troubleshooting Guide
 
-If the backend could not be run, ensure the Python version on the local machine is updated to at least 3.12.0.
+Recommended Python version for the backend is **Python 3.10+**. This aligns with ROS Noetic compatibility and the documented project requirements. If dependency installation fails, first check the Python version:
 
 ```bash
-cd /tmp
-wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz
-tar xvf Python-3.12.0.tgz
-cd Python-3.12.0
-
-./configure --enable-optimizations --prefix=/usr/local
-make -j $(nproc)
-sudo make altinstall
+python --version
 ```
 
-Check the current Python version and ensure it is at least 3.12.0.
-
-```bash
-/usr/local/bin/python3.12 --version
-```
-
-Remove the old virtual environment and create a new venv with Python 3.12. 
+Then recreate the virtual environment and reinstall dependencies:
 
 ```bash
 rm -rf .venv
-python3.12 -m venv .venv
-```
-
-Activate the newly created virtual environment and upgrade the pip version to the latest one.
-
-```bash
+python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-```
-
-Install dependencies and double-check the Python version is at least 3.12.0.
-
-```bash
 pip install -r requirements.txt
-python --version
 ```
+
+If the lab machine has an older Python version, install Python through the operating system package manager, `pyenv`, or your lab's approved setup method. Building Python from source should only be used as a last resort on machines where you have permission to do so.
 
 ## Demo Steps
 

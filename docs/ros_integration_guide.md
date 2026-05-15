@@ -1,6 +1,6 @@
 # ROS Integration Guide for JUNO Assist and Jupiter Robot Code
 
-This guide explains how the FastAPI backend, React dashboard, and attached Jupiter Robot ROS code are integrated.
+This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot ROS code are integrated in the target/final implementation. On documentation-only branches, the referenced backend, dashboard, and ROS source files may live on integration branches until they are merged into the final submission branch.
 
 ## 1. Current ROS Topics
 
@@ -142,11 +142,11 @@ Check backend speech output:
 rostopic echo /juno/tts
 ```
 
-## 5. What Was Changed
+## 5. Integration Changes Expected in the Code Branch
 
 ### `backend/src/robot/ros_jupiter_interface.py`
 
-New file. It subscribes to:
+This file is expected in the integration code branch. It subscribes to:
 
 - `/speech/transcript`
 - `/camera/image_raw`
@@ -158,19 +158,19 @@ It publishes to:
 
 ### `backend/src/api/app.py`
 
-The command processing was centralised into `process_command_text()` so both dashboard commands and ROS speech commands use the same logic.
+The integration code branch centralises command processing into `process_command_text()` so both dashboard commands and ROS speech commands use the same logic.
 
 ### `src/language_pkg/scripts/transcriber.py`
 
-Modified so that recognised speech is not only printed, but also published to `/speech/transcript`.
+In the integration code branch, this script is modified so that recognised speech is not only printed, but also published to `/speech/transcript`.
 
 ### `src/language_pkg/scripts/tts_node.py`
 
-New file. It subscribes to `/juno/tts` and speaks backend responses.
+This file is expected in the integration code branch. It subscribes to `/juno/tts` and speaks backend responses.
 
 ### `src/juno_bringup/launch/juno_robot.launch`
 
-New launch file to start the robot-facing ROS nodes.
+This launch file is expected in the integration code branch to start the robot-facing ROS nodes.
 
 ## 6. Feasible Demo Script
 

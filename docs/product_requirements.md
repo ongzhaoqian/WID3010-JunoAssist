@@ -4,6 +4,8 @@
 > **Build system:** catkin_ws (`/src`) with packages connected to `/backend` via REST + WebSocket APIs  
 > **Database:** SQLite (`backend/juno_assist.db`)
 
+> **Branch note:** This document describes the target/final implementation contract. Some referenced source paths may exist on integration branches before they are merged into the final submission branch.
+
 ---
 
 ## 1. Scope and Coding Agent Boundaries
@@ -84,13 +86,13 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 | Panel | Component File | Data Source |
 | :--- | :--- | :--- |
 | **Status Panel** | `StatusPanel.jsx` | `GET /api/status`, `WS /ws/status` |
-| **Emotion Panel** | `StatusPanel.jsx` (embedded) | `WS /ws/status` (field: `emotion`) |
+| **Emotion Panel** | `StatusPanel.jsx` (embedded) | `WS /ws/status` (field: `current_emotion`) |
 | **Schedule Panel** | `SchedulePanel.jsx` | `GET /api/schedule/today` |
 | **Reminder Panel** | `ReminderPanel.jsx` | `GET /api/reminders` |
-| **Timer Panel** | `TimerPanel.jsx` | `WS /ws/status` (field: `timer`) |
+| **Timer Panel** | `TimerPanel.jsx` | `WS /ws/status` (fields: `timer_remaining_seconds`, `active_timer_label`) |
 | **Command Panel** | `CommandPanel.jsx` | `POST /api/command` |
 
-- WebSocket `/ws/status` shall push a JSON object at ≥ 2 Hz whenever mode is not `IDLE`, containing: `{ mode, emotion, timer_remaining_s, last_intent, last_response }`.
+- WebSocket `/ws/status` shall push a JSON object containing: `{ mode, current_emotion, last_response, timer_remaining_seconds, active_timer_label }`.
 - The dashboard must display the live emotion label and a confidence bar without requiring a page reload.
 - Dashboard URL is configurable via `JUNO_DASHBOARD_URL` (default `http://localhost:5173`). If running on a separate machine, set to `http://ROBOT_IP:5173`.
 

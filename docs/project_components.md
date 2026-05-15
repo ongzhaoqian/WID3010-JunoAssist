@@ -1,6 +1,6 @@
 # Juno Project Component Specifications
 
-This document details the specifics of all components in the Juno codebase, a Jupiter JUNO powered Personal Assistant Robot.
+This document details the planned/final components of the Juno codebase, a Jupiter JUNO powered Personal Assistant Robot. On documentation-only branches, some implementation folders may not be present until the relevant integration branches are merged.
 
 ## 1. Backend (Python / FastAPI)
 Located in `/backend`, this serves as the central brain of the system, handling business logic, data persistence, and orchestration.
@@ -11,8 +11,8 @@ Located in `/backend`, this serves as the central brain of the system, handling 
     - Manages REST endpoints and WebSockets for real-time state updates.
     - Orchestrates the "Command Pipeline" (Wake word -> Intent -> Action -> Response -> TTS).
 - **Vision Module (`src/vision/`)**:
-    - **Emotion Detector**: Uses camera frames to identify facial emotions (Happy, Neutral, Tired, Stressed, Frustrated). Currently implemented with a weighted mock predictor for testing.
-    - **Emotion Smoother**: Applies a rolling window average to stabilize emotion detection and reduce flickering.
+    - **Emotion Detector**: Uses camera frames to identify facial emotions (Happy, Neutral, Tired, Stressed, Frustrated). The current MVP uses a weighted mock predictor for testing/demo reliability.
+    - **Emotion Smoother**: The current MVP uses a simple rolling-window/mode-based smoother. The proposed upgraded design in `docs/technical_requirements_emotion.md` replaces this with EMA fusion and hysteresis when time permits.
 - **Speech Module (`src/speech/`)**:
     - **Text-to-Speech (TTS)**: Interfaces with the robot's speech capabilities to provide vocal affirmations and responses.
 - **NLP Module (`src/nlp/`)**:

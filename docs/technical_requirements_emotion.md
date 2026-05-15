@@ -1,8 +1,10 @@
 # Facial Emotion Recognition — Technical Requirements
 
 > Companion to `docs/product_requirements.md` § F4.  
-> Covers the full CV pipeline: face detection → CNN inference → class remapping → state determination.  
+> Covers the proposed full CV pipeline: face detection → CNN inference → class remapping → state determination.  
 > **Coding agent:** Backend-Vision (`backend/src/vision/`)
+
+> **Implementation note:** The current demo MVP may use a mock/simple emotion detector with smoothing for reliability. This document describes the proposed upgraded implementation for the final code branch or future work. Referenced backend paths may exist on integration branches before being merged into the documentation branch.
 
 ---
 
@@ -315,13 +317,13 @@ The proposed method has two tunable parameters with clear semantics:
 
 ---
 
-## 8. Required Changes to Existing Code
+## 8. Proposed Changes to Existing/Future Code
 
 ### 8.1 `backend/src/vision/emotion_smoothing.py`
 
-**Replace** the `EmotionSmoother` class with `EMAFusion` + `HysteresisStateMachine` as specified in § 6.1 and § 6.2.
+When implementing the upgraded emotion pipeline, replace the `EmotionSmoother` class with `EMAFusion` + `HysteresisStateMachine` as specified in § 6.1 and § 6.2.
 
-The existing `Counter.most_common` approach in `EmotionSmoother` is the mode-based discrete smoother that is being retired.
+The existing/simple `Counter.most_common` approach in `EmotionSmoother` is the mode-based discrete smoother used by the MVP. It can be retired when the upgraded pipeline is implemented.
 
 Rename the file to `emotion_fusion.py` (or keep `emotion_smoothing.py` and replace the class) — keep the import path stable so `emotion_detector.py` doesn't break.
 

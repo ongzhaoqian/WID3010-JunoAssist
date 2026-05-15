@@ -27,12 +27,18 @@ class RealJupiterInterface(JupiterInterface):
         pass
 ```
 
-Then update:
+Then register it in the existing factory without removing mock/ROS selection. For example:
 
 ```python
 def get_robot_interface() -> JupiterInterface:
-    return RealJupiterInterface()
+    if settings.robot_interface == "real":
+        return RealJupiterInterface()
+    if settings.use_ros_robot:
+        return RosJupiterInterface()
+    return MockJupiterInterface()
 ```
+
+This keeps laptop/mock mode available for development and demo fallback while allowing a real Jupiter implementation when the correct environment variable is set.
 
 ## Recommended Integration Priority
 
