@@ -8,7 +8,7 @@ Group 5
 - Jonathan Siew Zunxian
 - Ong Zhao Qian
 - Vanness Liu Chuan Wei
-- Anas Abdulrahman Mohamad
+- Anas Abdurahman Mohammad
 
 # JUNO Assist: Personal Daily Assistant Robot
 
