@@ -117,7 +117,7 @@ This checklist tracks the actual software components that still need to be compl
 | `language_pkg` | Exists | Confirm package builds/runs on ROS machine. | Anas | Must |
 | `juno_bringup` | Exists | Confirm launch file starts required nodes. | Anas | Must |
 | Camera node | Implemented | Verify `/camera/image_raw` publishes on robot/laptop camera. | Anas, Vanness | Must |
-| Microphone node | Implemented | Verify `/audio/raw` publishes. | Anas | Must |
+| Microphone node | Implemented | Verify `/audio/raw` publishes for future ASR, and `/speech/raw_transcript` can be published for the language normaliser. | Anas | Must |
 | Transcriber node | Implemented | Verify `/speech/transcript` publishes text or use manual transcript backup. | Anas | Must |
 | TTS node | Implemented | Verify `/juno/tts` is spoken by `pyttsx3`/`espeak`. | Anas | Must |
 | Backend ROS bridge | Implemented | Run backend in ROS mode and confirm subscriptions/publishers work. | Anas, Jon | Must |
@@ -141,7 +141,7 @@ This checklist tracks the actual software components that still need to be compl
 | Component | Current Status | What Still Needs To Be Done | Owner | Priority |
 |---|---|---|---|---|
 | User input via dashboard | Implemented | Use as reliable backup for demo. | Mack | Must |
-| User input via ROS transcript | Implemented path | Test with microphone/transcriber; if unstable, use manually published transcript evidence. | Anas | Must |
+| User input via ROS transcript | Implemented path | Test with ASR/manual transcript publisher and language normaliser; if unstable, use manually published `/speech/transcript` evidence. | Anas | Must |
 | Robot output via TTS | Implemented path | Confirm `/juno/tts` triggers speech. | Anas | Must |
 | Two-way demo | Not yet recorded | Record user command and robot/dashboard response. | Anas, Mack | Must |
 | Speech fallback plan | Documented | Use dashboard command if robot microphone fails. | Jon | Must |
@@ -257,7 +257,7 @@ Mack should own the demo-facing dashboard and make sure the system looks complet
 The `anas` branch contains the main ROS integration work:
 
 - `src/perception_pkg/` camera and microphone nodes,
-- `src/language_pkg/` Moonshine transcriber and TTS node,
+- `src/language_pkg/` Malaysian Llama language normaliser and British-English TTS node,
 - `src/juno_bringup/launch/juno_robot.launch`,
 - `backend/src/robot/ros_jupiter_interface.py`,
 - backend API updates to consume ROS speech transcripts,
@@ -273,7 +273,7 @@ Anas should own the live robot/ROS side and produce the RQT graph evidence.
    - Confirm these nodes can run on the robot/lab machine:
      - `camera_node`
      - `microphone_node`
-     - `moonshine_transcriber`
+     - `malaysian_llama_language_normalizer`
      - `juno_tts_node`
    - Confirm the bringup launch starts the required nodes.
 
@@ -281,6 +281,7 @@ Anas should own the live robot/ROS side and produce the RQT graph evidence.
    - Verify these topics appear:
      - `/camera/image_raw`
      - `/audio/raw`
+     - `/speech/raw_transcript`
      - `/speech/transcript`
      - `/juno/tts`
      - `/juno/led_state` if used

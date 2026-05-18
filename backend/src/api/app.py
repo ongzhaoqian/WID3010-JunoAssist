@@ -12,6 +12,8 @@ from src.core.config import settings
 from src.core.models import CommandRequest, ReminderRequest, TimerRequest, RobotMode, Intent
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
+from src.nlp.input_normalizer import MalaysianInputNormalizer
+from src.nlp.llm_client import MalaysianLlamaClient
 from src.nlp.response_generator import ResponseGenerator
 from src.productivity.music_service import MusicService
 from src.productivity.timer_service import TimerService
@@ -41,14 +43,23 @@ def create_app() -> FastAPI:
     confirmation_handler = ConfirmationHandler()
     intent_classifier = IntentClassifier()
     calendar_service = CalendarService(settings.database_path)
-    response_generator = ResponseGenerator(calendar_service)
+    llm_client = MalaysianLlamaClient()
+    input_normalizer = MalaysianInputNormalizer(llm_client)
+    response_generator = ResponseGenerator(calendar_service, llm_client=llm_client)
     timer_service = TimerService()
     music_service = MusicService()
     emotion_detector = EmotionDetector()
 
     def process_command_text(text: str) -> dict:
-        """Shared command pipeline for both dashboard text and ROS speech input."""
-        text = text.strip()
+        """Shared command pipeline for dashboard text and ROS speech input.
+
+        The raw utterance can be Malay, Mandarin, Tamil, Manglish, or a
+        Malaysian dialectal phrasing. When the LLM is enabled, it is first
+        normalised into standard British English for intent classification; all
+        spoken responses are kept in British English.
+        """
+        raw_text = text.strip()
+        text = input_normalizer.normalise(raw_text)
         intent = intent_classifier.classify(text)
         snapshot = robot_state.snapshot()
 
@@ -100,7 +111,7 @@ def create_app() -> FastAPI:
                 response = response_generator.generate(
                     intent=intent,
                     emotion=snapshot["current_emotion"],
-                    user_text=text,
+                    user_text=raw_text,
                 )
 
             robot_state.set_response(response)
@@ -147,7 +158,7 @@ def create_app() -> FastAPI:
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
             {"name": "Facial Emotion Estimate", "description": "Estimate visible emotion state using camera input."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
-            {"name": "Malaysian Llama AI Assistant", "description": "Optional Hugging Face model for open-ended student-support replies."},
+            {"name": "Malaysian Llama + LoRA Assistant", "description": "Optional Hugging Face base model and LoRA adapter for Malaysian-language understanding with British English output."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
         ]

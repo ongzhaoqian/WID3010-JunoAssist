@@ -1,6 +1,8 @@
-# Optional dependencies for running mesolitica/Malaysian-Llama-3.2-3B-Instruct locally.
+# Optional dependencies for running mesolitica/Malaysian-Llama-3.2-3B-Instruct
+# together with mackwongyy/malaysian-feedback-lora-5k-data locally.
 # Install after backend/requirements.txt on a machine with sufficient RAM/GPU.
 torch>=2.3.0
 transformers>=4.45.0
 accelerate>=0.33.0
 safetensors>=0.4.5
+peft>=0.12.0

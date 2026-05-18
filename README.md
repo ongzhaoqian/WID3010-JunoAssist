@@ -30,7 +30,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Web dashboard after activation
 - Facial emotion monitoring using a mockable vision module
 - Rule-based intent detection for course-level feasibility
-- Optional Malaysian Llama response generation for open-ended student-support replies
+- Optional Malaysian Llama + LoRA input normalisation and response generation with standard British English output
 - Calendar and reminder storage using SQLite
 - Study timer and productivity recommendations
 - REST API and WebSocket updates using FastAPI
@@ -45,7 +45,7 @@ User
 ├── Voice Input
 │   ├── Wake Word Detection
 │   ├── Confirmation Handler
-│   ├── Speech-to-Text
+│   ├── Transcript Normalisation
 │   └── Intent Classifier
 │
 ├── Vision Input
@@ -98,8 +98,8 @@ WID3010-JunoAssist/
 | Real-time updates | WebSocket |
 | Storage | SQLite |
 | Vision | OpenCV-ready module, mock emotion detector by default |
-| Speech | Mock text input by default, replaceable with Whisper / Vosk / Jupiter speech |
-| NLP | Rule-based intent classifier + optional Hugging Face Malaysian Llama response layer |
+| Speech | ROS transcript input; upstream ASR/manual text source normalised through Malaysian Llama + LoRA |
+| NLP | Rule-based intent classifier + optional Hugging Face Malaysian Llama base model with LoRA adapter |
 | Dashboard | React, Vite, Tailwind CSS |
 | Testing | Pytest |
 
@@ -128,9 +128,9 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Optional: Enable Malaysian Llama AI Replies
+### Optional: Enable Malaysian Llama + LoRA
 
-The backend now supports `mesolitica/Malaysian-Llama-3.2-3B-Instruct` as an optional Hugging Face response model. It is kept inside the backend NLP layer so the ROS nodes remain responsible only for robot I/O.
+The backend supports `mesolitica/Malaysian-Llama-3.2-3B-Instruct` with the LoRA adapter `mackwongyy/malaysian-feedback-lora-5k-data`. It is used for Malaysian-context input normalisation and open-ended replies while keeping robot actions behind deterministic backend logic.
 
 Install the optional model dependencies:
 
@@ -144,6 +144,7 @@ Enable the model before starting the backend:
 ```bash
 export JUNO_LLM_ENABLED=true
 export JUNO_LLM_MODEL_ID=mesolitica/Malaysian-Llama-3.2-3B-Instruct
+export JUNO_LLM_ADAPTER_ID=mackwongyy/malaysian-feedback-lora-5k-data
 export JUNO_LLM_DEVICE_MAP=auto
 export JUNO_LLM_TORCH_DTYPE=auto
 python main.py
@@ -155,7 +156,7 @@ Check the active AI configuration at:
 http://localhost:8000/api/ai/status
 ```
 
-The LLM is lazy-loaded and only used as a fallback for open-ended replies. Robot-state actions such as wake, confirmation, sleep, timer, schedule, music, and reminders still use deterministic backend logic. See `docs/malaysian_llama_integration.md` for details.
+The LLM is lazy-loaded. It normalises Malaysian-context utterances into standard British English before intent classification and answers open-ended prompts in British English. Robot-state actions such as wake, confirmation, sleep, timer, schedule, music, and reminders still use deterministic backend logic. See `docs/malaysian_llama_integration.md` for details.
 
 The backend will run at:
 

@@ -1,55 +1,73 @@
-# Malaysian Llama Integration for JUNO Assist
+# Malaysian Llama + LoRA Integration for JUNO Assist
 
-This document explains how `mesolitica/Malaysian-Llama-3.2-3B-Instruct` is integrated into JUNO Assist without changing the ROS node architecture.
+This document explains how `mesolitica/Malaysian-Llama-3.2-3B-Instruct` and the LoRA adapter `mackwongyy/malaysian-feedback-lora-5k-data` are integrated into JUNO Assist while preserving the ROS node architecture.
 
 ## 1. Integration Decision
 
-The Hugging Face model is integrated inside the backend NLP layer, not inside the ROS nodes.
+Malaysian Llama is a text-generation model, not a direct audio speech-to-text model. Therefore, Moonshine has been removed from the ROS language package, and the speech pipeline is now designed around text normalisation:
 
 ```text
-ROS microphone/camera nodes
+External/Jupiter ASR, Whisper/Vosk, or manual transcript publisher
   ↓
-RosJupiterInterface
+/speech/raw_transcript
   ↓
-FastAPI command pipeline
+src/language_pkg/scripts/transcriber.py
   ↓
-IntentClassifier
+Normalises Malaysian-context utterances into standard British English
   ↓
-ResponseGenerator
-  ├── deterministic handlers for robot-safe actions
-  └── MalaysianLlamaClient for open-ended replies
+/speech/transcript
   ↓
-RosJupiterInterface publishes /juno/tts
+FastAPI RosJupiterInterface
   ↓
-tts_node.py speaks response
+Backend command pipeline
+  ↓
+IntentClassifier + deterministic handlers + ResponseGenerator
+  ↓
+/juno/tts
+  ↓
+tts_node.py speaks in a British English voice where available
 ```
 
-This preserves the existing robotics architecture because:
+The model is also integrated in the backend NLP layer for two purposes:
 
-- ROS nodes still only publish or subscribe to robot I/O topics.
-- The backend remains the orchestration layer.
-- The model is not allowed to directly publish ROS messages, start timers, change robot mode, or write reminders.
-- Deterministic handlers still control safety-sensitive or state-changing actions.
+1. **Input normalisation before intent classification** — Malay, Mandarin, Tamil, Manglish, or Malaysian dialectal phrasing can be converted into standard British English before the rule-based intent classifier runs.
+2. **Open-ended response generation** — questions not covered by deterministic robot actions can be answered in concise British English.
 
-## 2. Files Added or Updated
+## 2. Behavioural Boundary
+
+The LLM is not allowed to directly control ROS topics, robot mode, timers, reminders, LEDs, or the dashboard. Robot-state changes remain deterministic.
+
+Handled deterministically:
+
+- Wake command
+- Confirmation
+- Sleep mode
+- Schedule lookup
+- Deadline lookup
+- Timer start
+- Reminder instruction
+- Music playback
+- Break recommendation
+
+Handled by Malaysian Llama + LoRA:
+
+- Normalising Malaysian-context input into British English
+- Open-ended student-support replies
+- Conversational clarification and productivity suggestions
+
+## 3. Files Added or Updated
 
 | File | Purpose |
 |---|---|
-| `backend/src/nlp/llm_client.py` | Lazy Hugging Face client for Malaysian Llama. |
-| `backend/src/nlp/response_generator.py` | Calls Malaysian Llama only as a fallback for open-ended replies. |
-| `backend/src/core/config.py` | Adds environment-based LLM configuration. |
-| `backend/src/api/app.py` | Adds `/api/ai/status` and exposes the AI assistant feature. |
-| `backend/requirements-llm.txt` | Optional model runtime dependencies. |
-| `backend/.env.example` | Example environment variables for local, ROS, and LLM modes. |
-
-## 3. Why the Model Is Lazy-Loaded
-
-The model is not loaded during backend startup. It loads only when:
-
-1. `JUNO_LLM_ENABLED=true`, and
-2. the command reaches the LLM fallback path.
-
-This avoids slowing down the robot boot process or breaking a ROS demo on a machine without enough RAM/GPU.
+| `backend/src/nlp/llm_client.py` | Lazy Hugging Face client for the base model and LoRA adapter. |
+| `backend/src/nlp/input_normalizer.py` | Converts Malaysian-context user input into standard British English before intent classification. |
+| `backend/src/nlp/response_generator.py` | Calls the LLM only for open-ended fallback replies. |
+| `backend/src/core/config.py` | Adds environment-based base model, adapter, generation, and normalisation settings. |
+| `backend/src/api/app.py` | Routes dashboard and ROS speech input through the shared normalisation + command pipeline. |
+| `backend/requirements-llm.txt` | Optional model runtime dependencies, including `peft`. |
+| `src/language_pkg/scripts/transcriber.py` | Replaces Moonshine with a text normalisation node that publishes `/speech/transcript`. |
+| `src/language_pkg/scripts/tts_node.py` | Selects a British English voice in `pyttsx3` or falls back to `espeak -v en-gb`. |
+| `src/juno_bringup/launch/juno_robot.launch` | Keeps ROS node boundaries intact while changing the language node role. |
 
 ## 4. Runtime Setup
 
@@ -64,86 +82,100 @@ pip install -r requirements.txt
 pip install -r requirements-llm.txt
 ```
 
-Enable the model:
+Enable the model and adapter:
 
 ```bash
 export JUNO_LLM_ENABLED=true
 export JUNO_LLM_MODEL_ID=mesolitica/Malaysian-Llama-3.2-3B-Instruct
+export JUNO_LLM_ADAPTER_ID=mackwongyy/malaysian-feedback-lora-5k-data
 export JUNO_LLM_DEVICE_MAP=auto
 export JUNO_LLM_TORCH_DTYPE=auto
 python main.py
 ```
 
-Check whether the backend sees the model configuration:
+Check whether the backend sees the model and adapter configuration:
 
 ```bash
 curl http://localhost:8000/api/ai/status
 ```
 
-## 5. ROS Mode with the Model Enabled
+Expected status fields include:
 
-Use the same ROS launch flow as before. Only the backend environment changes.
-
-```bash
-cd backend
-source ../devel/setup.bash
-source .venv/bin/activate
-export JUNO_ROBOT_INTERFACE=ros
-export JUNO_LLM_ENABLED=true
-export JUNO_LLM_MODEL_ID=mesolitica/Malaysian-Llama-3.2-3B-Instruct
-python main.py
+```json
+{
+  "model_id": "mesolitica/Malaysian-Llama-3.2-3B-Instruct",
+  "adapter_id": "mackwongyy/malaysian-feedback-lora-5k-data",
+  "output_policy": "standard British English"
+}
 ```
 
-The ROS topics remain unchanged:
+## 5. ROS Mode
 
-| Direction | Topic | Message Type |
-|---|---|---|
-| ROS to backend | `/speech/transcript` | `std_msgs/String` |
-| ROS to backend | `/camera/image_raw` | `sensor_msgs/Image` |
-| Backend to ROS | `/juno/tts` | `std_msgs/String` |
-| Backend to ROS | `/juno/led_state` | `std_msgs/String` |
+Use the same ROS launch flow as before:
 
-## 6. Behavioural Boundary
+```bash
+roscore
+catkin_make
+source devel/setup.bash
+roslaunch juno_bringup juno_robot.launch
+```
 
-The model may generate conversational responses such as study advice, clarification, or encouragement. The model should not be used as the authority for robot actions.
+For a lightweight demo, publish raw candidate text manually:
 
-Handled deterministically:
+```bash
+rosrun language_pkg example_transcriptor.py
+```
 
-- Wake command
-- Confirmation
-- Sleep mode
-- Schedule lookup
-- Deadline lookup
-- Timer start
-- Reminder instruction
-- Music playback
-- Break recommendation
+Or publish directly:
 
-Handled by Malaysian Llama fallback:
+```bash
+rostopic pub /speech/raw_transcript std_msgs/String "data: 'Apa jadual saya hari ini?'"
+```
 
-- Open-ended questions not covered by the rule-based intent classifier
-- General student-support replies
-- Multilingual Malaysian-context conversational responses
+The language node publishes the British English transcript to:
 
-## 7. Suggested Demo Commands
+```text
+/speech/transcript
+```
 
-Start with deterministic commands:
+The backend then consumes `/speech/transcript` as before.
+
+## 6. Optional ROS-Side LLM Normalisation
+
+By default, the backend performs LLM normalisation to avoid loading the model twice. If you want the ROS language node itself to perform normalisation, enable:
+
+```bash
+export JUNO_ROS_LLM_NORMALISE=true
+export JUNO_LLM_MODEL_ID=mesolitica/Malaysian-Llama-3.2-3B-Instruct
+export JUNO_LLM_ADAPTER_ID=mackwongyy/malaysian-feedback-lora-5k-data
+```
+
+Only enable this on hardware with enough memory, because loading the same model in both ROS and backend processes can be expensive.
+
+## 7. British English TTS
+
+`tts_node.py` now attempts to select a British English voice from `pyttsx3`. If no such voice is available, it falls back to:
+
+```bash
+espeak -v en-gb
+```
+
+The TTS node does not translate by itself. It speaks the British English text generated by the backend or the normalisation node.
+
+## 8. Suggested Demo Commands
 
 ```text
 Hey, Juno
 Yes
-What do I have today?
+Apa jadual saya hari ini?
 Set a 25 minute timer.
-```
-
-Then test an open-ended command after enabling the model:
-
-```text
-I feel unproductive today. How should I plan my next study session?
+Saya rasa blur hari ini, macam mana nak mula study?
+Juno, go to sleep.
 ```
 
 Expected behaviour:
 
-- The command passes through the same backend pipeline.
-- The LLM generates a short spoken reply.
-- The backend sends the generated text to `/juno/tts` in ROS mode.
+- Malaysian-context utterances are normalised into standard British English.
+- The backend command pipeline remains unchanged.
+- Deterministic robot actions remain safe and predictable.
+- Spoken output is in British English.

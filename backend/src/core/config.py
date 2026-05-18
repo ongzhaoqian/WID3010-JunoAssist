@@ -30,11 +30,16 @@ class Settings:
         "JUNO_LLM_MODEL_ID",
         "mesolitica/Malaysian-Llama-3.2-3B-Instruct",
     )
+    llm_adapter_id: str = os.getenv(
+        "JUNO_LLM_ADAPTER_ID",
+        "mackwongyy/malaysian-feedback-lora-5k-data",
+    )
     llm_device_map: str = os.getenv("JUNO_LLM_DEVICE_MAP", "auto")
     llm_torch_dtype: str = os.getenv("JUNO_LLM_TORCH_DTYPE", "auto")
     llm_max_new_tokens: int = int(os.getenv("JUNO_LLM_MAX_NEW_TOKENS", "96"))
+    llm_normalise_max_new_tokens: int = int(os.getenv("JUNO_LLM_NORMALISE_MAX_NEW_TOKENS", "48"))
     llm_max_response_words: int = int(os.getenv("JUNO_LLM_MAX_RESPONSE_WORDS", "80"))
-    llm_temperature: float = float(os.getenv("JUNO_LLM_TEMPERATURE", "0.4"))
+    llm_temperature: float = float(os.getenv("JUNO_LLM_TEMPERATURE", "0.3"))
     llm_top_p: float = float(os.getenv("JUNO_LLM_TOP_P", "0.9"))
 
 
