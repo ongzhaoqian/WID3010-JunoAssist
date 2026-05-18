@@ -1,16 +1,27 @@
-# Ignore the virtual environment folder
+# Ignore virtual environment folders
 .venv/
 venv/
 env/
 backend/.venv/
 
+# Ignore frontend dependencies/build outputs
 dashboard/node_modules/
 dashboard/dist/
 dashboard/.next/
 
-# Ignore Python bytecode (the stuff that speeds up execution but isn't code)
+# Ignore Python bytecode
 __pycache__/
 *.pyc
 
-# Ignore local environment variables (secrets)
+# Ignore local environment variables/secrets
 .env
+
+# Ignore metadata files
+*:Zone.Identifier
+
+# Ignore generated ROS/catkin build folders
+build/
+devel/
+install/
+log/
+logs/
