@@ -26,6 +26,7 @@ class MoonshineTranscriber:
 
         self.sub = rospy.Subscriber('/audio/raw', Float32MultiArray, self.audio_callback)
         self.transcript_pub = rospy.Publisher('/speech/transcript', String, queue_size=10)
+        rospy.loginfo("Subscribed to /audio/raw and advertising /speech/transcript")
 
         self.process_thread = threading.Thread(target=self.inference_loop)
         self.process_thread.daemon = True
@@ -54,8 +55,10 @@ class MoonshineTranscriber:
                     result = moonshine.transcribe(audio_to_process, self.model_name)
                     transcript = result[0].strip() if result else ""
                     if transcript:
+                        print(f"[TRANSCRIBED SPEECH] {transcript}", flush=True)
                         rospy.loginfo(f"Transcript: {transcript}")
                         self.transcript_pub.publish(String(data=transcript))
+                        rospy.loginfo(f"Published transcript to /speech/transcript: {transcript}")
                 except Exception as e:
                     rospy.logerr(f"Inference error: {e}")
 
