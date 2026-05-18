@@ -56,7 +56,7 @@ Dashboard updates current emotion via WebSocket
 roscore
 ```
 
-### Terminal 2: Catkin Workspace
+### Terminal 2: ROS Nodes
 
 From the project root:
 
@@ -70,22 +70,28 @@ This launches:
 
 - camera publisher
 - microphone publisher
-- Moonshine speech transcriber
+- Moonshine speech transcriber (`useful-moonshine-onnx` must be installed: `pip install useful-moonshine-onnx`)
 - JUNO TTS node
 
 ### Terminal 3: Backend in ROS Mode
 
+**Every time** (run to start backend):
+
 ```bash
 cd backend
-source ../devel/setup.bash
-python -m venv .venv
+python3.8 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
+pip install rospkg catkin_pkg
+cd backend
+source .venv/bin/activate
+source ../devel/setup.bash
 export JUNO_ROBOT_INTERFACE=ros
 export JUNO_DASHBOARD_URL=http://localhost:5173
 python main.py
 ```
+
+> **Important:** `source ../devel/setup.bash` must be run **after** activating the venv, in the same terminal session. The venv must use Python 3.8 (`python3.8 -m venv .venv`) — Python 3.9+ is incompatible with ROS Noetic.
 
 If the dashboard is opened from another laptop, replace `localhost` with the robot IP:
 
