@@ -14,7 +14,7 @@ Confirm these before starting:
 |---|---|---|
 | Ubuntu 20.04 | `lsb_release -a` | `Ubuntu 20.04.x LTS` |
 | ROS Noetic | `rosversion -d` | `noetic` |
-| Python 3.8+ | `python3 --version` | `Python 3.8.x` or higher |
+| Python 3.8 exactly | `python3 --version` | `Python 3.8.x` — ROS Noetic requires 3.8 |
 | Git | `git --version` | any version |
 | Camera device | `ls /dev/video*` | `/dev/video2` present |
 
@@ -83,9 +83,9 @@ pip install -r requirements.txt
 
 This installs:
 - `fastapi`, `uvicorn`, `pydantic` — backend API
-- `numpy>=1.24` — EMA probability smoothing
-- `opencv-python>=4.8` — face detection (Phase 2 CNN)
-- `tensorflow>=2.13` — Mini-Xception emotion CNN (Phase 2)
+- `numpy>=1.24,<1.25` — EMA probability smoothing (numpy 1.25 dropped Python 3.8)
+- `opencv-python-headless>=4.8` — face detection, headless build avoids conflict with ROS system `python3-opencv`
+- `tensorflow>=2.13,<2.14` — Mini-Xception emotion CNN (TF 2.14 dropped Python 3.8)
 - `pytest` — test runner
 
 > **Note:** `tensorflow` is ~500 MB. This step will take several minutes on first install. Keep the terminal open.
@@ -93,12 +93,12 @@ This installs:
 Verify key packages after install:
 
 ```bash
-python3 -c "import numpy; print('numpy', numpy.__version__)"
-python3 -c "import cv2; print('cv2', cv2.__version__)"
-python3 -c "import tensorflow as tf; print('tensorflow', tf.__version__)"
+python3 -c "import numpy; print('numpy', numpy.__version__)"        # must be 1.24.x
+python3 -c "import cv2; print('cv2', cv2.__version__)"              # must be 4.8.x or higher
+python3 -c "import tensorflow as tf; print('tensorflow', tf.__version__)"  # must be 2.13.x
 ```
 
-All three must print a version number, not an error.
+All three must print a version number, not an error. Numpy must be `1.24.x` and TensorFlow must be `2.13.x` — higher minor versions have dropped Python 3.8.
 
 ---
 
@@ -296,7 +296,7 @@ curl -s -X POST http://localhost:8000/api/command \
 | `ModuleNotFoundError: rospy` | venv activated before catkin sourced | Deactivate venv, `source devel/setup.bash`, then reactivate venv |
 | `ModuleNotFoundError: cv_bridge` | Same as above | Same fix |
 | `ModuleNotFoundError: numpy` | requirements not installed | `pip install -r requirements.txt` |
-| `ModuleNotFoundError: cv2` | opencv not installed | `pip install opencv-python>=4.8` |
+| `ModuleNotFoundError: cv2` | opencv not installed | `pip install opencv-python-headless>=4.8` |
 | `current_emotion: unknown` | Backend not in ACTIVE mode | Send wake phrase + confirmation first |
 | `rostopic hz` shows 0 Hz | Camera node not running | Check Terminal 2 for errors; try `camera_device:=/dev/video0` |
 | `/dev/video2 not found` | Wrong camera device index | `roslaunch juno_bringup juno_robot.launch camera_device:=/dev/video0` |
