@@ -20,7 +20,10 @@ class Settings:
 
     # Set JUNO_ROBOT_INTERFACE=ros when running on the Jupiter/ROS machine.
     robot_interface: str = os.getenv("JUNO_ROBOT_INTERFACE", "mock").lower()
+    print(os.getenv("JUNO_ROBOT_INTERFACE"))
+    #robot_interface: str = "ros"
     use_ros_robot: bool = _env_bool("JUNO_USE_ROS", False) or robot_interface == "ros"
+    print(robot_interface, use_ros_robot)
 
 
 settings = Settings()

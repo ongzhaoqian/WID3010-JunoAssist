@@ -25,10 +25,12 @@ class RosJupiterInterface(JupiterInterface):
 
     def __init__(self) -> None:
         try:
+            print("Importing ROS dependencies for RosJupiterInterface...")
             import rospy
             from std_msgs.msg import String
             from sensor_msgs.msg import Image
             from cv_bridge import CvBridge
+            print("Successfully imported ROS dependencies for RosJupiterInterface.")
         except Exception as exc:  # pragma: no cover - only used on ROS machine
             raise RuntimeError(
                 "ROS Jupiter interface requested, but rospy/cv_bridge/sensor_msgs "

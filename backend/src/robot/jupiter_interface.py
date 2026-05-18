@@ -58,6 +58,14 @@ class MockJupiterInterface(JupiterInterface):
 
 def get_robot_interface() -> JupiterInterface:
     if settings.use_ros_robot:
-        from .ros_jupiter_interface import RosJupiterInterface
-        return RosJupiterInterface()
+        try:
+            
+            from .ros_jupiter_interface import RosJupiterInterface
+            print("ROS robot interface selected. Attempting to initialize RosJupiterInterface...")
+            return RosJupiterInterface()
+        except RuntimeError as exc:
+            print(
+                f"WARNING: ROS interface unavailable: {exc}. "
+                "Falling back to the mock Jupiter interface."
+            )
     return MockJupiterInterface()
