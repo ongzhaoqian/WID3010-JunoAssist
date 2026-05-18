@@ -7,14 +7,12 @@ Group 5
 - Wong Yoong Yee
 - Jonathan Siew Zunxian
 - Ong Zhao Qian
-- Vanness Liu Chuan Wei
-- Anas Abdulrahman Mohamad
-
-The purpose of the code repository is for the mentioned group project.
+- Vanness Liu Chuen Wei
+- Anas Abdurahman Mohammad
 
 # JUNO Assist: Personal Daily Assistant Robot
 
-JUNO Assist is a feasible undergraduate robotics course prototype for a **Jupiter Robot-based personal daily assistant**. It supports wake-word activation, voice-confirmed start-up, a web dashboard, facial-emotion monitoring, schedule reminders, study timers, break recommendations, and simple natural-language commands.
+JUNO Assist is a prototype for a **Jupiter Robot-based personal daily assistant**. It supports wake-word activation, voice-confirmed start-up, a web dashboard, facial-emotion monitoring, schedule reminders, study timers, break recommendations, and simple natural-language commands.
 
 The system is designed to run in two modes:
 
@@ -81,33 +79,13 @@ User
 ## Repository Structure
 
 ```text
-juno-assist-jupiter/
-│
-├── backend/
-│   ├── main.py
-│   ├── requirements.txt
-│   ├── data/
-│   │   └── sample_schedule.json
-│   ├── src/
-│   │   ├── activation/
-│   │   ├── api/
-│   │   ├── calendar_module/
-│   │   ├── core/
-│   │   ├── nlp/
-│   │   ├── productivity/
-│   │   ├── robot/
-│   │   ├── speech/
-│   │   └── vision/
-│   └── tests/
-│
-├── dashboard/
-│   ├── package.json
-│   ├── index.html
-│   └── src/
-│
-└── docs/
-    ├── implementation_plan.md
-    └── jupiter_integration_notes.md
+WID3010-JunoAssist/
+├── backend/       # FastAPI assistant logic, NLP, productivity, vision, robot interface
+├── dashboard/     # React/Vite user dashboard
+├── src/           # ROS catkin packages: perception_pkg, language_pkg, juno_bringup
+├── docs/          # Manuals, requirements, integration notes, task distribution
+├── .github/       # Pull request template
+└── README.md
 ```
 
 ## Recommended Technology Stack
@@ -179,45 +157,23 @@ http://localhost:5173
 
 ## Troubleshooting Guide
 
-If the backend could not be run, ensure the Python version on the local machine is updated to at least 3.12.0.
+Recommended Python version for the backend is **Python 3.10+**. This aligns with ROS Noetic compatibility and the documented project requirements. If dependency installation fails, first check the Python version:
 
 ```bash
-cd /tmp
-wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz
-tar xvf Python-3.12.0.tgz
-cd Python-3.12.0
-
-./configure --enable-optimizations --prefix=/usr/local
-make -j $(nproc)
-sudo make altinstall
+python --version
 ```
 
-Check the current Python version and ensure it is at least 3.12.0.
-
-```bash
-/usr/local/bin/python3.12 --version
-```
-
-Remove the old virtual environment and create a new venv with Python 3.12. 
+Then recreate the virtual environment and reinstall dependencies:
 
 ```bash
 rm -rf .venv
-python3.12 -m venv .venv
-```
-
-Activate the newly created virtual environment and upgrade the pip version to the latest one.
-
-```bash
+python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-```
-
-Install dependencies and double check the Python version is at least 3.12.0.
-
-```bash
 pip install -r requirements.txt
-python --version
 ```
+
+If the lab machine has an older Python version, install Python through the operating system package manager, `pyenv`, or your lab's approved setup method. Building Python from source should only be used as a last resort on machines where you have permission to do so.
 
 ## Demo Steps
 
