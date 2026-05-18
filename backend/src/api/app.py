@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
 
             response = "JUNO is sleeping. Say Hey, Juno to wake me up."
             robot_state.set_response(response)
+            tts.speak(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.CONFIRMATION:
@@ -142,7 +143,8 @@ def create_app() -> FastAPI:
         """Consumes transcripts published by language_pkg/transcriber.py."""
         logger.info("ROS speech command loop started")
         while True:
-            transcript = await asyncio.to_thread(robot.listen)
+            loop = asyncio.get_event_loop()
+            transcript = await loop.run_in_executor(None, robot.listen)
             if transcript:
                 logger.info("Received ROS transcript: %s", transcript)
                 result = process_command_text(transcript)
