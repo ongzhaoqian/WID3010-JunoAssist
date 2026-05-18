@@ -1,6 +1,6 @@
 # ROS Integration Guide for JUNO Assist and Jupiter Robot Code
 
-This guide explains how the FastAPI backend, React dashboard, and attached Jupiter Robot ROS code are integrated.
+This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot ROS code are integrated.
 
 ## 1. Current ROS Topics
 
@@ -146,7 +146,7 @@ rostopic echo /juno/tts
 
 ### `backend/src/robot/ros_jupiter_interface.py`
 
-New file. It subscribes to:
+This file subscribes to:
 
 - `/speech/transcript`
 - `/camera/image_raw`
@@ -166,11 +166,11 @@ Modified so that recognised speech is not only printed, but also published to `/
 
 ### `src/language_pkg/scripts/tts_node.py`
 
-New file. It subscribes to `/juno/tts` and speaks backend responses.
+This file subscribes to `/juno/tts` and speaks backend responses.
 
 ### `src/juno_bringup/launch/juno_robot.launch`
 
-New launch file to start the robot-facing ROS nodes.
+This launch file starts the robot-facing ROS nodes.
 
 ## 6. Feasible Demo Script
 
