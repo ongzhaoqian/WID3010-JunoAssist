@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from queue import Queue, Empty
 from typing import Any
+import logging
 import subprocess
 import webbrowser
 
 from .jupiter_interface import JupiterInterface
+
+logger = logging.getLogger("juno.backend.ros")
 
 
 class RosJupiterInterface(JupiterInterface):
@@ -50,10 +53,14 @@ class RosJupiterInterface(JupiterInterface):
         rospy.Subscriber("/camera/image_raw", Image, self._camera_callback)
 
         rospy.loginfo("JUNO backend ROS bridge is ready.")
+        logger.info("JUNO backend ROS bridge is ready. Subscribed to /speech/transcript and /camera/image_raw")
 
     def _transcript_callback(self, msg: Any) -> None:
         text = str(msg.data).strip()
         if text:
+            print(f"[BACKEND ROS TRANSCRIPT] {text}", flush=True)
+            self.rospy.loginfo(f"Backend received /speech/transcript: {text}")
+            logger.info("Backend received /speech/transcript: %s", text)
             self.transcript_queue.put(text)
 
     def _camera_callback(self, msg: Any) -> None:
@@ -63,6 +70,7 @@ class RosJupiterInterface(JupiterInterface):
             self.rospy.logwarn(f"Could not convert ROS image to OpenCV frame: {exc}")
 
     def speak(self, text: str) -> None:
+        logger.info("Publishing backend response to /juno/tts: %s", text)
         self.tts_pub.publish(self.String(data=text))
 
     def listen(self) -> str:
