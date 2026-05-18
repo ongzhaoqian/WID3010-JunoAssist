@@ -18,6 +18,7 @@ __pycache__/
 
 # Ignore metadata files
 *:Zone.Identifier
+.DS_Store
 
 # Ignore CNN model files (download separately — do not commit)
 *.caffemodel
