@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,8 @@ from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
 from src.vision.emotion_detector import EmotionDetector
 
+logger = logging.getLogger("juno.backend")
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name)
@@ -35,6 +38,7 @@ def create_app() -> FastAPI:
     )
 
     robot = get_robot_interface()
+    logger.info("JUNO backend using robot interface: %s", type(robot).__name__)
     tts = TextToSpeech(robot)
     wake_detector = WakeWordDetector()
     confirmation_handler = ConfirmationHandler()
@@ -116,7 +120,10 @@ def create_app() -> FastAPI:
         asyncio.create_task(_emotion_monitor_loop())
         asyncio.create_task(_timer_loop())
         if settings.use_ros_robot:
+            logger.info("ROS mode enabled. Listening for transcripts on /speech/transcript")
             asyncio.create_task(_ros_speech_command_loop())
+        else:
+            logger.info("ROS mode disabled. Set JUNO_ROBOT_INTERFACE=ros to connect ROS nodes to backend.")
 
     async def _emotion_monitor_loop():
         while True:
@@ -133,10 +140,17 @@ def create_app() -> FastAPI:
 
     async def _ros_speech_command_loop():
         """Consumes transcripts published by language_pkg/transcriber.py."""
+        logger.info("ROS speech command loop started")
         while True:
             transcript = await asyncio.to_thread(robot.listen)
             if transcript:
-                process_command_text(transcript)
+                logger.info("Received ROS transcript: %s", transcript)
+                result = process_command_text(transcript)
+                logger.info(
+                    "Processed ROS transcript intent=%s response=%s",
+                    result.get("intent"),
+                    result.get("response"),
+                )
             await asyncio.sleep(0.05)
 
     @app.get("/api/features")
