@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import webbrowser
-from typing import Any
+from typing import Any, Optional
 
 from src.core.config import settings
 
@@ -56,16 +56,23 @@ class MockJupiterInterface(JupiterInterface):
         print(f"[JUNO LED] {state}")
 
 
+_robot_instance: Optional[JupiterInterface] = None
+
+
 def get_robot_interface() -> JupiterInterface:
+    global _robot_instance
+    if _robot_instance is not None:
+        return _robot_instance
     if settings.use_ros_robot:
         try:
-            
             from .ros_jupiter_interface import RosJupiterInterface
             print("ROS robot interface selected. Attempting to initialize RosJupiterInterface...")
-            return RosJupiterInterface()
+            _robot_instance = RosJupiterInterface()
+            return _robot_instance
         except RuntimeError as exc:
             print(
                 f"WARNING: ROS interface unavailable: {exc}. "
                 "Falling back to the mock Jupiter interface."
             )
-    return MockJupiterInterface()
+    _robot_instance = MockJupiterInterface()
+    return _robot_instance
