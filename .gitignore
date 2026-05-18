@@ -19,6 +19,11 @@ __pycache__/
 # Ignore metadata files
 *:Zone.Identifier
 
+# Ignore CNN model files (download separately — do not commit)
+*.caffemodel
+*.h5
+backend/models/
+
 # Ignore generated ROS/catkin build folders
 build/
 devel/
