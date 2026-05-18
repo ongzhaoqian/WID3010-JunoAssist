@@ -30,6 +30,7 @@ class JunoTTSNode:
         except Exception:
             rospy.logwarn('pyttsx3 unavailable. Falling back to espeak command.')
 
+        self.done_pub = rospy.Publisher('/juno/tts_done', String, queue_size=1)
         rospy.Subscriber('/juno/tts', String, self.callback)
         rospy.loginfo('JUNO TTS node subscribed to /juno/tts')
 
@@ -43,9 +44,11 @@ class JunoTTSNode:
             self.engine.say(text)
             self.engine.runAndWait()
         else:
-            accent = "en-u"#ange to en-us, en-sc, etc.
+            accent = "en-u"  # change to en-us, en-sc, etc.
             rospy.loginfo(f'JUNO says ({accent}): {text}')
-            subprocess.Popen(['espeak-ng', '-v', accent, text])
+            subprocess.run(['espeak-ng', '-v', accent, text])
+
+        self.done_pub.publish(String(data="done"))
 
     def run(self):
         rospy.spin()
