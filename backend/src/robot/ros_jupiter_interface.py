@@ -26,6 +26,10 @@ class RosJupiterInterface(JupiterInterface):
     def __init__(self) -> None:
         try:
             print("Importing ROS dependencies for RosJupiterInterface...")
+            import sys
+            for _p in ("/usr/lib/python3/dist-packages", "/usr/lib/python3.8/dist-packages"):
+                if _p not in sys.path:
+                    sys.path.insert(0, _p)
             import rospy
             from std_msgs.msg import String
             from sensor_msgs.msg import Image
@@ -44,6 +48,7 @@ class RosJupiterInterface(JupiterInterface):
         self.bridge = CvBridge()
         self.transcript_queue: Queue[str] = Queue()
         self.latest_frame: Any = None
+        self._muted: bool = False
 
         if not rospy.core.is_initialized():
             rospy.init_node("juno_backend_bridge", anonymous=True, disable_signals=True)
@@ -53,11 +58,18 @@ class RosJupiterInterface(JupiterInterface):
 
         rospy.Subscriber("/speech/transcript", String, self._transcript_callback)
         rospy.Subscriber("/camera/image_raw", Image, self._camera_callback)
+        rospy.Subscriber("/juno/tts_done", String, self._tts_done_callback)
 
         rospy.loginfo("JUNO backend ROS bridge is ready.")
         logger.info("JUNO backend ROS bridge is ready. Subscribed to /speech/transcript and /camera/image_raw")
 
+    def _tts_done_callback(self, msg: Any) -> None:
+        self._muted = False
+        logger.info("TTS done — microphone unmuted")
+
     def _transcript_callback(self, msg: Any) -> None:
+        if self._muted:
+            return
         text = str(msg.data).strip()
         if text:
             print(f"[BACKEND ROS TRANSCRIPT] {text}", flush=True)
@@ -73,6 +85,7 @@ class RosJupiterInterface(JupiterInterface):
 
     def speak(self, text: str) -> None:
         logger.info("Publishing backend response to /juno/tts: %s", text)
+        self._muted = True
         self.tts_pub.publish(self.String(data=text))
 
     def listen(self) -> str:
