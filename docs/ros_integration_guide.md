@@ -218,3 +218,40 @@ For the undergraduate robotics course, keep the final integration scope to:
 - Mock or simple emotion detector first
 
 Avoid making navigation or robot movement the core feature unless required by your lecturer.
+
+## 8. Malaysian Llama AI Model Integration
+
+`mesolitica/Malaysian-Llama-3.2-3B-Instruct` is integrated in the FastAPI backend NLP layer, not in the ROS packages. This keeps the ROS nodes unchanged: camera, microphone, transcript, TTS, and LED topics remain the same.
+
+To enable the model while running in ROS mode:
+
+```bash
+cd backend
+source ../devel/setup.bash
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-llm.txt
+
+export JUNO_ROBOT_INTERFACE=ros
+export JUNO_LLM_ENABLED=true
+export JUNO_LLM_MODEL_ID=mesolitica/Malaysian-Llama-3.2-3B-Instruct
+python main.py
+```
+
+The command flow remains:
+
+```text
+/speech/transcript
+  ↓
+RosJupiterInterface.listen()
+  ↓
+FastAPI process_command_text()
+  ↓
+IntentClassifier + ResponseGenerator
+  ↓
+MalaysianLlamaClient only for open-ended fallback replies
+  ↓
+/juno/tts
+```
+
+Deterministic backend logic still handles wake-up, confirmation, sleep mode, timers, reminders, music playback, schedules, and deadlines. The LLM only generates conversational responses and does not directly control ROS topics or robot state.

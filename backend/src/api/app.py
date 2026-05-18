@@ -147,6 +147,7 @@ def create_app() -> FastAPI:
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
             {"name": "Facial Emotion Estimate", "description": "Estimate visible emotion state using camera input."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
+            {"name": "Malaysian Llama AI Assistant", "description": "Optional Hugging Face model for open-ended student-support replies."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
         ]
@@ -154,6 +155,10 @@ def create_app() -> FastAPI:
     @app.get("/api/status")
     def get_status():
         return robot_state.snapshot()
+
+    @app.get("/api/ai/status")
+    def get_ai_status():
+        return response_generator.ai_status()
 
     @app.get("/api/schedule/today")
     def get_today_schedule():

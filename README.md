@@ -30,6 +30,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Web dashboard after activation
 - Facial emotion monitoring using a mockable vision module
 - Rule-based intent detection for course-level feasibility
+- Optional Malaysian Llama response generation for open-ended student-support replies
 - Calendar and reminder storage using SQLite
 - Study timer and productivity recommendations
 - REST API and WebSocket updates using FastAPI
@@ -98,7 +99,7 @@ WID3010-JunoAssist/
 | Storage | SQLite |
 | Vision | OpenCV-ready module, mock emotion detector by default |
 | Speech | Mock text input by default, replaceable with Whisper / Vosk / Jupiter speech |
-| NLP | Rule-based intent classifier |
+| NLP | Rule-based intent classifier + optional Hugging Face Malaysian Llama response layer |
 | Dashboard | React, Vite, Tailwind CSS |
 | Testing | Pytest |
 
@@ -126,6 +127,35 @@ source .venv/bin/activate   # macOS / Linux
 pip install -r requirements.txt
 python main.py
 ```
+
+### Optional: Enable Malaysian Llama AI Replies
+
+The backend now supports `mesolitica/Malaysian-Llama-3.2-3B-Instruct` as an optional Hugging Face response model. It is kept inside the backend NLP layer so the ROS nodes remain responsible only for robot I/O.
+
+Install the optional model dependencies:
+
+```bash
+cd backend
+pip install -r requirements-llm.txt
+```
+
+Enable the model before starting the backend:
+
+```bash
+export JUNO_LLM_ENABLED=true
+export JUNO_LLM_MODEL_ID=mesolitica/Malaysian-Llama-3.2-3B-Instruct
+export JUNO_LLM_DEVICE_MAP=auto
+export JUNO_LLM_TORCH_DTYPE=auto
+python main.py
+```
+
+Check the active AI configuration at:
+
+```text
+http://localhost:8000/api/ai/status
+```
+
+The LLM is lazy-loaded and only used as a fallback for open-ended replies. Robot-state actions such as wake, confirmation, sleep, timer, schedule, music, and reminders still use deterministic backend logic. See `docs/malaysian_llama_integration.md` for details.
 
 The backend will run at:
 
