@@ -22,19 +22,17 @@ If ROS Noetic is not installed, stop — it must be installed by the lab adminis
 
 ---
 
-## 1. Get the Code
+## 1. Pull Latest Code
+
+The repository is already open in VS Code. Before running anything, pull the latest changes from `main`:
 
 ```bash
-# If first time on this machine — clone the repo
-git clone https://github.com/ongzhaoqian/WID3010-JunoAssist.git
-cd WID3010-JunoAssist
-
-# If already cloned — pull latest vanness_integration
-cd WID3010-JunoAssist
 git fetch origin
-git checkout vanness_integration
-git pull origin vanness_integration
+git checkout main
+git pull origin main
 ```
+
+> If you are still on a feature branch before the merge, switch to `main` first — all vision/emotion code has been merged in.
 
 ---
 
@@ -141,11 +139,20 @@ wget https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_d
 
 ### 6b. Mini-Xception Emotion CNN
 
-Download `emotion_model.h5` from the project shared drive (ask Jon or Anas for the link) and place it at:
+The model is `fer2013_mini_XCEPTION.102-0.66.hdf5` from the `oarriaga/face_classification` repository — the standard FER2013-trained Mini-Xception model (~580 KB). It outputs 7 emotion classes (Angry, Disgust, Fear, Happy, Sad, Surprise, Neutral), which our `MAPPING_MATRIX` in `emotion_detector.py` remaps to the 5 Juno states.
 
+```bash
+cd backend/models
+
+# Download the model (~580 KB)
+wget https://github.com/oarriaga/face_classification/raw/master/trained_models/emotion_models/fer2013_mini_XCEPTION.102-0.66.hdf5
+
+# Rename to the expected filename
+mv fer2013_mini_XCEPTION.102-0.66.hdf5 emotion_model.h5
 ```
-backend/models/emotion_model.h5
-```
+
+> `.hdf5` and `.h5` are the same file format — the rename is just for consistency with the default `EMOTION_MODEL_PATH`.  
+> If `wget` is slow, download the file in a browser and `scp` it to the robot at `backend/models/emotion_model.h5`.
 
 Verify all three files are present:
 
@@ -154,7 +161,7 @@ ls -lh backend/models/
 # Expected:
 # deploy.prototxt                          (~28 KB)
 # res10_300x300_ssd_iter_140000.caffemodel (~10 MB)
-# emotion_model.h5                         (~2 MB)
+# emotion_model.h5                         (~580 KB)
 ```
 
 ---
