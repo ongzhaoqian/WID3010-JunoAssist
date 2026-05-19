@@ -5,13 +5,13 @@
   <!-- Publishes microphone audio. Raw audio is kept for future ASR extensions. -->
   <node pkg="perception_pkg" type="microphone_node.py" name="microphone_node" output="screen" />
 
-  <!-- Normalises candidate speech text into British English and publishes /speech/transcript.
-       Provide candidate text through /speech/raw_transcript from Jupiter ASR, Whisper/Vosk,
-       or src/language_pkg/scripts/example_transcriptor.py during demos. -->
-  <node pkg="language_pkg" type="transcriber.py" name="malaysian_llama_language_normalizer" output="screen">
-    <param name="input_text_topic" value="/speech/raw_transcript" />
-    <param name="output_text_topic" value="/speech/transcript" />
+  <!-- Transcribes microphone audio with Hugging Face openai/whisper-tiny and
+       publishes recognised text to /speech/transcript. Manual/external transcript
+       fallback remains available through /speech/raw_transcript. -->
+  <node pkg="language_pkg" type="transcriber.py" name="whisper_tiny_transcriber" output="screen">
     <param name="audio_topic" value="/audio/raw" />
+    <param name="manual_text_topic" value="/speech/raw_transcript" />
+    <param name="output_text_topic" value="/speech/transcript" />
   </node>
 
   <!-- Speaks backend responses from /juno/tts using a British English voice where available. -->

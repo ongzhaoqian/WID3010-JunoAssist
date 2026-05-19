@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Manual transcript publisher for testing the Malaysian Llama language node.
+"""Manual transcript publisher for testing the Whisper Tiny transcript path.
 
 Run this instead of a real ASR source during a demo rehearsal, then type Malay,
 Manglish, Mandarin, Tamil, or English utterances in the terminal. The language
-node will publish the normalised British English version to /speech/transcript.
+node will relay the text to /speech/transcript as a fallback to live ASR.
 """
 
 import rospy

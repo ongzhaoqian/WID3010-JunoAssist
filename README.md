@@ -30,7 +30,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Web dashboard after activation
 - Facial emotion monitoring using a mockable vision module
 - Rule-based intent detection for course-level feasibility
-- Optional Malaysian Llama + LoRA input normalisation and response generation with standard British English output
+- Lightweight Whisper Tiny speech recognition for robot microphone input
 - Calendar and reminder storage using SQLite
 - Study timer and productivity recommendations
 - REST API and WebSocket updates using FastAPI
@@ -98,8 +98,8 @@ WID3010-JunoAssist/
 | Real-time updates | WebSocket |
 | Storage | SQLite |
 | Vision | OpenCV-ready module, mock emotion detector by default |
-| Speech | ROS transcript input; upstream ASR/manual text source normalised through Malaysian Llama + LoRA |
-| NLP | Rule-based intent classifier + optional Hugging Face Malaysian Llama base model with LoRA adapter |
+| Speech | ROS microphone input transcribed by Hugging Face `openai/whisper-tiny`; manual transcript fallback retained |
+| NLP | Rule-based intent classifier with deterministic backend responses; optional text LLM boundary disabled by default |
 | Dashboard | React, Vite, Tailwind CSS |
 | Testing | Pytest |
 
@@ -128,35 +128,41 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Optional: Enable Malaysian Llama + LoRA
+### Optional: Enable Whisper Tiny ASR for the Robot
 
-The backend supports `mesolitica/Malaysian-Llama-3.2-3B-Instruct` with the LoRA adapter `mackwongyy/malaysian-feedback-lora-5k-data`. It is used for Malaysian-context input normalisation and open-ended replies while keeping robot actions behind deterministic backend logic.
+The robot-facing speech path now uses Hugging Face `openai/whisper-tiny` instead of the previous heavy Malaysian Llama + LoRA setup. Whisper Tiny is used for automatic speech recognition, while the backend continues to use deterministic intent classification and response logic.
 
-Install the optional model dependencies:
+Install the optional ASR dependencies on the machine that runs the ROS transcriber node:
 
 ```bash
 cd backend
-pip install -r requirements-llm.txt
+pip install -r requirements-asr.txt
 ```
 
-Enable the model before starting the backend:
+For ROS usage, the language package also includes the same dependency list:
 
 ```bash
-export JUNO_LLM_ENABLED=true
-export JUNO_LLM_MODEL_ID=mesolitica/Malaysian-Llama-3.2-3B-Instruct
-export JUNO_LLM_ADAPTER_ID=mackwongyy/malaysian-feedback-lora-5k-data
-export JUNO_LLM_DEVICE_MAP=auto
-export JUNO_LLM_TORCH_DTYPE=auto
-python main.py
+pip install -r src/language_pkg/requirements-asr.txt
 ```
 
-Check the active AI configuration at:
+Recommended ASR environment settings:
+
+```bash
+export JUNO_ASR_MODEL_ID=openai/whisper-tiny
+export JUNO_ASR_TASK=translate      # translate non-English speech to English
+export JUNO_ASR_SAMPLE_RATE=16000
+export JUNO_ASR_WINDOW_SECONDS=4.0
+export JUNO_ASR_MIN_RMS=0.008
+export JUNO_ASR_DEVICE=-1           # CPU; use 0 for first CUDA GPU if available
+```
+
+Check the active AI/ASR configuration at:
 
 ```text
 http://localhost:8000/api/ai/status
 ```
 
-The LLM is lazy-loaded. It normalises Malaysian-context utterances into standard British English before intent classification and answers open-ended prompts in British English. Robot-state actions such as wake, confirmation, sleep, timer, schedule, music, and reminders still use deterministic backend logic. See `docs/malaysian_llama_integration.md` for details.
+The backend no longer requires the Malaysian Llama base model or LoRA adapter for the robot demo. Manual or external transcript fallback remains available through `/speech/raw_transcript`, and the backend still consumes `/speech/transcript`.
 
 The backend will run at:
 
@@ -254,15 +260,15 @@ open_dashboard(url: str) -> None
 set_led_state(state: str) -> None
 ```
 
-## Feasibility for Undergraduate Robotics Course
+## Project Feasibility
 
-This project is intentionally scoped to be achievable:
+This project is intentionally scoped to be achievable within the development timeframe aligned with the timeline of the WID3010: Autonomous Robots module.
 
 - No complex autonomous navigation is required.
-- Robot motion is optional.
-- Emotion detection can be demonstrated through a mock model first.
-- Speech can be tested using dashboard text commands.
-- Calendar data can use SQLite or sample JSON before API integration.
+- Human-robot interaction through speech and text is prioritised, while robot motion remains optional.
+- Emotion detection can be demonstrated through a well-performing baseline model first.
+- Speech can be tested using dashboard text commands, with the option for further speech-to-text integration.
+- Calendar data can use SQLite or sample JSON before future API integration to ensure lightweight quality testing and validation.
 - The system demonstrates robotics integration through perception, interaction, decision-making, and user-facing feedback.
 
 ## Ethical Note

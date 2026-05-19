@@ -37,7 +37,7 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 
 #### Requirements
 - The microphone node (`microphone_node.py`) shall continuously publish raw float32 audio frames to `/audio/raw` at 16 kHz, 512-sample chunks.
-- An upstream ASR/manual transcript source publishes candidate text to `/speech/raw_transcript`; `malaysian_llama_language_normalizer` normalises it into standard British English and publishes `/speech/transcript`.
+- The microphone node publishes audio to `/audio/raw`; `whisper_tiny_transcriber` transcribes it with `openai/whisper-tiny` and publishes `/speech/transcript`. Manual/external transcript fallback remains available through `/speech/raw_transcript`.
 - The backend `WakeWordDetector` (`activation/wake_word_detector.py`) receives transcripts via `RosJupiterInterface.listen()`, which drains an internal queue populated by the `/speech/transcript` subscriber.
 - The following trigger phrases shall activate the confirmation flow (case-insensitive, as configured by `JUNO_WAKE_PHRASE` env var, default `"hey, juno"`):
   - `"hey, juno"` / `"hey juno"`
@@ -51,7 +51,7 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 
 | Direction | Topic | Message Type | Description |
 | :--- | :--- | :--- | :--- |
-| Subscribe | `/speech/transcript` | `std_msgs/String` | British-English normalised transcript, queued internally for `listen()` |
+| Subscribe | `/speech/transcript` | `std_msgs/String` | recognised speech transcript, queued internally for `listen()` |
 
 ---
 
@@ -244,7 +244,7 @@ class JupiterInterface(ABC):
 | :--- | :--- | :--- | :--- |
 | `camera_node` | `perception_pkg` | `camera_node.py` | Captures video from `/dev/video2`, publishes frames at 30 Hz |
 | `microphone_node` | `perception_pkg` | `microphone_node.py` | Captures audio, publishes float32 chunks at 16 kHz |
-| `malaysian_llama_language_normalizer` | `language_pkg` | `transcriber.py` | Normalises candidate speech text into standard British English and publishes transcript strings |
+| `whisper_tiny_transcriber` | `language_pkg` | `transcriber.py` | Transcribes microphone audio with Whisper Tiny and publishes transcript strings |
 | `juno_tts_node` | `language_pkg` | `tts_node.py` | Subscribes to `/juno/tts`, speaks via pyttsx3/espeak |
 
 All wake detection, state management, and emotion inference are handled inside the **FastAPI backend** via `RosJupiterInterface` — not by additional ROS nodes.
@@ -268,7 +268,7 @@ All wake detection, state management, and emotion inference are handled inside t
 │                                                │ /speech/raw_transcript
 │  [language_pkg]                                ▼                     │
 │  ┌──────────────────────┐  /speech/transcript (std_msgs/String)      │
-│  │ malaysian_llama_     │◄── candidate transcript text               │
+│  │ whisper_tiny_     │◄── audio/transcript input               │
 │  │ language_normalizer  │──────────────────────────────────────────►│
 │  └──────────────────────┘                                            │
 │                                                                       │
@@ -308,9 +308,9 @@ All wake detection, state management, and emotion inference are handled inside t
 | Topic | Message Type | Publisher | Subscriber(s) | Rate |
 | :--- | :--- | :--- | :--- | :--- |
 | `/audio/raw` | `std_msgs/Float32MultiArray` | `microphone_node` | Future ASR source / optional monitor | 16 kHz chunks |
-| `/speech/raw_transcript` | `std_msgs/String` | External/Jupiter ASR or manual publisher | `malaysian_llama_language_normalizer` | On utterance |
+| `/speech/raw_transcript` | `std_msgs/String` | Manual/external transcript fallback | `whisper_tiny_transcriber` | On utterance |
 | `/camera/image_raw` | `sensor_msgs/Image` | `camera_node` | Backend (`RosJupiterInterface`) | 30 Hz |
-| `/speech/transcript` | `std_msgs/String` | `malaysian_llama_language_normalizer` | Backend (`RosJupiterInterface`) | On utterance |
+| `/speech/transcript` | `std_msgs/String` | `whisper_tiny_transcriber` | Backend (`RosJupiterInterface`) | On utterance |
 | `/juno/tts` | `std_msgs/String` | Backend (`RosJupiterInterface`) | `juno_tts_node` | On event |
 | `/juno/led_state` | `std_msgs/String` | Backend (`RosJupiterInterface`) | Jupiter LED controller | On mode change |
 
@@ -373,7 +373,7 @@ The single entry point for all ROS nodes is `src/juno_bringup/launch/juno_robot.
 
 1. `camera_node` (perception_pkg)
 2. `microphone_node` (perception_pkg)
-3. `malaysian_llama_language_normalizer` (language_pkg) — depends on `/speech/raw_transcript` from ASR/manual input; `/audio/raw` is retained for future ASR
+3. `whisper_tiny_transcriber` (language_pkg) — depends on `/audio/raw` for live ASR and can relay `/speech/raw_transcript` as a manual/external fallback
 4. `juno_tts_node` (language_pkg)
 
 The backend FastAPI server and React dashboard are **not** launched via ROS; they are started separately after sourcing the catkin workspace:
@@ -435,7 +435,7 @@ rostopic echo /juno/led_state
 
 # Node health
 rosnode list
-rosnode info /malaysian_llama_language_normalizer
+rosnode info /whisper_tiny_transcriber
 ```
 
 ### rosnode Expected List (after full bringup)
@@ -443,7 +443,7 @@ rosnode info /malaysian_llama_language_normalizer
 ```
 /camera_node
 /microphone_node
-/malaysian_llama_language_normalizer
+/whisper_tiny_transcriber
 /juno_tts_node
 ```
 

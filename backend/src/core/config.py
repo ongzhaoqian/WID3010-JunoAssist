@@ -22,18 +22,23 @@ class Settings:
     robot_interface: str = os.getenv("JUNO_ROBOT_INTERFACE", "mock").lower()
     use_ros_robot: bool = _env_bool("JUNO_USE_ROS", False) or robot_interface == "ros"
 
-    # Hugging Face language model configuration. The model remains behind the
-    # NLP layer so ROS nodes only handle robot I/O. Enable this on a machine
-    # with sufficient RAM/GPU using JUNO_LLM_ENABLED=true.
+    # Robot-friendly speech recognition configuration. The ROS transcriber node
+    # uses the same defaults and publishes recognised speech to /speech/transcript.
+    asr_enabled: bool = _env_bool("JUNO_ASR_ENABLED", True)
+    asr_model_id: str = os.getenv("JUNO_ASR_MODEL_ID", "openai/whisper-tiny")
+    asr_task: str = os.getenv("JUNO_ASR_TASK", "translate").strip().lower()
+    asr_language: str = os.getenv("JUNO_ASR_LANGUAGE", "").strip()
+    asr_sample_rate: int = int(os.getenv("JUNO_ASR_SAMPLE_RATE", "16000"))
+    asr_window_seconds: float = float(os.getenv("JUNO_ASR_WINDOW_SECONDS", "4.0"))
+    asr_min_rms: float = float(os.getenv("JUNO_ASR_MIN_RMS", "0.008"))
+    asr_device: str = os.getenv("JUNO_ASR_DEVICE", "-1")
+
+    # Optional text-generation LLM. Disabled by default because the robot target
+    # cannot reliably run Malaysian Llama + LoRA locally. If left blank, no text
+    # LLM will be loaded and deterministic backend responses are used.
     llm_enabled: bool = _env_bool("JUNO_LLM_ENABLED", False)
-    llm_model_id: str = os.getenv(
-        "JUNO_LLM_MODEL_ID",
-        "mesolitica/Malaysian-Llama-3.2-3B-Instruct",
-    )
-    llm_adapter_id: str = os.getenv(
-        "JUNO_LLM_ADAPTER_ID",
-        "mackwongyy/malaysian-feedback-lora-5k-data",
-    )
+    llm_model_id: str = os.getenv("JUNO_LLM_MODEL_ID", "")
+    llm_adapter_id: str = os.getenv("JUNO_LLM_ADAPTER_ID", "")
     llm_device_map: str = os.getenv("JUNO_LLM_DEVICE_MAP", "auto")
     llm_torch_dtype: str = os.getenv("JUNO_LLM_TORCH_DTYPE", "auto")
     llm_max_new_tokens: int = int(os.getenv("JUNO_LLM_MAX_NEW_TOKENS", "96"))

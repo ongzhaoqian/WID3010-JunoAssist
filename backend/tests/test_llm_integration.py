@@ -55,13 +55,15 @@ def test_deterministic_schedule_intent_does_not_call_llm(tmp_path):
     assert "scheduled items" in response
 
 
-def test_llm_status_exposes_lora_adapter_id():
+def test_optional_llm_status_is_disabled_by_default():
     llm = MalaysianLlamaClient(enabled=False)
     status = llm.status()
 
-    assert status["model_id"] == "mesolitica/Malaysian-Llama-3.2-3B-Instruct"
-    assert status["adapter_id"] == "mackwongyy/malaysian-feedback-lora-5k-data"
+    assert status["enabled"] is False
+    assert status["model_id"] == ""
+    assert status["adapter_id"] == ""
     assert status["output_policy"] == "standard British English"
+    assert status["role"] == "optional_text_generation"
 
 
 def test_input_normalizer_uses_llm_translation_when_available():

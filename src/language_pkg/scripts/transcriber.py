@@ -1,208 +1,197 @@
 #!/usr/bin/env python3
-"""ROS language-normalisation node for JUNO Assist.
+"""ROS Whisper Tiny speech-to-text node for JUNO Assist.
 
-This file intentionally no longer uses Moonshine. Malaysian Llama is a text
-model, not an audio ASR model, so this node expects an upstream speech source
-such as Jupiter's built-in ASR, Whisper, Vosk, or a manual rostopic publisher to
-publish candidate text to /speech/raw_transcript. It then optionally uses
-mesolitica/Malaysian-Llama-3.2-3B-Instruct with the LoRA adapter
-mackwongyy/malaysian-feedback-lora-5k-data to normalise Malaysian-context
-utterances into standard British English before publishing /speech/transcript.
+This node replaces the heavy Malaysian Llama + LoRA language node with a
+lightweight automatic speech-recognition path using Hugging Face
+``openai/whisper-tiny``. The ROS topic boundary is intentionally unchanged:
+it still publishes recognised text to ``/speech/transcript`` so the FastAPI
+backend and ``RosJupiterInterface`` can continue to consume the same topic.
 
-The output topic stays the same so the backend RosJupiterInterface remains
-unchanged.
+Inputs:
+- ``/audio/raw`` as ``std_msgs/Float32MultiArray`` from ``microphone_node.py``.
+- ``/speech/raw_transcript`` as ``std_msgs/String`` as a manual/external ASR
+  fallback during demos.
+
+Output:
+- ``/speech/transcript`` as ``std_msgs/String``.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Optional
+from queue import Empty, Queue
+from typing import Any, Optional
 
+import numpy as np
 import rospy
 from std_msgs.msg import Float32MultiArray, String
 
 
-class MalaysianLlamaLanguageNode:
-    """Publishes British-English normalised transcripts to /speech/transcript."""
+class WhisperTinyTranscriberNode:
+    """Transcribes microphone audio with ``openai/whisper-tiny``."""
 
     def __init__(self) -> None:
-        rospy.init_node("malaysian_llama_language_normalizer", anonymous=True)
+        rospy.init_node("whisper_tiny_transcriber", anonymous=True)
 
-        self.input_topic = rospy.get_param(
-            "~input_text_topic", os.getenv("JUNO_TRANSCRIBER_INPUT_TOPIC", "/speech/raw_transcript")
+        self.audio_topic = rospy.get_param("~audio_topic", "/audio/raw")
+        self.manual_text_topic = rospy.get_param(
+            "~manual_text_topic",
+            os.getenv("JUNO_TRANSCRIBER_INPUT_TOPIC", "/speech/raw_transcript"),
         )
         self.output_topic = rospy.get_param(
-            "~output_text_topic", os.getenv("JUNO_TRANSCRIBER_OUTPUT_TOPIC", "/speech/transcript")
+            "~output_text_topic",
+            os.getenv("JUNO_TRANSCRIBER_OUTPUT_TOPIC", "/speech/transcript"),
         )
-        self.audio_topic = rospy.get_param("~audio_topic", "/audio/raw")
-        self.normalise_enabled = self._env_bool("JUNO_ROS_LLM_NORMALISE", False)
-        self.model_id = os.getenv("JUNO_LLM_MODEL_ID", "mesolitica/Malaysian-Llama-3.2-3B-Instruct")
-        self.adapter_id = os.getenv("JUNO_LLM_ADAPTER_ID", "mackwongyy/malaysian-feedback-lora-5k-data")
-        self.device_map = os.getenv("JUNO_LLM_DEVICE_MAP", "auto")
-        self.torch_dtype = os.getenv("JUNO_LLM_TORCH_DTYPE", "auto")
-        self.max_new_tokens = int(os.getenv("JUNO_LLM_NORMALISE_MAX_NEW_TOKENS", "48"))
 
-        self._tokenizer = None
-        self._model = None
+        self.model_id = os.getenv("JUNO_ASR_MODEL_ID", "openai/whisper-tiny")
+        self.sample_rate = int(os.getenv("JUNO_ASR_SAMPLE_RATE", "16000"))
+        self.window_seconds = float(os.getenv("JUNO_ASR_WINDOW_SECONDS", "4.0"))
+        self.min_rms = float(os.getenv("JUNO_ASR_MIN_RMS", "0.008"))
+        self.task = os.getenv("JUNO_ASR_TASK", "translate").strip().lower()
+        self.language = os.getenv("JUNO_ASR_LANGUAGE", "").strip() or None
+        self.device = self._parse_device(os.getenv("JUNO_ASR_DEVICE", "-1"))
+
+        self._audio_queue: Queue[np.ndarray] = Queue()
+        self._asr_pipeline: Optional[Any] = None
         self._load_error: Optional[str] = None
-        self._audio_warning_sent = False
 
         self.publisher = rospy.Publisher(self.output_topic, String, queue_size=10)
-        self.text_subscriber = rospy.Subscriber(self.input_topic, String, self.text_callback)
-        self.audio_subscriber = rospy.Subscriber(self.audio_topic, Float32MultiArray, self.audio_callback)
+        rospy.Subscriber(self.audio_topic, Float32MultiArray, self.audio_callback)
+        rospy.Subscriber(self.manual_text_topic, String, self.manual_text_callback)
 
-        rospy.loginfo("JUNO language node ready.")
-        rospy.loginfo("Input text topic: %s", self.input_topic)
+        rospy.loginfo("JUNO Whisper Tiny transcriber ready.")
+        rospy.loginfo("Audio input topic: %s", self.audio_topic)
+        rospy.loginfo("Manual/external transcript input topic: %s", self.manual_text_topic)
         rospy.loginfo("Output transcript topic: %s", self.output_topic)
-        rospy.loginfo("LLM normalisation enabled in ROS node: %s", self.normalise_enabled)
-        if self.normalise_enabled:
-            rospy.loginfo("Base model: %s", self.model_id)
-            rospy.loginfo("LoRA adapter: %s", self.adapter_id)
+        rospy.loginfo("ASR model: %s", self.model_id)
+        rospy.loginfo("ASR task: %s", self.task)
+        rospy.loginfo("ASR sample rate: %s Hz", self.sample_rate)
 
-    def text_callback(self, msg: String) -> None:
-        raw_text = " ".join(str(msg.data).strip().split())
-        if not raw_text:
+    def audio_callback(self, msg: Float32MultiArray) -> None:
+        if not msg.data:
             return
+        chunk = np.asarray(msg.data, dtype=np.float32)
+        if chunk.size:
+            self._audio_queue.put(chunk)
 
-        british_english_text = self.normalise_to_british_english(raw_text)
-        rospy.loginfo("Transcript: %s", british_english_text)
-        self.publisher.publish(String(data=british_english_text))
+    def manual_text_callback(self, msg: String) -> None:
+        """Allow manual or external ASR text to use the same backend path."""
 
-    def audio_callback(self, _msg: Float32MultiArray) -> None:
-        if self._audio_warning_sent:
-            return
-        self._audio_warning_sent = True
-        rospy.logwarn(
-            "Received /audio/raw, but Malaysian Llama is a text model and cannot transcribe audio directly. "
-            "Publish candidate ASR text to %s; this node will normalise it to British English and publish %s.",
-            self.input_topic,
-            self.output_topic,
-        )
-
-    def normalise_to_british_english(self, text: str) -> str:
-        if not self.normalise_enabled:
-            return text
-        if not self._ensure_loaded():
-            rospy.logwarn("LLM normalisation unavailable; relaying raw transcript.")
-            return text
-
-        try:
-            import torch
-
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a language-normalisation layer for a Malaysian student assistant robot. "
-                        "Understand Malay, Mandarin, Tamil, Manglish, and common Malaysian dialectal phrasing. "
-                        "Convert the utterance into one standard British English sentence for intent classification. "
-                        "Preserve meaning, command intent, time expressions, names, and numbers. "
-                        "Return only the normalised sentence, with no labels and no explanation. "
-                        "For wake or confirmation phrases, return exactly 'Hey, Juno' or 'yes' when appropriate."
-                    ),
-                },
-                {"role": "user", "content": f"User utterance: {text}\nNormalised British English:"},
-            ]
-
-            inputs = self._tokenizer.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
-                return_tensors="pt",
-                tokenize=True,
-            )
-            target_device = getattr(self._model, "device", None)
-            if target_device is None:
-                try:
-                    target_device = next(self._model.parameters()).device
-                except StopIteration:
-                    target_device = None
-            if target_device is not None:
-                inputs = inputs.to(target_device)
-
-            with torch.inference_mode():
-                output = self._model.generate(
-                    input_ids=inputs,
-                    max_new_tokens=self.max_new_tokens,
-                    do_sample=False,
-                    pad_token_id=self._tokenizer.eos_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id,
-                )
-            generated_tokens = output[0][inputs.shape[-1] :]
-            generated = self._tokenizer.decode(generated_tokens, skip_special_tokens=True)
-            return self._clean(generated) or text
-        except Exception as exc:  # pragma: no cover - depends on ROS/model runtime
-            rospy.logerr("LLM normalisation failed: %s", exc)
-            return text
-
-    def _ensure_loaded(self) -> bool:
-        if self._model is not None and self._tokenizer is not None:
-            return True
-        if self._load_error:
-            return False
-
-        try:
-            import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-            from peft import PeftModel
-
-            dtype = self._resolve_torch_dtype(torch)
-            kwargs = {"device_map": self.device_map}
-            if dtype is not None:
-                kwargs["torch_dtype"] = dtype
-
-            rospy.loginfo("Loading Malaysian Llama base model: %s", self.model_id)
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-            if self._tokenizer.pad_token_id is None:
-                self._tokenizer.pad_token = self._tokenizer.eos_token
-
-            base_model = AutoModelForCausalLM.from_pretrained(self.model_id, **kwargs)
-            rospy.loginfo("Loading LoRA adapter: %s", self.adapter_id)
-            self._model = PeftModel.from_pretrained(base_model, self.adapter_id)
-            self._model.eval()
-            return True
-        except Exception as exc:  # pragma: no cover - depends on runtime dependencies/model availability
-            self._load_error = str(exc)
-            rospy.logerr("Could not load Malaysian Llama + LoRA adapter: %s", exc)
-            return False
-
-    def _resolve_torch_dtype(self, torch_module):
-        value = (self.torch_dtype or "auto").lower().strip()
-        if value in {"", "auto"}:
-            return "auto"
-        if value in {"float16", "fp16", "half"}:
-            return torch_module.float16
-        if value in {"bfloat16", "bf16"}:
-            return torch_module.bfloat16
-        if value in {"float32", "fp32"}:
-            return torch_module.float32
-        rospy.logwarn("Unknown JUNO_LLM_TORCH_DTYPE=%s; using auto", self.torch_dtype)
-        return "auto"
-
-    def _clean(self, text: str) -> str:
-        cleaned = " ".join(text.strip().split()).strip('"\'` ')
-        for prefix in (
-            "Normalised British English:",
-            "Normalized British English:",
-            "British English:",
-            "Output:",
-        ):
-            if cleaned.lower().startswith(prefix.lower()):
-                cleaned = cleaned[len(prefix) :].strip()
-        return cleaned.split("\n", 1)[0].strip('"\'` ')
-
-    @staticmethod
-    def _env_bool(name: str, default: bool = False) -> bool:
-        value = os.getenv(name)
-        if value is None:
-            return default
-        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+        text = self._clean_text(str(msg.data))
+        if text:
+            rospy.loginfo("Manual/external transcript: %s", text)
+            self.publisher.publish(String(data=text))
 
     def run(self) -> None:
-        rospy.spin()
+        target_samples = max(1, int(self.sample_rate * self.window_seconds))
+        buffer: list[np.ndarray] = []
+        buffered_samples = 0
+        rate = rospy.Rate(20)
+
+        while not rospy.is_shutdown():
+            try:
+                while True:
+                    chunk = self._audio_queue.get_nowait()
+                    buffer.append(chunk)
+                    buffered_samples += int(chunk.size)
+            except Empty:
+                pass
+
+            if buffered_samples >= target_samples:
+                audio = np.concatenate(buffer).astype(np.float32, copy=False)
+                buffer.clear()
+                buffered_samples = 0
+
+                rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
+                if rms < self.min_rms:
+                    rospy.logdebug("Skipping quiet audio window. RMS %.6f < %.6f", rms, self.min_rms)
+                else:
+                    transcript = self.transcribe(audio)
+                    if transcript:
+                        rospy.loginfo("Whisper transcript: %s", transcript)
+                        self.publisher.publish(String(data=transcript))
+                    else:
+                        rospy.logdebug("Whisper returned an empty transcript.")
+
+            rate.sleep()
+
+    def transcribe(self, audio: np.ndarray) -> str:
+        if not self._ensure_pipeline_loaded():
+            rospy.logwarn_throttle(
+                10,
+                "Whisper Tiny ASR unavailable; use /speech/raw_transcript manual fallback. Error: %s",
+                self._load_error,
+            )
+            return ""
+
+        # Whisper expects mono float audio. The microphone node already publishes
+        # float32 samples at roughly 16 kHz, but clipping is still guarded here.
+        audio = np.asarray(audio, dtype=np.float32)
+        max_abs = float(np.max(np.abs(audio))) if audio.size else 0.0
+        if max_abs > 1.0:
+            audio = audio / max_abs
+
+        payload = {"array": audio, "sampling_rate": self.sample_rate}
+        generate_kwargs: dict[str, str] = {}
+        if self.task in {"translate", "transcribe"}:
+            generate_kwargs["task"] = self.task
+        if self.language:
+            generate_kwargs["language"] = self.language
+
+        try:
+            if generate_kwargs:
+                result = self._asr_pipeline(payload, generate_kwargs=generate_kwargs)
+            else:
+                result = self._asr_pipeline(payload)
+        except TypeError:
+            # Older Transformers versions may not accept generate_kwargs in the
+            # pipeline call. The fallback still transcribes, just with defaults.
+            result = self._asr_pipeline(payload)
+        except Exception as exc:  # pragma: no cover - model/runtime dependent
+            rospy.logerr("Whisper Tiny transcription failed: %s", exc)
+            return ""
+
+        if isinstance(result, dict):
+            return self._clean_text(str(result.get("text", "")))
+        return self._clean_text(str(result))
+
+    def _ensure_pipeline_loaded(self) -> bool:
+        if self._asr_pipeline is not None:
+            return True
+        if self._load_error is not None:
+            return False
+
+        try:
+            from transformers import pipeline
+
+            rospy.loginfo("Loading Whisper ASR pipeline: %s", self.model_id)
+            self._asr_pipeline = pipeline(
+                "automatic-speech-recognition",
+                model=self.model_id,
+                device=self.device,
+            )
+            return True
+        except Exception as exc:  # pragma: no cover - dependency/model dependent
+            self._load_error = str(exc)
+            rospy.logerr("Could not load Whisper Tiny ASR pipeline: %s", exc)
+            return False
+
+    @staticmethod
+    def _parse_device(value: str):
+        value = (value or "-1").strip()
+        try:
+            return int(value)
+        except ValueError:
+            return value
+
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        cleaned = " ".join(text.strip().split()).strip('"\'` ')
+        return cleaned
 
 
 if __name__ == "__main__":
     try:
-        MalaysianLlamaLanguageNode().run()
+        WhisperTinyTranscriberNode().run()
     except rospy.ROSInterruptException:
         pass

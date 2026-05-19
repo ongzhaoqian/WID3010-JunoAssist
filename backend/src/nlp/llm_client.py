@@ -26,11 +26,12 @@ class LLMGenerationContext:
 
 
 class MalaysianLlamaClient:
-    """Lazy Hugging Face client for Malaysian Llama + LoRA adapter.
+    """Optional lazy Hugging Face text-generation client.
 
-    The base model and adapter are loaded only when LLM use is enabled and a
-    generation/normalisation request reaches this client. This keeps the robot
-    startup path lightweight and preserves the ROS node architecture.
+    The robot-friendly default path now uses Whisper Tiny for speech-to-text and
+    deterministic backend logic for intents/responses. This client is retained
+    only as an optional future text LLM boundary. It will not load anything
+    unless JUNO_LLM_ENABLED=true and JUNO_LLM_MODEL_ID is configured.
     """
 
     def __init__(
@@ -78,6 +79,7 @@ class MalaysianLlamaClient:
             "device_map": self.device_map,
             "torch_dtype": self.torch_dtype,
             "output_policy": "standard British English",
+            "role": "optional_text_generation",
         }
 
     def generate(self, context: LLMGenerationContext) -> Optional[str]:
@@ -124,6 +126,11 @@ class MalaysianLlamaClient:
         if self._load_error is not None:
             return False
 
+        if not self.model_id:
+            self._load_error = "No JUNO_LLM_MODEL_ID configured; using deterministic backend responses."
+            logger.info(self._load_error)
+            return False
+
         try:
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -133,7 +140,7 @@ class MalaysianLlamaClient:
             if dtype is not None:
                 model_kwargs["torch_dtype"] = dtype
 
-            logger.info("Loading Hugging Face base model: %s", self.model_id)
+            logger.info("Loading optional Hugging Face text model: %s", self.model_id)
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
             if self._tokenizer.pad_token_id is None:
                 self._tokenizer.pad_token = self._tokenizer.eos_token
@@ -144,12 +151,12 @@ class MalaysianLlamaClient:
                 try:
                     from peft import PeftModel
 
-                    logger.info("Loading LoRA adapter: %s", self.adapter_id)
+                    logger.info("Loading optional LoRA adapter: %s", self.adapter_id)
                     self._model = PeftModel.from_pretrained(base_model, self.adapter_id)
                     self._adapter_loaded = True
                 except Exception as adapter_exc:  # pragma: no cover - optional runtime dependency/model dependent
                     self._load_error = (
-                        f"Base model loaded but LoRA adapter failed to load: {adapter_exc}"
+                        f"Text model loaded but LoRA adapter failed to load: {adapter_exc}"
                     )
                     logger.warning(self._load_error)
                     return False
@@ -160,7 +167,7 @@ class MalaysianLlamaClient:
             return True
         except Exception as exc:  # pragma: no cover - optional dependency/model dependent
             self._load_error = str(exc)
-            logger.warning("Could not load Malaysian Llama model: %s", exc)
+            logger.warning("Could not load optional text model: %s", exc)
             return False
 
     def _generate_from_messages(
@@ -206,7 +213,7 @@ class MalaysianLlamaClient:
             generated_tokens = outputs[0][inputs.shape[-1] :]
             return self._tokenizer.decode(generated_tokens, skip_special_tokens=True)
         except Exception as exc:  # pragma: no cover - model runtime dependent
-            logger.warning("Malaysian Llama generation failed: %s", exc)
+            logger.warning("Optional text-model generation failed: %s", exc)
             return None
 
     def _resolve_torch_dtype(self, torch_module):

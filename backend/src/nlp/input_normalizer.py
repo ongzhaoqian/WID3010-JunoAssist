@@ -6,9 +6,10 @@ from src.nlp.llm_client import MalaysianLlamaClient
 class MalaysianInputNormalizer:
     """Normalises Malaysian-context utterances before intent classification.
 
-    The class deliberately falls back to the original text if the Hugging Face
-    model or LoRA adapter is disabled/unavailable. This keeps the robot demo
-    reliable while enabling multilingual/dialect handling on capable hardware.
+    The class deliberately falls back to the original text when the optional
+    text LLM is disabled/unavailable. In the current robot-friendly setup,
+    multilingual speech is handled earlier by Whisper Tiny ASR and the backend
+    keeps deterministic intent handling for reliability.
     """
 
     def __init__(self, llm_client: MalaysianLlamaClient) -> None:

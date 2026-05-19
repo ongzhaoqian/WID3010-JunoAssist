@@ -151,7 +151,7 @@ The final report should include an RQT graph screenshot showing the ROS nodes an
 - camera node publishing `/camera/image_raw`,
 - microphone node publishing `/audio/raw`,
 - ASR/manual transcript source publishing `/speech/raw_transcript`,
-- language normaliser publishing `/speech/transcript`,
+- Whisper Tiny transcriber publishing `/speech/transcript`,
 - backend bridge subscribing to `/speech/transcript` and `/camera/image_raw`,
 - backend bridge publishing `/juno/tts`,
 - TTS node subscribing to `/juno/tts`.

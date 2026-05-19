@@ -1,15 +1,15 @@
 # ROS Integration Guide for JUNO Assist and Jupiter Robot Code
 
-This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot ROS code are integrated after replacing the Moonshine language path with Malaysian Llama + LoRA text normalisation.
+This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot ROS code are integrated after replacing the previous heavy language-model path with Whisper Tiny ASR.
 
 ## 1. Current ROS Topics
 
 | Node | Topic | Message Type | Purpose |
 |---|---|---|---|
-| `camera_node.py` | `/camera/image_raw` | `sensor_msgs/Image` | Publishes Jupiter camera frames. |
-| `microphone_node.py` | `/audio/raw` | `std_msgs/Float32MultiArray` | Publishes raw microphone samples for future ASR extensions. |
-| External/Jupiter ASR or `example_transcriptor.py` | `/speech/raw_transcript` | `std_msgs/String` | Publishes candidate speech text. |
-| `transcriber.py` | `/speech/transcript` | `std_msgs/String` | Publishes British-English normalised transcript text. |
+| `camera_node.py` | `/camera/image_raw` | `sensor_msgs/Image` | Publishes Jupiter/laptop camera frames. |
+| `microphone_node.py` | `/audio/raw` | `std_msgs/Float32MultiArray` | Publishes mono float microphone samples. |
+| `transcriber.py` | `/speech/transcript` | `std_msgs/String` | Runs `openai/whisper-tiny` ASR and publishes recognised text. |
+| External ASR or `example_transcriptor.py` | `/speech/raw_transcript` | `std_msgs/String` | Manual/external transcript fallback; relayed to `/speech/transcript`. |
 | `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using a British English voice where available. |
 | Backend ROS bridge | `/juno/led_state` | `std_msgs/String` | Optional LED/status feedback. |
 
@@ -18,11 +18,9 @@ This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot 
 ```text
 User speech
   ↓
-External/Jupiter ASR, Whisper/Vosk, or manual transcript publisher
+microphone_node.py publishes /audio/raw
   ↓
-/speech/raw_transcript
-  ↓
-transcriber.py normalises Malaysian-context input into standard British English
+transcriber.py uses openai/whisper-tiny
   ↓
 /speech/transcript
   ↓
@@ -49,13 +47,9 @@ EmotionDetector receives latest frame
 Dashboard updates current emotion via WebSocket
 ```
 
-## 3. Why `/audio/raw` Is Not Directly Transcribed by Malaysian Llama
+## 3. Why Whisper Tiny Replaces the Heavy Local Model
 
-`mesolitica/Malaysian-Llama-3.2-3B-Instruct` is a text model. It can understand and generate text, but it is not an audio ASR model. Therefore, the ROS language pipeline now expects candidate text from an upstream ASR source. For the course demo, the easiest options are:
-
-- Jupiter's built-in ASR, if available;
-- Whisper or Vosk publishing candidate text to `/speech/raw_transcript`;
-- `rosrun language_pkg example_transcriptor.py` as a manual fallback.
+The previous Malaysian Llama + LoRA path was too large for the local machine connected to the robot. Whisper Tiny is used only for speech-to-text or speech translation. It does not replace backend intent logic or response generation.
 
 The architecture stays intact because `/speech/transcript` remains the backend-facing topic.
 
@@ -74,6 +68,7 @@ From the project root:
 ```bash
 catkin_make
 source devel/setup.bash
+pip install -r src/language_pkg/requirements-asr.txt
 roslaunch juno_bringup juno_robot.launch
 ```
 
@@ -81,7 +76,7 @@ This launches:
 
 - camera publisher
 - microphone publisher
-- Malaysian Llama language normalisation node
+- Whisper Tiny transcriber node
 - British-English TTS node
 
 ### Terminal 3: Backend in ROS Mode
@@ -92,13 +87,9 @@ source ../devel/setup.bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -r requirements-llm.txt
 
 export JUNO_ROBOT_INTERFACE=ros
 export JUNO_DASHBOARD_URL=http://localhost:5173
-export JUNO_LLM_ENABLED=true
-export JUNO_LLM_MODEL_ID=mesolitica/Malaysian-Llama-3.2-3B-Instruct
-export JUNO_LLM_ADAPTER_ID=mackwongyy/malaysian-feedback-lora-5k-data
 python main.py
 ```
 
@@ -134,8 +125,8 @@ Then type commands such as:
 ```text
 Hey, Juno
 Yes
-Apa jadual saya hari ini?
-Saya rasa penat, apa patut saya buat?
+What is my schedule today?
+I feel tired, what should I do?
 ```
 
 ## 5. Testing the ROS Bridge
@@ -147,30 +138,24 @@ rostopic list
 rostopic echo /camera/image_raw/header
 ```
 
-Check raw transcript input:
+Check raw audio topic:
 
 ```bash
-rostopic echo /speech/raw_transcript
+rostopic echo /audio/raw
 ```
 
-Check normalised speech transcript topic:
+Check recognised speech transcript topic:
 
 ```bash
 rostopic echo /speech/transcript
 ```
 
-Manually test a Malaysian-context command:
+Manually test the fallback transcript path:
 
 ```bash
-rostopic pub /speech/raw_transcript std_msgs/String "data: 'Apa jadual saya hari ini?'"
-```
-
-Manually test the backend speech path:
-
-```bash
-rostopic pub /speech/transcript std_msgs/String "data: 'Hey, Juno'"
-rostopic pub /speech/transcript std_msgs/String "data: 'Yes'"
-rostopic pub /speech/transcript std_msgs/String "data: 'What is my schedule today?'"
+rostopic pub /speech/raw_transcript std_msgs/String "data: 'Hey, Juno'"
+rostopic pub /speech/raw_transcript std_msgs/String "data: 'Yes'"
+rostopic pub /speech/raw_transcript std_msgs/String "data: 'What is my schedule today?'"
 ```
 
 Check backend speech output:
@@ -195,20 +180,15 @@ It publishes to:
 
 ### `backend/src/api/app.py`
 
-The command processing remains centralised in `process_command_text()`. Before intent classification, the backend can normalise Malaysian-context utterances into British English through `MalaysianInputNormalizer` when the LLM is enabled.
+The command processing remains centralised in `process_command_text()`. Whisper Tiny transcribes speech before it reaches this backend, and the backend continues to use deterministic intent classification and response handling.
 
-### `backend/src/nlp/llm_client.py`
+### `backend/src/core/config.py`
 
-Loads:
-
-- base model: `mesolitica/Malaysian-Llama-3.2-3B-Instruct`
-- adapter: `mackwongyy/malaysian-feedback-lora-5k-data`
-
-The model is lazy-loaded and remains inside the NLP boundary.
+Adds `JUNO_ASR_*` settings for the robot-friendly ASR path. Text LLM settings remain available but are disabled and blank by default.
 
 ### `src/language_pkg/scripts/transcriber.py`
 
-Replaced Moonshine usage. The node now normalises candidate text from `/speech/raw_transcript` and publishes `/speech/transcript`. It does not directly transcribe `/audio/raw` because Malaysian Llama is not an audio model.
+Runs Hugging Face `openai/whisper-tiny` on `/audio/raw` windows and publishes recognised text to `/speech/transcript`. It also relays `/speech/raw_transcript` to `/speech/transcript` for manual or external ASR fallback.
 
 ### `src/language_pkg/scripts/tts_node.py`
 
@@ -216,14 +196,14 @@ Selects a British English voice in `pyttsx3` where possible and falls back to `e
 
 ### `src/juno_bringup/launch/juno_robot.launch`
 
-Starts the same robot-facing ROS package structure while replacing the old language node role with the Malaysian Llama language normaliser.
+Starts the same robot-facing ROS package structure while replacing the old language normaliser with `whisper_tiny_transcriber`.
 
 ## 7. Feasible Demo Script
 
 1. Launch ROS nodes.
-2. Start backend with `JUNO_ROBOT_INTERFACE=ros` and `JUNO_LLM_ENABLED=true`.
+2. Start backend with `JUNO_ROBOT_INTERFACE=ros`.
 3. Start dashboard.
-4. Publish or say through an ASR source:
+4. Say or publish:
 
 ```text
 Hey, Juno
@@ -235,7 +215,7 @@ Hey, Juno
 Are you sure you would like to power Juno on? Answer yes if you do, else ignore.
 ```
 
-6. Publish or say:
+6. Say or publish:
 
 ```text
 Yes
@@ -245,9 +225,9 @@ Yes
 8. Try:
 
 ```text
-Apa jadual saya hari ini?
+What is my schedule today?
 Set a 25 minute timer.
-Saya rasa blur hari ini, macam mana nak mula study?
+I feel tired today, how should I start studying?
 Play relaxing music.
 Juno, go to sleep.
 ```
@@ -257,11 +237,10 @@ Juno, go to sleep.
 For the undergraduate robotics course, keep the final integration scope to:
 
 - ROS camera and microphone input
-- Transcript topic using ASR/manual fallback
-- Malaysian-context input normalisation
-- Backend command reasoning
+- Whisper Tiny or manual transcript fallback
+- backend command handling
+- dashboard visual feedback
 - British-English TTS output
-- Dashboard status display
-- Mock or simple emotion detector first
+- mock or lightweight emotion estimate
 
-Avoid making navigation or robot movement the core feature unless required by your lecturer.
+Avoid depending on a large cloud or local LLM during the live robot demo.

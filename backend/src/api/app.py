@@ -53,10 +53,11 @@ def create_app() -> FastAPI:
     def process_command_text(text: str) -> dict:
         """Shared command pipeline for dashboard text and ROS speech input.
 
-        The raw utterance can be Malay, Mandarin, Tamil, Manglish, or a
-        Malaysian dialectal phrasing. When the LLM is enabled, it is first
-        normalised into standard British English for intent classification; all
-        spoken responses are kept in British English.
+        Speech input is transcribed by the ROS Whisper Tiny node before it
+        reaches this backend. If an optional text LLM is configured, it may
+        further normalise the transcript before intent classification; otherwise
+        deterministic backend rules are used. Spoken responses are kept in
+        British English.
         """
         raw_text = text.strip()
         text = input_normalizer.normalise(raw_text)
@@ -158,7 +159,7 @@ def create_app() -> FastAPI:
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
             {"name": "Facial Emotion Estimate", "description": "Estimate visible emotion state using camera input."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
-            {"name": "Malaysian Llama + LoRA Assistant", "description": "Optional Hugging Face base model and LoRA adapter for Malaysian-language understanding with British English output."},
+            {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
         ]
@@ -169,7 +170,20 @@ def create_app() -> FastAPI:
 
     @app.get("/api/ai/status")
     def get_ai_status():
-        return response_generator.ai_status()
+        status = response_generator.ai_status()
+        status["speech_recognition"] = {
+            "enabled": settings.asr_enabled,
+            "model_id": settings.asr_model_id,
+            "task": settings.asr_task,
+            "language": settings.asr_language or None,
+            "sample_rate": settings.asr_sample_rate,
+            "window_seconds": settings.asr_window_seconds,
+            "min_rms": settings.asr_min_rms,
+            "device": settings.asr_device,
+            "input_topic": "/audio/raw",
+            "output_topic": "/speech/transcript",
+        }
+        return status
 
     @app.get("/api/schedule/today")
     def get_today_schedule():
