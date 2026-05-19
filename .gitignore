@@ -37,8 +37,12 @@ devel/
 install/
 log/
 logs/
+.catkin_workspace
+backend/src/CMakeLists.txt
+dashboard/src/CMakeLists.txt
 
 # Ignore temporary and environment artifacts
 *.log
 *.sqlite3
 *.db
+.vscode/settings.json

@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": Intent.WAKE, "response": response, "status": robot_state.snapshot()}
 
-            response = "JUNO is sleeping. Say Hey, Juno to wake me up."
+            response = "Sleep"
             robot_state.set_response(response)
             tts.speak(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}

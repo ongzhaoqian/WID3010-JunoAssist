@@ -48,6 +48,7 @@ class JunoTTSNode:
             rospy.loginfo(f'JUNO says ({accent}): {text}')
             subprocess.run(['espeak-ng', '-v', accent, text])
 
+        rospy.sleep(1)
         self.done_pub.publish(String(data="done"))
 
     def run(self):

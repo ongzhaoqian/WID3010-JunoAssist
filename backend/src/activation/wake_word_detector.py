@@ -4,10 +4,10 @@ from src.core.config import settings
 
 _WAKE_VARIANTS = [
     "hey juno", "hey juneau", "hay juno", "hey uno", "hey juano",
-    "hey junior", "hey huno", "a juno", "hey june", "hey junno",
+    "hey junior", "hey huno", "a juno", "hey june", "hey junno", "do you know"
 ]
 
-_JUNO_SOUNDS = ["juno", "juneau", "juano", "junno", "june", "uno", "junior", "huno"]
+_JUNO_SOUNDS = ["juno", "juneau", "juano", "junno", "june", "uno", "junior", "huno", 'you know']
 
 
 class WakeWordDetector:
@@ -27,7 +27,7 @@ class WakeWordDetector:
             any(difflib.SequenceMatcher(None, w, j).ratio() >= 0.8 for j in _JUNO_SOUNDS)
             for w in words
         )
-        return has_hey and has_juno
+        return has_juno
 
     def could_be_wake_command(self, text: str) -> bool:
         """Loose check — used to filter noise in IDLE mode."""

@@ -50,6 +50,10 @@ class MoonshineTranscriber:
         rospy.loginfo("TTS started — transcription muted, buffer cleared")
 
     def _on_tts_done(self, msg):
+        rospy.sleep(0.5)
+        with self.audio_lock:
+            self.audio_buffer = []
+            self.current_length = 0
         self._muted = False
         rospy.loginfo("TTS done — transcription resumed")
 
