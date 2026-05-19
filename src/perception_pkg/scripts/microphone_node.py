@@ -9,7 +9,7 @@ def microphone_node():
 
     pub = rospy.Publisher('/audio/raw', Float32MultiArray, queue_size=10)
 
-    device_index = 0
+    device_index = 7
     CHUNK = 1024
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
