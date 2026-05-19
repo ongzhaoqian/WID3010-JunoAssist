@@ -1,28 +1,44 @@
 #!/usr/bin/env python3
+<<<<<<< HEAD
 import os
 import subprocess
 
+=======
+import subprocess
+>>>>>>> origin/anas
 import rospy
 from std_msgs.msg import String
 
 
 class JunoTTSNode:
+<<<<<<< HEAD
     """ROS TTS node that favours a standard British English voice.
 
     The backend publishes already-normalised British English text to /juno/tts.
     This node selects an en_GB/UK/British voice when pyttsx3 provides one, or
     falls back to espeak with the en-gb voice.
+=======
+    """Simple ROS TTS node for course demo.
+
+    It subscribes to /juno/tts and speaks messages using pyttsx3 if available,
+    otherwise it falls back to espeak. Replace this node with Jupiter's built-in
+    speech output API if available.
+>>>>>>> origin/anas
     """
 
     def __init__(self):
         rospy.init_node('juno_tts_node', anonymous=True)
         self.engine = None
+<<<<<<< HEAD
         self.voice_locale = os.getenv('JUNO_TTS_VOICE_LOCALE', 'en_GB')
         self.rate = int(os.getenv('JUNO_TTS_RATE', '165'))
+=======
+>>>>>>> origin/anas
 
         try:
             import pyttsx3
             self.engine = pyttsx3.init()
+<<<<<<< HEAD
             self.engine.setProperty('rate', self.rate)
             selected_voice = self._select_british_voice()
             if selected_voice:
@@ -33,10 +49,17 @@ class JunoTTSNode:
         except Exception as exc:
             self.engine = None
             rospy.logwarn('pyttsx3 unavailable. Falling back to espeak en-gb. Details: %s', exc)
+=======
+            self.engine.setProperty('rate', 165)
+            rospy.loginfo('Using pyttsx3 for JUNO speech output.')
+        except Exception:
+            rospy.logwarn('pyttsx3 unavailable. Falling back to espeak command.')
+>>>>>>> origin/anas
 
         rospy.Subscriber('/juno/tts', String, self.callback)
         rospy.loginfo('JUNO TTS node subscribed to /juno/tts')
 
+<<<<<<< HEAD
     def _select_british_voice(self):
         if self.engine is None:
             return None
@@ -57,17 +80,27 @@ class JunoTTSNode:
                 return voice.id
         return None
 
+=======
+>>>>>>> origin/anas
     def callback(self, msg):
         text = str(msg.data).strip()
         if not text:
             return
 
+<<<<<<< HEAD
         rospy.loginfo('JUNO says in British English: %s', text)
+=======
+        rospy.loginfo(f'JUNO says: {text}')
+>>>>>>> origin/anas
         if self.engine is not None:
             self.engine.say(text)
             self.engine.runAndWait()
         else:
+<<<<<<< HEAD
             subprocess.Popen(['espeak', '-v', 'en-gb', '-s', str(self.rate), text])
+=======
+            subprocess.Popen(['espeak', text])
+>>>>>>> origin/anas
 
     def run(self):
         rospy.spin()

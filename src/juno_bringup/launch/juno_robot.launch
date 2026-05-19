@@ -1,8 +1,9 @@
 <launch>
-  <!-- Publishes Jupiter/laptop camera frames. -->
-  <node pkg="perception_pkg" type="camera_node.py" name="camera_node" output="screen" />
+  <!-- Camera and microphone publishers from the attached Jupiter Robot code. -->
+  <node pkg="perception_pkg" type="camera_node.py" name="camera_node" output="screen">
+    <param name="camera_device" value="/dev/video2" />
+  </node>
 
-  <!-- Publishes microphone audio. Raw audio is kept for future ASR extensions. -->
   <node pkg="perception_pkg" type="microphone_node.py" name="microphone_node" output="screen" />
 
   <!-- Transcribes microphone audio with Hugging Face openai/whisper-tiny and
@@ -14,6 +15,6 @@
     <param name="output_text_topic" value="/speech/transcript" />
   </node>
 
-  <!-- Speaks backend responses from /juno/tts using a British English voice where available. -->
+  <!-- Text-to-speech: speaks backend responses from /juno/tts. -->
   <node pkg="language_pkg" type="tts_node.py" name="juno_tts_node" output="screen" />
 </launch>

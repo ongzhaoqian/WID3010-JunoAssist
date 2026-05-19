@@ -1,6 +1,7 @@
 from src.core.models import EmotionState, Intent
 from src.calendar_module.calendar_service import CalendarService
 from src.productivity.break_recommender import BreakRecommender
+<<<<<<< HEAD
 from src.nlp.llm_client import LLMGenerationContext, MalaysianLlamaClient
 
 
@@ -13,6 +14,14 @@ class ResponseGenerator:
         self.calendar_service = calendar_service
         self.break_recommender = BreakRecommender()
         self.llm_client = llm_client or MalaysianLlamaClient()
+=======
+
+
+class ResponseGenerator:
+    def __init__(self, calendar_service: CalendarService) -> None:
+        self.calendar_service = calendar_service
+        self.break_recommender = BreakRecommender()
+>>>>>>> origin/anas
 
     def generate(self, intent: Intent, emotion: EmotionState, user_text: str = "") -> str:
         if intent == Intent.CHECK_SCHEDULE:
@@ -60,6 +69,7 @@ class ResponseGenerator:
         if intent == Intent.SLEEP:
             return "JUNO is going back to sleep mode."
 
+<<<<<<< HEAD
         llm_response = self._generate_llm_reply(intent, emotion, user_text)
         if llm_response:
             return llm_response
@@ -103,3 +113,6 @@ class ResponseGenerator:
                 )
             )
         return " | ".join(fragments)
+=======
+        return "I am not sure how to help with that yet. You can ask about your schedule, deadlines, timer, reminders, or breaks."
+>>>>>>> origin/anas
