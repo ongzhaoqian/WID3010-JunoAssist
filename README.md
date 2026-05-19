@@ -151,17 +151,37 @@ Recommended ASR environment settings:
 export JUNO_ASR_MODEL_ID=openai/whisper-tiny
 export JUNO_ASR_TASK=translate      # translate non-English speech to English
 export JUNO_ASR_SAMPLE_RATE=16000
-JUNO_MIC_DEVICE_INDEX=7
+export JUNO_MIC_DEVICE_INDEX=7
 export JUNO_ASR_WINDOW_SECONDS=3.0
 export JUNO_ASR_MIN_RMS=0.03
-export JUNO_ASR_DEVICE=-1
-JUNO_ASR_TTS_RESUME_DELAY=0.5           # CPU; use 0 for first CUDA GPU if available
+export JUNO_ASR_DEVICE=-1           # CPU; use 0 for first CUDA GPU if available
+export JUNO_ASR_TTS_RESUME_DELAY=0.5
+export JUNO_TTS_PUBLISHER_WAIT_SECONDS=2.0
+export JUNO_TTS_PUBLISH_RETRIES=3
 ```
 
 Check the active AI/ASR configuration at:
 
 ```text
 http://localhost:8000/api/ai/status
+```
+
+To test speech output independently from STT and intent classification, start ROS and the backend in ROS mode, then run either command:
+
+```bash
+rosrun language_pkg tts_test_publisher.py "Hello, I am JUNO and my speech output is working."
+# or, through the backend publisher:
+curl -X POST http://localhost:8000/api/robot/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello, I am JUNO and my backend speech path is working."}'
+```
+
+If `/speech/transcript` works but the robot is silent, check that `/juno/tts` receives text and that `juno_tts_node` is running:
+
+```bash
+rostopic echo /juno/tts
+rostopic echo /juno/tts_done
+rosnode list | grep tts
 ```
 
 The backend no longer requires the Malaysian Llama base model or LoRA adapter for the robot demo. Manual or external transcript fallback remains available through `/speech/raw_transcript`, and the backend still consumes `/speech/transcript`.

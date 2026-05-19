@@ -7,3 +7,6 @@ numpy>=1.24.0
 huggingface_hub>=0.24.0
 # Fallback ASR: moonshine/base via moonshine-onnx (used if Whisper fails to load)
 # moonshine-onnx>=0.1.0  # optional fallback, not on all mirrors
+
+# Optional local TTS engine used by tts_node.py before falling back to espeak-ng/espeak.
+pyttsx3>=2.90

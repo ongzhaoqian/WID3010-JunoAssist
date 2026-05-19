@@ -26,5 +26,11 @@
   </node>
 
   <!-- Text-to-speech: speaks backend responses and publishes /juno/tts_done afterwards. -->
-  <node pkg="language_pkg" type="tts_node.py" name="juno_tts_node" output="screen" />
+  <node pkg="language_pkg" type="tts_node.py" name="juno_tts_node" output="screen">
+    <param name="tts_topic" value="/juno/tts" />
+    <param name="tts_done_topic" value="/juno/tts_done" />
+    <param name="voice_locale" value="en_GB" />
+    <param name="rate" value="165" />
+    <param name="backend" value="espeak" />
+  </node>
 </launch>

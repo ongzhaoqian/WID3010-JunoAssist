@@ -10,8 +10,8 @@ This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot 
 | `microphone_node.py` | `/audio/raw` | `std_msgs/Float32MultiArray` | Publishes mono float32 microphone samples at 16 kHz. |
 | `transcriber.py` | `/speech/transcript` | `std_msgs/String` | Runs ASR (Whisper primary, Moonshine fallback) and publishes recognised text. |
 | External ASR or `example_transcriptor.py` | `/speech/raw_transcript` | `std_msgs/String` | Manual/external transcript fallback; relayed to `/speech/transcript`. |
-| `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using British English voice where available. |
-| `tts_node.py` | `/juno/tts_done` | `std_msgs/String` | Published after TTS finishes; transcriber resumes listening. |
+| `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using a British English voice where available. |
+| `tts_node.py` | `/juno/tts_done` | `std_msgs/String` | Signals that TTS has finished so STT can resume. |
 | Backend ROS bridge | `/juno/led_state` | `std_msgs/String` | Optional LED/status feedback. |
 
 ## 2. Integration Flow
@@ -214,6 +214,26 @@ Check TTS output and done signal:
 rostopic echo /juno/tts
 rostopic echo /juno/tts_done
 ```
+
+Directly test the ROS TTS node without involving the backend:
+
+```bash
+rosrun language_pkg tts_test_publisher.py "Hello, I am JUNO and my speech node is working."
+```
+
+Directly test the backend-to-ROS TTS publisher without involving STT or intent classification:
+
+```bash
+curl -X POST http://localhost:8000/api/robot/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello, I am JUNO and my backend speech path is working."}'
+```
+
+When `/speech/transcript` works but the robot is silent, isolate the issue as follows:
+
+1. If `rostopic echo /juno/tts` shows no text after the `curl` command, the backend is not running in ROS mode. Check `export JUNO_ROBOT_INTERFACE=ros` before `python main.py`.
+2. If `/juno/tts` receives text but there is no audio, check the `juno_tts_node` terminal output and ensure `espeak-ng` or `espeak` is installed.
+3. If the first response is sometimes missed, keep `JUNO_TTS_PUBLISHER_WAIT_SECONDS=2.0`; the backend waits for the TTS subscriber and retries the publish.
 
 Check backend ASR/AI status:
 
