@@ -135,6 +135,26 @@ rostopic pub /speech/raw_transcript std_msgs/String "data: 'Yes'"
 rostopic pub /speech/raw_transcript std_msgs/String "data: 'What is my schedule today?'"
 ```
 
+## TTS Diagnostics
+
+If Whisper Tiny successfully publishes transcripts but JUNO does not speak, test the speech path separately:
+
+```bash
+rostopic echo /juno/tts
+rostopic echo /juno/tts_done
+rosrun language_pkg tts_test_publisher.py "Hello, I am JUNO and my speech output is working."
+```
+
+Then test the backend publisher directly:
+
+```bash
+curl -X POST http://localhost:8000/api/robot/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello, I am JUNO and my backend speech path is working."}'
+```
+
+The backend now waits for the `/juno/tts` subscriber and retries publishing, which prevents the first response from being silently dropped during startup.
+
 ## Limitations
 
 - Whisper Tiny transcribes or translates speech; it does not replace a reasoning/chat model.

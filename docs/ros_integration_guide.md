@@ -11,6 +11,7 @@ This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot 
 | `transcriber.py` | `/speech/transcript` | `std_msgs/String` | Runs `openai/whisper-tiny` ASR and publishes recognised text. |
 | External ASR or `example_transcriptor.py` | `/speech/raw_transcript` | `std_msgs/String` | Manual/external transcript fallback; relayed to `/speech/transcript`. |
 | `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using a British English voice where available. |
+| `tts_node.py` | `/juno/tts_done` | `std_msgs/String` | Signals that TTS has finished so STT can resume. |
 | Backend ROS bridge | `/juno/led_state` | `std_msgs/String` | Optional LED/status feedback. |
 
 ## 2. Integration Flow
@@ -165,11 +166,31 @@ rostopic echo /juno/tts
 rostopic echo /juno/tts_done
 ```
 
+Directly test the ROS TTS node without involving the backend:
+
+```bash
+rosrun language_pkg tts_test_publisher.py "Hello, I am JUNO and my speech node is working."
+```
+
+Directly test the backend-to-ROS TTS publisher without involving STT or intent classification:
+
+```bash
+curl -X POST http://localhost:8000/api/robot/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello, I am JUNO and my backend speech path is working."}'
+```
+
+When `/speech/transcript` works but the robot is silent, isolate the issue as follows:
+
+1. If `rostopic echo /juno/tts` shows no text after the `curl` command, the backend is not running in ROS mode. Check `export JUNO_ROBOT_INTERFACE=ros` before `python main.py`.
+2. If `/juno/tts` receives text but there is no audio, check the `juno_tts_node` terminal output and ensure either `pyttsx3`, `espeak-ng`, or `espeak` is installed.
+3. If the first response is sometimes missed, keep `JUNO_TTS_PUBLISHER_WAIT_SECONDS=2.0`; the backend now waits for the TTS subscriber and retries the publish.
+
 ## 6. What Was Changed
 
 ### `backend/src/robot/ros_jupiter_interface.py`
 
-Unchanged topic boundary. This file still subscribes to:
+Keeps the same topic boundary but now uses a latched `/juno/tts` publisher, waits briefly for the TTS subscriber, retries publishing, and logs each speech message. This fixes the case where STT reaches the backend but the backend response is dropped before `tts_node.py` connects. This file still subscribes to:
 
 - `/speech/transcript`
 - `/camera/image_raw`
@@ -193,7 +214,11 @@ Runs Hugging Face `openai/whisper-tiny` on `/audio/raw` windows and publishes re
 
 ### `src/language_pkg/scripts/tts_node.py`
 
-Selects a British English voice in `pyttsx3` where possible, falls back to `espeak-ng`/`espeak -v en-gb`, and publishes `/juno/tts_done` once speech output finishes.
+Selects a British English voice in `pyttsx3` where possible, falls back to `espeak-ng`/`espeak`, speaks on a single worker thread, and publishes `/juno/tts_done` once speech output finishes. It also publishes `/juno/tts_done` after failed speech attempts so the STT node is not left muted.
+
+### `src/language_pkg/scripts/tts_test_publisher.py`
+
+A one-command diagnostic publisher for `/juno/tts`, useful for testing robot speech without starting the backend command pipeline.
 
 ### `src/juno_bringup/launch/juno_robot.launch`
 

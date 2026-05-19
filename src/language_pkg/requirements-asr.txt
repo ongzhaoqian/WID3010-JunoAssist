@@ -4,3 +4,6 @@ transformers>=4.45.0
 accelerate>=0.33.0
 numpy>=1.26.0
 huggingface_hub>=0.24.0
+
+# Optional local TTS engine used by tts_node.py before falling back to espeak-ng/espeak.
+pyttsx3>=2.90

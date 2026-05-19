@@ -6,3 +6,6 @@ transformers>=4.45.0
 accelerate>=0.33.0
 numpy>=1.26.0
 huggingface_hub>=0.24.0
+
+# Optional if running TTS from the same Python environment as the ROS language package.
+pyttsx3>=2.90

@@ -183,6 +183,14 @@ def create_app() -> FastAPI:
             "input_topic": "/audio/raw",
             "output_topic": "/speech/transcript",
         }
+        status["text_to_speech"] = {
+            "robot_interface": settings.robot_interface,
+            "ros_enabled": settings.use_ros_robot,
+            "tts_topic": settings.tts_topic,
+            "led_topic": settings.led_topic,
+            "publisher_wait_seconds": settings.tts_publisher_wait_seconds,
+            "publish_retries": settings.tts_publish_retries,
+        }
         return status
 
     @app.get("/api/schedule/today")
@@ -226,7 +234,21 @@ def create_app() -> FastAPI:
         robot_state.set_mode(RobotMode.IDLE)
         robot_state.set_response("JUNO is now in sleep mode.")
         robot.set_led_state("sleep")
+        tts.speak("JUNO is now in sleep mode.")
         return robot_state.snapshot()
+
+    @app.post("/api/robot/speak")
+    def speak_robot(request: CommandRequest):
+        """Direct TTS diagnostic endpoint.
+
+        This is useful when STT works but the robot is silent: call this endpoint
+        to verify the backend-to-ROS /juno/tts path independently from intent
+        classification.
+        """
+        text = request.text.strip()
+        robot_state.set_response(text)
+        tts.speak(text)
+        return {"message": "Speech request published", "text": text, "status": robot_state.snapshot()}
 
     @app.post("/api/command")
     def handle_command(request: CommandRequest):
