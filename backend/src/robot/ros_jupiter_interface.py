@@ -2,20 +2,14 @@ from __future__ import annotations
 
 from queue import Queue, Empty
 from typing import Any
-<<<<<<< HEAD
-=======
 import logging
->>>>>>> origin/anas
 import subprocess
 import webbrowser
 
 from .jupiter_interface import JupiterInterface
 
-<<<<<<< HEAD
-=======
 logger = logging.getLogger("juno.backend.ros")
 
->>>>>>> origin/anas
 
 class RosJupiterInterface(JupiterInterface):
     """ROS bridge between the FastAPI backend and Jupiter Robot topics.
@@ -59,20 +53,14 @@ class RosJupiterInterface(JupiterInterface):
         rospy.Subscriber("/camera/image_raw", Image, self._camera_callback)
 
         rospy.loginfo("JUNO backend ROS bridge is ready.")
-<<<<<<< HEAD
-=======
         logger.info("JUNO backend ROS bridge is ready. Subscribed to /speech/transcript and /camera/image_raw")
->>>>>>> origin/anas
 
     def _transcript_callback(self, msg: Any) -> None:
         text = str(msg.data).strip()
         if text:
-<<<<<<< HEAD
-=======
             print(f"[BACKEND ROS TRANSCRIPT] {text}", flush=True)
             self.rospy.loginfo(f"Backend received /speech/transcript: {text}")
             logger.info("Backend received /speech/transcript: %s", text)
->>>>>>> origin/anas
             self.transcript_queue.put(text)
 
     def _camera_callback(self, msg: Any) -> None:
@@ -82,10 +70,7 @@ class RosJupiterInterface(JupiterInterface):
             self.rospy.logwarn(f"Could not convert ROS image to OpenCV frame: {exc}")
 
     def speak(self, text: str) -> None:
-<<<<<<< HEAD
-=======
         logger.info("Publishing backend response to /juno/tts: %s", text)
->>>>>>> origin/anas
         self.tts_pub.publish(self.String(data=text))
 
     def listen(self) -> str:

@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-from src.api.app import create_app
-import uvicorn
-
-=======
 import logging
 
 from src.api.app import create_app
@@ -14,7 +9,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 
->>>>>>> origin/anas
 app = create_app()
 
 if __name__ == "__main__":
@@ -22,12 +16,8 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-<<<<<<< HEAD
-        reload=True
-=======
         # Uvicorn reload starts an extra process, which can confuse rospy node
         # initialisation. Keep reload off when backend is connected to ROS.
         reload=not settings.use_ros_robot,
         log_level="info",
->>>>>>> origin/anas
     )

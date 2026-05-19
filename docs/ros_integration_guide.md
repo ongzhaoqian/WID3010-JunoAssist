@@ -1,10 +1,6 @@
 # ROS Integration Guide for JUNO Assist and Jupiter Robot Code
 
-<<<<<<< HEAD
 This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot ROS code are integrated after replacing the previous heavy language-model path with Whisper Tiny ASR.
-=======
-This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot ROS code are integrated.
->>>>>>> origin/anas
 
 ## 1. Current ROS Topics
 
@@ -168,19 +164,11 @@ Check backend speech output:
 rostopic echo /juno/tts
 ```
 
-<<<<<<< HEAD
 ## 6. What Was Changed
 
 ### `backend/src/robot/ros_jupiter_interface.py`
 
 Unchanged topic boundary. This file still subscribes to:
-=======
-## 5. What Was Changed
-
-### `backend/src/robot/ros_jupiter_interface.py`
-
-This file subscribes to:
->>>>>>> origin/anas
 
 - `/speech/transcript`
 - `/camera/image_raw`
@@ -192,7 +180,6 @@ It publishes to:
 
 ### `backend/src/api/app.py`
 
-<<<<<<< HEAD
 The command processing remains centralised in `process_command_text()`. Whisper Tiny transcribes speech before it reaches this backend, and the backend continues to use deterministic intent classification and response handling.
 
 ### `backend/src/core/config.py`
@@ -208,23 +195,6 @@ Runs Hugging Face `openai/whisper-tiny` on `/audio/raw` windows and publishes re
 Selects a British English voice in `pyttsx3` where possible and falls back to `espeak -v en-gb`.
 
 ### `src/juno_bringup/launch/juno_robot.launch`
-
-Starts the same robot-facing ROS package structure while replacing the old language normaliser with `whisper_tiny_transcriber`.
-=======
-The command processing was centralised into `process_command_text()` so both dashboard commands and ROS speech commands use the same logic.
-
-### `src/language_pkg/scripts/transcriber.py`
-
-Modified so that recognised speech is not only printed, but also published to `/speech/transcript`.
-
-### `src/language_pkg/scripts/tts_node.py`
-
-This file subscribes to `/juno/tts` and speaks backend responses.
-
-### `src/juno_bringup/launch/juno_robot.launch`
-
-This launch file starts the robot-facing ROS nodes.
->>>>>>> origin/anas
 
 ## 7. Feasible Demo Script
 

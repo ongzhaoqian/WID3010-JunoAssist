@@ -22,7 +22,6 @@ class Settings:
     robot_interface: str = os.getenv("JUNO_ROBOT_INTERFACE", "mock").lower()
     use_ros_robot: bool = _env_bool("JUNO_USE_ROS", False) or robot_interface == "ros"
 
-<<<<<<< HEAD
     # Robot-friendly speech recognition configuration. The ROS transcriber node
     # uses the same defaults and publishes recognised speech to /speech/transcript.
     asr_enabled: bool = _env_bool("JUNO_ASR_ENABLED", True)
@@ -48,7 +47,5 @@ class Settings:
     llm_temperature: float = float(os.getenv("JUNO_LLM_TEMPERATURE", "0.3"))
     llm_top_p: float = float(os.getenv("JUNO_LLM_TOP_P", "0.9"))
 
-=======
->>>>>>> origin/anas
 
 settings = Settings()

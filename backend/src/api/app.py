@@ -1,12 +1,7 @@
 import asyncio
 import json
-<<<<<<< HEAD
-from pathlib import Path
-
-=======
 import logging
 from pathlib import Path
->>>>>>> origin/anas
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,11 +12,6 @@ from src.core.config import settings
 from src.core.models import CommandRequest, ReminderRequest, TimerRequest, RobotMode, Intent
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
-<<<<<<< HEAD
-from src.nlp.input_normalizer import MalaysianInputNormalizer
-from src.nlp.llm_client import MalaysianLlamaClient
-=======
->>>>>>> origin/anas
 from src.nlp.response_generator import ResponseGenerator
 from src.productivity.music_service import MusicService
 from src.productivity.timer_service import TimerService
@@ -29,11 +19,8 @@ from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
 from src.vision.emotion_detector import EmotionDetector
 
-<<<<<<< HEAD
-=======
 logger = logging.getLogger("juno.backend")
 
->>>>>>> origin/anas
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name)
@@ -51,28 +38,18 @@ def create_app() -> FastAPI:
     )
 
     robot = get_robot_interface()
-<<<<<<< HEAD
-=======
     logger.info("JUNO backend using robot interface: %s", type(robot).__name__)
->>>>>>> origin/anas
     tts = TextToSpeech(robot)
     wake_detector = WakeWordDetector()
     confirmation_handler = ConfirmationHandler()
     intent_classifier = IntentClassifier()
     calendar_service = CalendarService(settings.database_path)
-<<<<<<< HEAD
-    llm_client = MalaysianLlamaClient()
-    input_normalizer = MalaysianInputNormalizer(llm_client)
-    response_generator = ResponseGenerator(calendar_service, llm_client=llm_client)
-=======
     response_generator = ResponseGenerator(calendar_service)
->>>>>>> origin/anas
     timer_service = TimerService()
     music_service = MusicService()
     emotion_detector = EmotionDetector()
 
     def process_command_text(text: str) -> dict:
-<<<<<<< HEAD
         """Shared command pipeline for dashboard text and ROS speech input.
 
         Speech input is transcribed by the ROS Whisper Tiny node before it
@@ -81,12 +58,7 @@ def create_app() -> FastAPI:
         deterministic backend rules are used. Spoken responses are kept in
         British English.
         """
-        raw_text = text.strip()
-        text = input_normalizer.normalise(raw_text)
-=======
-        """Shared command pipeline for both dashboard text and ROS speech input."""
         text = text.strip()
->>>>>>> origin/anas
         intent = intent_classifier.classify(text)
         snapshot = robot_state.snapshot()
 
@@ -138,11 +110,7 @@ def create_app() -> FastAPI:
                 response = response_generator.generate(
                     intent=intent,
                     emotion=snapshot["current_emotion"],
-<<<<<<< HEAD
-                    user_text=raw_text,
-=======
                     user_text=text,
->>>>>>> origin/anas
                 )
 
             robot_state.set_response(response)
@@ -159,14 +127,10 @@ def create_app() -> FastAPI:
         asyncio.create_task(_emotion_monitor_loop())
         asyncio.create_task(_timer_loop())
         if settings.use_ros_robot:
-<<<<<<< HEAD
-            asyncio.create_task(_ros_speech_command_loop())
-=======
             logger.info("ROS mode enabled. Listening for transcripts on /speech/transcript")
             asyncio.create_task(_ros_speech_command_loop())
         else:
             logger.info("ROS mode disabled. Set JUNO_ROBOT_INTERFACE=ros to connect ROS nodes to backend.")
->>>>>>> origin/anas
 
     async def _emotion_monitor_loop():
         while True:
@@ -183,12 +147,6 @@ def create_app() -> FastAPI:
 
     async def _ros_speech_command_loop():
         """Consumes transcripts published by language_pkg/transcriber.py."""
-<<<<<<< HEAD
-        while True:
-            transcript = await asyncio.to_thread(robot.listen)
-            if transcript:
-                process_command_text(transcript)
-=======
         logger.info("ROS speech command loop started")
         while True:
             transcript = await asyncio.to_thread(robot.listen)
@@ -200,7 +158,6 @@ def create_app() -> FastAPI:
                     result.get("intent"),
                     result.get("response"),
                 )
->>>>>>> origin/anas
             await asyncio.sleep(0.05)
 
     @app.get("/api/features")
@@ -210,10 +167,6 @@ def create_app() -> FastAPI:
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
             {"name": "Facial Emotion Estimate", "description": "Estimate visible emotion state using camera input."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
-<<<<<<< HEAD
-            {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
-=======
->>>>>>> origin/anas
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
         ]
@@ -222,7 +175,6 @@ def create_app() -> FastAPI:
     def get_status():
         return robot_state.snapshot()
 
-<<<<<<< HEAD
     @app.get("/api/ai/status")
     def get_ai_status():
         status = response_generator.ai_status()
@@ -240,8 +192,6 @@ def create_app() -> FastAPI:
         }
         return status
 
-=======
->>>>>>> origin/anas
     @app.get("/api/schedule/today")
     def get_today_schedule():
         return calendar_service.get_today_schedule()
