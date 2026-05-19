@@ -4,17 +4,22 @@
     <param name="camera_device" value="/dev/video2" />
   </node>
 
-  <node pkg="perception_pkg" type="microphone_node.py" name="microphone_node" output="screen" />
+  <!-- Audio input. Default microphone index mirrors the working anas branch; override if needed. -->
+  <node pkg="perception_pkg" type="microphone_node.py" name="microphone_node" output="screen">
+    <param name="input_device_index" value="7" />
+    <param name="source_rate" value="48000" />
+    <param name="target_rate" value="16000" />
+  </node>
 
-  <!-- Transcribes microphone audio with Hugging Face openai/whisper-tiny and
-       publishes recognised text to /speech/transcript. Manual/external transcript
-       fallback remains available through /speech/raw_transcript. -->
+  <!-- Speech-to-text: Whisper Tiny ASR with anas-style TTS mute/resume logic. -->
   <node pkg="language_pkg" type="transcriber.py" name="whisper_tiny_transcriber" output="screen">
     <param name="audio_topic" value="/audio/raw" />
     <param name="manual_text_topic" value="/speech/raw_transcript" />
     <param name="output_text_topic" value="/speech/transcript" />
+    <param name="tts_topic" value="/juno/tts" />
+    <param name="tts_done_topic" value="/juno/tts_done" />
   </node>
 
-  <!-- Text-to-speech: speaks backend responses from /juno/tts. -->
+  <!-- Text-to-speech: speaks backend responses and publishes /juno/tts_done afterwards. -->
   <node pkg="language_pkg" type="tts_node.py" name="juno_tts_node" output="screen" />
 </launch>

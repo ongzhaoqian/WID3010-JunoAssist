@@ -162,6 +162,7 @@ Check backend speech output:
 
 ```bash
 rostopic echo /juno/tts
+rostopic echo /juno/tts_done
 ```
 
 ## 6. What Was Changed
@@ -188,13 +189,15 @@ Adds `JUNO_ASR_*` settings for the robot-friendly ASR path. Text LLM settings re
 
 ### `src/language_pkg/scripts/transcriber.py`
 
-Runs Hugging Face `openai/whisper-tiny` on `/audio/raw` windows and publishes recognised text to `/speech/transcript`. It also relays `/speech/raw_transcript` to `/speech/transcript` for manual or external ASR fallback.
+Runs Hugging Face `openai/whisper-tiny` on `/audio/raw` windows and publishes recognised text to `/speech/transcript`. It now mirrors the working `anas` branch logic: buffered audio windows, RMS/VAD filtering, TTS mute on `/juno/tts`, resume on `/juno/tts_done`, and manual `/speech/raw_transcript` fallback.
 
 ### `src/language_pkg/scripts/tts_node.py`
 
-Selects a British English voice in `pyttsx3` where possible and falls back to `espeak -v en-gb`.
+Selects a British English voice in `pyttsx3` where possible, falls back to `espeak-ng`/`espeak -v en-gb`, and publishes `/juno/tts_done` once speech output finishes.
 
 ### `src/juno_bringup/launch/juno_robot.launch`
+
+Starts the same robot-facing ROS package structure while replacing the old language normaliser with `whisper_tiny_transcriber`.
 
 ## 7. Feasible Demo Script
 

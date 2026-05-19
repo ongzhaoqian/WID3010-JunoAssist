@@ -44,7 +44,7 @@ transcriber.py relays it to /speech/transcript
 |---|---|
 | `src/language_pkg/scripts/transcriber.py` | New Whisper Tiny ROS ASR node. Subscribes to `/audio/raw`, publishes `/speech/transcript`, and preserves `/speech/raw_transcript` fallback. |
 | `src/language_pkg/scripts/helper.py` | Downloads/cache-prepares the configured Whisper model. |
-| `src/juno_bringup/launch/juno_robot.launch` | Starts `whisper_tiny_transcriber` instead of the heavy language normaliser. |
+| `src/juno_bringup/launch/juno_robot.launch` | Starts `whisper_tiny_transcriber` with the anas-style mute/buffer/VAD speech-to-text flow. |
 | `backend/src/core/config.py` | Adds `JUNO_ASR_*` settings and disables text LLM use by default. |
 | `backend/src/speech/speech_to_text.py` | Adds a lazy backend-side Whisper utility for future non-ROS audio paths. |
 | `backend/.env.example` | Documents Whisper Tiny ASR settings. |
@@ -58,9 +58,11 @@ export JUNO_ASR_MODEL_ID=openai/whisper-tiny
 export JUNO_ASR_TASK=translate
 export JUNO_ASR_LANGUAGE=
 export JUNO_ASR_SAMPLE_RATE=16000
-export JUNO_ASR_WINDOW_SECONDS=4.0
-export JUNO_ASR_MIN_RMS=0.008
+JUNO_MIC_DEVICE_INDEX=7
+export JUNO_ASR_WINDOW_SECONDS=3.0
+export JUNO_ASR_MIN_RMS=0.03
 export JUNO_ASR_DEVICE=-1
+JUNO_ASR_TTS_RESUME_DELAY=0.5
 ```
 
 Use `JUNO_ASR_TASK=translate` when you want non-English speech to be translated into English before backend intent classification. Use `JUNO_ASR_TASK=transcribe` when you want the transcript to stay in the spoken language.

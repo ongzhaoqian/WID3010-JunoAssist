@@ -151,9 +151,11 @@ Recommended ASR environment settings:
 export JUNO_ASR_MODEL_ID=openai/whisper-tiny
 export JUNO_ASR_TASK=translate      # translate non-English speech to English
 export JUNO_ASR_SAMPLE_RATE=16000
-export JUNO_ASR_WINDOW_SECONDS=4.0
-export JUNO_ASR_MIN_RMS=0.008
-export JUNO_ASR_DEVICE=-1           # CPU; use 0 for first CUDA GPU if available
+JUNO_MIC_DEVICE_INDEX=7
+export JUNO_ASR_WINDOW_SECONDS=3.0
+export JUNO_ASR_MIN_RMS=0.03
+export JUNO_ASR_DEVICE=-1
+JUNO_ASR_TTS_RESUME_DELAY=0.5           # CPU; use 0 for first CUDA GPU if available
 ```
 
 Check the active AI/ASR configuration at:
@@ -260,15 +262,15 @@ open_dashboard(url: str) -> None
 set_led_state(state: str) -> None
 ```
 
-## Project Feasibility
+## Feasibility for Undergraduate Robotics Course
 
-This project is intentionally scoped to be achievable within the development timeframe aligned with the timeline of the WID3010: Autonomous Robots module.
+This project is intentionally scoped to be achievable:
 
 - No complex autonomous navigation is required.
-- Human-robot interaction through speech and text is prioritised, while robot motion remains optional.
-- Emotion detection can be demonstrated through a well-performing baseline model first.
-- Speech can be tested using dashboard text commands, with the option for further speech-to-text integration.
-- Calendar data can use SQLite or sample JSON before future API integration to ensure lightweight quality testing and validation.
+- Robot motion is optional.
+- Emotion detection can be demonstrated through a mock model first.
+- Speech can be tested using dashboard text commands.
+- Calendar data can use SQLite or sample JSON before API integration.
 - The system demonstrates robotics integration through perception, interaction, decision-making, and user-facing feedback.
 
 ## Ethical Note

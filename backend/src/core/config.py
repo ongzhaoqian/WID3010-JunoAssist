@@ -29,9 +29,10 @@ class Settings:
     asr_task: str = os.getenv("JUNO_ASR_TASK", "translate").strip().lower()
     asr_language: str = os.getenv("JUNO_ASR_LANGUAGE", "").strip()
     asr_sample_rate: int = int(os.getenv("JUNO_ASR_SAMPLE_RATE", "16000"))
-    asr_window_seconds: float = float(os.getenv("JUNO_ASR_WINDOW_SECONDS", "4.0"))
-    asr_min_rms: float = float(os.getenv("JUNO_ASR_MIN_RMS", "0.008"))
+    asr_window_seconds: float = float(os.getenv("JUNO_ASR_WINDOW_SECONDS", "3.0"))
+    asr_min_rms: float = float(os.getenv("JUNO_ASR_MIN_RMS", "0.03"))
     asr_device: str = os.getenv("JUNO_ASR_DEVICE", "-1")
+    asr_tts_resume_delay: float = float(os.getenv("JUNO_ASR_TTS_RESUME_DELAY", "0.5"))
 
     # Optional text-generation LLM. Disabled by default because the robot target
     # cannot reliably run Malaysian Llama + LoRA locally. If left blank, no text

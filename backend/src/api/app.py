@@ -1,7 +1,7 @@
 import asyncio
 import json
-import logging
 from pathlib import Path
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,14 +12,14 @@ from src.core.config import settings
 from src.core.models import CommandRequest, ReminderRequest, TimerRequest, RobotMode, Intent
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
+from src.nlp.input_normalizer import MalaysianInputNormalizer
+from src.nlp.llm_client import MalaysianLlamaClient
 from src.nlp.response_generator import ResponseGenerator
 from src.productivity.music_service import MusicService
 from src.productivity.timer_service import TimerService
 from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
 from src.vision.emotion_detector import EmotionDetector
-
-logger = logging.getLogger("juno.backend")
 
 
 def create_app() -> FastAPI:
@@ -38,13 +38,14 @@ def create_app() -> FastAPI:
     )
 
     robot = get_robot_interface()
-    logger.info("JUNO backend using robot interface: %s", type(robot).__name__)
     tts = TextToSpeech(robot)
     wake_detector = WakeWordDetector()
     confirmation_handler = ConfirmationHandler()
     intent_classifier = IntentClassifier()
     calendar_service = CalendarService(settings.database_path)
-    response_generator = ResponseGenerator(calendar_service)
+    llm_client = MalaysianLlamaClient()
+    input_normalizer = MalaysianInputNormalizer(llm_client)
+    response_generator = ResponseGenerator(calendar_service, llm_client=llm_client)
     timer_service = TimerService()
     music_service = MusicService()
     emotion_detector = EmotionDetector()
@@ -58,7 +59,8 @@ def create_app() -> FastAPI:
         deterministic backend rules are used. Spoken responses are kept in
         British English.
         """
-        text = text.strip()
+        raw_text = text.strip()
+        text = input_normalizer.normalise(raw_text)
         intent = intent_classifier.classify(text)
         snapshot = robot_state.snapshot()
 
@@ -110,7 +112,7 @@ def create_app() -> FastAPI:
                 response = response_generator.generate(
                     intent=intent,
                     emotion=snapshot["current_emotion"],
-                    user_text=text,
+                    user_text=raw_text,
                 )
 
             robot_state.set_response(response)
@@ -127,10 +129,7 @@ def create_app() -> FastAPI:
         asyncio.create_task(_emotion_monitor_loop())
         asyncio.create_task(_timer_loop())
         if settings.use_ros_robot:
-            logger.info("ROS mode enabled. Listening for transcripts on /speech/transcript")
             asyncio.create_task(_ros_speech_command_loop())
-        else:
-            logger.info("ROS mode disabled. Set JUNO_ROBOT_INTERFACE=ros to connect ROS nodes to backend.")
 
     async def _emotion_monitor_loop():
         while True:
@@ -147,17 +146,10 @@ def create_app() -> FastAPI:
 
     async def _ros_speech_command_loop():
         """Consumes transcripts published by language_pkg/transcriber.py."""
-        logger.info("ROS speech command loop started")
         while True:
             transcript = await asyncio.to_thread(robot.listen)
             if transcript:
-                logger.info("Received ROS transcript: %s", transcript)
-                result = process_command_text(transcript)
-                logger.info(
-                    "Processed ROS transcript intent=%s response=%s",
-                    result.get("intent"),
-                    result.get("response"),
-                )
+                process_command_text(transcript)
             await asyncio.sleep(0.05)
 
     @app.get("/api/features")
@@ -167,6 +159,7 @@ def create_app() -> FastAPI:
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
             {"name": "Facial Emotion Estimate", "description": "Estimate visible emotion state using camera input."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
+            {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
         ]

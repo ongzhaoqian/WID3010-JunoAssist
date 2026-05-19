@@ -1,13 +1,18 @@
-from __future__ import annotations
 from src.core.models import EmotionState, Intent
 from src.calendar_module.calendar_service import CalendarService
 from src.productivity.break_recommender import BreakRecommender
+from src.nlp.llm_client import LLMGenerationContext, MalaysianLlamaClient
 
 
 class ResponseGenerator:
-    def __init__(self, calendar_service: CalendarService) -> None:
+    def __init__(
+        self,
+        calendar_service: CalendarService,
+        llm_client: MalaysianLlamaClient | None = None,
+    ) -> None:
         self.calendar_service = calendar_service
         self.break_recommender = BreakRecommender()
+        self.llm_client = llm_client or MalaysianLlamaClient()
 
     def generate(self, intent: Intent, emotion: EmotionState, user_text: str = "") -> str:
         if intent == Intent.CHECK_SCHEDULE:
