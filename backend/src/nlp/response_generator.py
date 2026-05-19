@@ -1,3 +1,4 @@
+from __future__ import annotations
 from src.core.models import EmotionState, Intent
 from src.calendar_module.calendar_service import CalendarService
 from src.productivity.break_recommender import BreakRecommender
