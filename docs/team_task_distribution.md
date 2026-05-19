@@ -67,7 +67,7 @@ This checklist tracks the actual software components that still need to be compl
 |---|---|---|---|---|
 | FastAPI app | Implemented in `backend/src/api/app.py` | Run backend locally and confirm all routes work. | Jon, Zhao Qian | Must |
 | Robot mode state | Implemented: idle, confirmation, active | Verify full state flow: idle → confirmation → active → sleep/idle. | Jon | Must |
-| Wake word detector | Implemented | Test with `Hey, Juno`, `hey juno`, and wrong phrases. | Jon | Must |
+| Wake word detector | Implemented | Test with `Hey, John`, `hey john`, and wrong phrases. | Jon | Must |
 | Confirmation handler | Implemented | Test `Yes` confirmation and non-confirmation fallback. | Jon | Must |
 | Command pipeline | Implemented in `process_command_text()` | Verify both dashboard command and ROS transcript use same logic. | Jon, Anas | Must |
 | Text-to-speech wrapper | Implemented | Confirm backend calls `tts.speak()` for key responses. | Anas, Jon | Must |
@@ -221,7 +221,7 @@ Mack should own the demo-facing dashboard and make sure the system looks complet
 2. **Command panel reliability**
    - Ensure the typed command flow works as a backup for speech.
    - Confirm demo commands work:
-     - “Hey, Juno”
+     - “Hey, John”
      - “Yes”
      - “What do I have today?”
      - “Set a 25 minute timer”
@@ -581,7 +581,7 @@ Everyone is responsible for writing part of the final report, not only coding or
 
 1. Jon introduces JUNO Assist as an emotion-aware student productivity robot.
 2. Mack shows dashboard in idle mode.
-3. User says/types “Hey, Juno”.
+3. User says/types “Hey, John”.
 4. JUNO asks for confirmation.
 5. User says/types “Yes”.
 6. Dashboard changes to active mode.

@@ -4,9 +4,8 @@
     <param name="camera_device" value="/dev/video2" />
   </node>
 
-  <!-- Audio input. Default microphone index mirrors the working anas branch; override if needed. -->
+  <!-- Audio input. Device resolved by name; index fallback removed. -->
   <node pkg="perception_pkg" type="microphone_node.py" name="microphone_node" output="screen">
-    <param name="input_device_index" value="7" />
     <param name="source_rate" value="48000" />
     <param name="target_rate" value="16000" />
   </node>
@@ -18,6 +17,12 @@
     <param name="output_text_topic" value="/speech/transcript" />
     <param name="tts_topic" value="/juno/tts" />
     <param name="tts_done_topic" value="/juno/tts_done" />
+    <env name="JUNO_ASR_WINDOW_SECONDS" value="1.0" />
+    <env name="JUNO_ASR_MIN_RMS" value="0.010" />
+    <env name="JUNO_ASR_TTS_RESUME_DELAY" value="0.5" />
+    <env name="JUNO_ASR_TASK" value="transcribe" />
+    <env name="JUNO_ASR_LANGUAGE" value="en" />
+    <env name="JUNO_MIC_DEVICE_NAME" value="0x46d:0x825" />
   </node>
 
   <!-- Text-to-speech: speaks backend responses and publishes /juno/tts_done afterwards. -->

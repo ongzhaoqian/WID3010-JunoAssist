@@ -39,8 +39,8 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 - The microphone node (`microphone_node.py`) shall continuously publish raw float32 audio frames to `/audio/raw` at 16 kHz, 512-sample chunks.
 - The microphone node publishes audio to `/audio/raw`; `whisper_tiny_transcriber` transcribes it with `openai/whisper-tiny` and publishes `/speech/transcript`. Manual/external transcript fallback remains available through `/speech/raw_transcript`.
 - The backend `WakeWordDetector` (`activation/wake_word_detector.py`) receives transcripts via `RosJupiterInterface.listen()`, which drains an internal queue populated by the `/speech/transcript` subscriber.
-- The following trigger phrases shall activate the confirmation flow (case-insensitive, as configured by `JUNO_WAKE_PHRASE` env var, default `"hey, juno"`):
-  - `"hey, juno"` / `"hey juno"`
+- The following trigger phrases shall activate the confirmation flow (case-insensitive, as configured by `JUNO_WAKE_PHRASE` env var, default `"hey john"`):
+  - `"hey, john"` / `"hey john"`
   - `"ok juno"`
   - `"juno"`
 - On detection, the backend transitions the global `RobotMode` to `CONFIRMATION`.
@@ -417,7 +417,7 @@ Run `rqt_graph` after bringup to verify the node/topic graph matches Section 4.
 ```bash
 # Watch live transcripts (and manually inject wake word)
 rostopic echo /speech/transcript
-rostopic pub /speech/transcript std_msgs/String "data: 'Hey, Juno'"
+rostopic pub /speech/transcript std_msgs/String "data: 'Hey, John'"
 rostopic pub /speech/transcript std_msgs/String "data: 'yes'"
 rostopic pub /speech/transcript std_msgs/String "data: 'What do I have today?'"
 

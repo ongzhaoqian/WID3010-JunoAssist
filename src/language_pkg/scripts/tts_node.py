@@ -68,11 +68,8 @@ class JunoTTSNode:
 
         rospy.loginfo('JUNO says in British English: %s', text)
         try:
-            if self.engine is not None:
-                self.engine.say(text)
-                self.engine.runAndWait()
-            else:
-                self._speak_with_espeak(text)
+            # pyttsx3 runAndWait() returns immediately on this system — use espeak directly
+            self._speak_with_espeak(text)
         finally:
             rospy.sleep(self.done_delay)
             self.done_pub.publish(String(data='done'))

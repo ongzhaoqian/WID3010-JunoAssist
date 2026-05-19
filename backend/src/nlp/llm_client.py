@@ -260,7 +260,7 @@ class MalaysianLlamaClient:
             "Convert the user utterance into one standard British English sentence for intent classification. "
             "Preserve the meaning, command intent, time expressions, names, and numbers. "
             "Return only the normalised sentence, with no quotation marks, no labels, and no explanation. "
-            "For wake or confirmation phrases, return exactly 'Hey, Juno' or 'yes' when appropriate."
+            "For wake or confirmation phrases, return exactly 'Hey, John' or 'yes' when appropriate."
         )
         user_prompt = f"User utterance: {text}\nNormalised British English:"
         return [

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""ROS speech-to-text node for JUNO Assist using Whisper Tiny.
+"""ROS speech-to-text node for JUNO Assist.
 
-This keeps the successful human-robot interaction control flow from the
-`anas` branch while preserving the lighter ASR model from the integration
-branch:
+Primary ASR: openai/whisper-tiny via Hugging Face Transformers pipeline.
+Fallback ASR: moonshine/base via moonshine-onnx (used if Whisper fails to load).
 
 - listens to `/audio/raw` from the microphone node;
 - mutes transcription while JUNO is speaking on `/juno/tts`;
@@ -49,20 +48,26 @@ class WhisperTinyTranscriber:
 
         self.model_id = os.getenv("JUNO_ASR_MODEL_ID", "openai/whisper-tiny")
         self.sample_rate = int(os.getenv("JUNO_ASR_SAMPLE_RATE", "16000"))
-        self.window_seconds = float(os.getenv("JUNO_ASR_WINDOW_SECONDS", "3.0"))
+        self.window_seconds = float(os.getenv("JUNO_ASR_WINDOW_SECONDS", "1.0"))
         self.buffer_size = max(1, int(self.sample_rate * self.window_seconds))
-        self.min_rms = float(os.getenv("JUNO_ASR_MIN_RMS", "0.03"))
-        self.task = os.getenv("JUNO_ASR_TASK", "translate").strip().lower()
+        self.min_rms = float(os.getenv("JUNO_ASR_MIN_RMS", "0.010"))
+        self.task = os.getenv("JUNO_ASR_TASK", "transcribe").strip().lower()
         self.language = os.getenv("JUNO_ASR_LANGUAGE", "").strip() or None
         self.device = self._parse_device(os.getenv("JUNO_ASR_DEVICE", "-1"))
         self.tts_resume_delay = float(os.getenv("JUNO_ASR_TTS_RESUME_DELAY", "0.5"))
+
+        self.moonshine_model = os.getenv("JUNO_ASR_MOONSHINE_MODEL", "moonshine/base")
 
         self.audio_lock = threading.Lock()
         self.audio_buffer = []
         self.current_length = 0
         self._muted = False
+        self._last_loud_time: float = 0.0
+        self._silence_flush_seconds: float = 0.4
         self._asr_pipeline: Optional[Any] = None
+        self._moonshine: Optional[Any] = None
         self._load_error: Optional[str] = None
+        self._using_moonshine: bool = False
 
         self.transcript_pub = rospy.Publisher(self.output_topic, String, queue_size=10)
         rospy.Subscriber(self.audio_topic, Float32MultiArray, self.audio_callback)
@@ -74,15 +79,12 @@ class WhisperTinyTranscriber:
         self.process_thread.daemon = True
         self.process_thread.start()
 
-        rospy.loginfo("JUNO Whisper Tiny transcriber ready.")
+        rospy.loginfo("JUNO transcriber ready. Primary: %s | Fallback: %s", self.model_id, self.moonshine_model)
         rospy.loginfo("Audio input topic: %s", self.audio_topic)
         rospy.loginfo("Output transcript topic: %s", self.output_topic)
         rospy.loginfo("Manual/external transcript input topic: %s", self.manual_text_topic)
         rospy.loginfo("TTS mute topics: %s -> %s", self.tts_topic, self.tts_done_topic)
-        rospy.loginfo("ASR model: %s", self.model_id)
-        rospy.loginfo("ASR task: %s", self.task)
-        rospy.loginfo("ASR window: %.2fs at %d Hz", self.window_seconds, self.sample_rate)
-        rospy.loginfo("ASR RMS threshold: %.4f", self.min_rms)
+        rospy.loginfo("ASR task: %s | window: %.2fs at %d Hz | RMS threshold: %.4f", self.task, self.window_seconds, self.sample_rate, self.min_rms)
 
     def _on_tts_start(self, _msg: String) -> None:
         """Pause STT and clear buffered audio when JUNO starts speaking."""
@@ -98,12 +100,17 @@ class WhisperTinyTranscriber:
         rospy.loginfo("TTS done — transcription resumed.")
 
     def audio_callback(self, msg: Float32MultiArray) -> None:
+        import time as _time
         if self._muted or not msg.data:
             return
 
         chunk = np.asarray(msg.data, dtype=np.float32)
         if not chunk.size:
             return
+
+        chunk_rms = float(np.sqrt(np.mean(np.square(chunk))))
+        if chunk_rms >= self.min_rms:
+            self._last_loud_time = _time.monotonic()
 
         with self.audio_lock:
             self.audio_buffer.append(chunk)
@@ -117,25 +124,48 @@ class WhisperTinyTranscriber:
             self.transcript_pub.publish(String(data=text))
 
     def inference_loop(self) -> None:
+        import time as _time
         while not rospy.is_shutdown():
-            if not self._muted and self.current_length >= self.buffer_size:
+            # flush early if speech detected then silence for 0.4s (catches short words like "yes")
+            silence_flush = (
+                not self._muted
+                and self.current_length > 0
+                and self.current_length < self.buffer_size
+                and self._last_loud_time > 0
+                and (_time.monotonic() - self._last_loud_time) >= self._silence_flush_seconds
+            )
+            if not self._muted and self.current_length > 0 and not silence_flush and self.current_length < self.buffer_size:
+                rospy.logdebug("[DBG] waiting: samples=%d/%d last_loud=%.2fs ago",
+                               self.current_length, self.buffer_size,
+                               (_time.monotonic() - self._last_loud_time) if self._last_loud_time else -1)
+            if not self._muted and (self.current_length >= self.buffer_size or silence_flush):
                 with self.audio_lock:
                     full_audio = np.concatenate(self.audio_buffer).astype(np.float32, copy=False)
                     audio_to_process = full_audio[: self.buffer_size]
                     remaining_audio = full_audio[self.buffer_size :]
                     self.audio_buffer = [remaining_audio] if remaining_audio.size else []
                     self.current_length = int(remaining_audio.size)
+                    self._last_loud_time = 0.0
 
                 rms = float(np.sqrt(np.mean(np.square(audio_to_process)))) if audio_to_process.size else 0.0
+                rospy.loginfo("[DBG] flush=%s samples=%d rms=%.5f threshold=%.5f",
+                              "silence" if silence_flush else "full",
+                              audio_to_process.size, rms, self.min_rms)
                 if rms < self.min_rms:
-                    rospy.logdebug("Skipping quiet audio. RMS %.6f < %.6f", rms, self.min_rms)
+                    rospy.loginfo("[DBG] Skipped — below RMS threshold")
                     rospy.sleep(0.05)
                     continue
 
+                # pad short clips to full buffer size so Whisper has enough context
+                if audio_to_process.size < self.buffer_size:
+                    audio_to_process = np.pad(audio_to_process, (0, self.buffer_size - audio_to_process.size))
+
                 transcript = self.transcribe(audio_to_process)
-                if transcript:
-                    print(f"[TRANSCRIBED SPEECH] {transcript}", flush=True)
-                    rospy.loginfo("Whisper transcript: %s", transcript)
+                rospy.loginfo("[DBG] Whisper raw output: %r", transcript)
+                if transcript and not self._is_hallucination(transcript):
+                    engine = "Moonshine" if self._using_moonshine else "Whisper"
+                    print(f"[TRANSCRIBED SPEECH] ({engine}) {transcript}", flush=True)
+                    rospy.loginfo("%s transcript: %s", engine, transcript)
                     self.transcript_pub.publish(String(data=transcript))
                     rospy.loginfo("Published transcript to %s: %s", self.output_topic, transcript)
 
@@ -145,7 +175,7 @@ class WhisperTinyTranscriber:
         if not self._ensure_pipeline_loaded():
             rospy.logwarn_throttle(
                 10,
-                "Whisper Tiny ASR unavailable; use /speech/raw_transcript fallback. Error: %s",
+                "All ASR engines unavailable; use /speech/raw_transcript fallback. Error: %s",
                 self._load_error,
             )
             return ""
@@ -155,6 +185,11 @@ class WhisperTinyTranscriber:
         if max_abs > 1.0:
             audio = audio / max_abs
 
+        if self._using_moonshine:
+            return self._transcribe_moonshine(audio)
+        return self._transcribe_whisper(audio)
+
+    def _transcribe_whisper(self, audio: np.ndarray) -> str:
         payload = {"array": audio, "sampling_rate": self.sample_rate}
         generate_kwargs = {}
         if self.task in {"translate", "transcribe"}:
@@ -168,22 +203,32 @@ class WhisperTinyTranscriber:
             else:
                 result = self._asr_pipeline(payload)
         except TypeError:
-            # Older Transformers versions may not accept generate_kwargs.
             result = self._asr_pipeline(payload)
-        except Exception as exc:  # pragma: no cover - model/runtime dependent
-            rospy.logerr("Whisper Tiny transcription failed: %s", exc)
+        except Exception as exc:
+            rospy.logerr("Whisper transcription failed: %s", exc)
             return ""
 
         if isinstance(result, dict):
             return self._clean_text(str(result.get("text", "")))
         return self._clean_text(str(result))
 
+    def _transcribe_moonshine(self, audio: np.ndarray) -> str:
+        try:
+            import moonshine_onnx as moonshine
+            result = moonshine.transcribe(audio, self.moonshine_model)
+            transcript = result[0].strip() if result else ""
+            return self._clean_text(transcript)
+        except Exception as exc:
+            rospy.logerr("Moonshine transcription failed: %s", exc)
+            return ""
+
     def _ensure_pipeline_loaded(self) -> bool:
-        if self._asr_pipeline is not None:
+        if self._asr_pipeline is not None or self._using_moonshine:
             return True
         if self._load_error is not None:
             return False
 
+        # Try Whisper first
         try:
             from transformers import pipeline
 
@@ -193,11 +238,64 @@ class WhisperTinyTranscriber:
                 model=self.model_id,
                 device=self.device,
             )
+            rospy.loginfo("Whisper ASR loaded successfully.")
             return True
-        except Exception as exc:  # pragma: no cover - dependency/model dependent
-            self._load_error = str(exc)
-            rospy.logerr("Could not load Whisper Tiny ASR pipeline: %s", exc)
+        except Exception as whisper_exc:
+            rospy.logwarn("Whisper failed to load (%s). Trying Moonshine fallback.", whisper_exc)
+
+        # Fallback to Moonshine
+        try:
+            import moonshine_onnx  # noqa: F401 — verify import works
+            rospy.loginfo("Moonshine fallback loaded: %s", self.moonshine_model)
+            self._using_moonshine = True
+            return True
+        except Exception as moonshine_exc:
+            self._load_error = "Whisper: %s | Moonshine: %s" % (whisper_exc, moonshine_exc)
+            rospy.logerr("Both ASR engines failed to load. %s", self._load_error)
             return False
+
+    @staticmethod
+    def _is_hallucination(text: str) -> bool:
+        import re as _re
+
+        # non-ASCII (Japanese/Chinese hallucinations on silence)
+        if _re.search(r'[^\x00-\x7F]', text):
+            rospy.logwarn("Dropping non-ASCII hallucination: %s...", text[:40])
+            return True
+
+        # known Whisper silence phrases
+        _SILENCE_PHRASES = {
+            "thank you for watching",
+            "thanks for watching",
+            "please subscribe",
+            "like and subscribe",
+            "see you next time",
+            "bye bye",
+            "thank you",
+            "thanks",
+            "sour de la pente",
+            "a lot of people are watching",
+        }
+        lower = text.lower().strip(" .,!?")
+        if any(p in lower for p in _SILENCE_PHRASES):
+            rospy.logwarn("Dropping known silence hallucination: %s", text[:60])
+            return True
+
+        # single char repeated with any separator: J-J-J-J or a.a.a.a
+        if _re.search(r'\b(\w)\W\1(\W\1){4,}', text):
+            rospy.logwarn("Dropping single-char loop hallucination: %s...", text[:40])
+            return True
+
+        # 4-word ngram repeated 3+ times
+        words = text.split()
+        ngram_size = 4
+        if len(words) >= ngram_size * 3:
+            ngrams = [" ".join(words[i:i+ngram_size]) for i in range(len(words) - ngram_size + 1)]
+            for ng in ngrams:
+                if ngrams.count(ng) >= 3:
+                    rospy.logwarn("Dropping hallucination loop: %s...", text[:80])
+                    return True
+        return False
 
     def _clear_audio_buffer(self) -> None:
         with self.audio_lock:

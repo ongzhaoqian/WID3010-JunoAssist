@@ -14,7 +14,7 @@ class Settings:
     app_name: str = "JUNO Assist"
     dashboard_url: str = os.getenv("JUNO_DASHBOARD_URL", "http://localhost:5173")
     database_path: str = os.getenv("JUNO_DATABASE_PATH", "juno_assist.db")
-    wake_phrase: str = os.getenv("JUNO_WAKE_PHRASE", "hey, juno")
+    wake_phrase: str = os.getenv("JUNO_WAKE_PHRASE", "hey john")
     confirmation_phrase: str = os.getenv("JUNO_CONFIRMATION_PHRASE", "yes")
     emotion_update_seconds: float = float(os.getenv("JUNO_EMOTION_UPDATE_SECONDS", "3.0"))
 

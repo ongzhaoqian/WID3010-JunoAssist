@@ -1,3 +1,4 @@
+from __future__ import annotations
 from threading import Lock
 from .models import RobotMode, EmotionState
 

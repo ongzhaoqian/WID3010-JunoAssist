@@ -1,26 +1,29 @@
-# ROS Integration Guide for JUNO Assist and Jupiter Robot Code
+# ROS Integration Guide for JUNO Assist and Jupiter Robot
 
-This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot ROS code are integrated after replacing the previous heavy language-model path with Whisper Tiny ASR.
+This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot ROS nodes are integrated. Speech recognition uses `openai/whisper-tiny` as the primary ASR engine, with `moonshine/base` (via `moonshine-onnx`) as an automatic fallback if Whisper fails to load.
 
 ## 1. Current ROS Topics
 
 | Node | Topic | Message Type | Purpose |
 |---|---|---|---|
 | `camera_node.py` | `/camera/image_raw` | `sensor_msgs/Image` | Publishes Jupiter/laptop camera frames. |
-| `microphone_node.py` | `/audio/raw` | `std_msgs/Float32MultiArray` | Publishes mono float microphone samples. |
-| `transcriber.py` | `/speech/transcript` | `std_msgs/String` | Runs `openai/whisper-tiny` ASR and publishes recognised text. |
+| `microphone_node.py` | `/audio/raw` | `std_msgs/Float32MultiArray` | Publishes mono float32 microphone samples at 16 kHz. |
+| `transcriber.py` | `/speech/transcript` | `std_msgs/String` | Runs ASR (Whisper primary, Moonshine fallback) and publishes recognised text. |
 | External ASR or `example_transcriptor.py` | `/speech/raw_transcript` | `std_msgs/String` | Manual/external transcript fallback; relayed to `/speech/transcript`. |
-| `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using a British English voice where available. |
+| `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using British English voice where available. |
+| `tts_node.py` | `/juno/tts_done` | `std_msgs/String` | Published after TTS finishes; transcriber resumes listening. |
 | Backend ROS bridge | `/juno/led_state` | `std_msgs/String` | Optional LED/status feedback. |
 
 ## 2. Integration Flow
+
+### Speech pipeline
 
 ```text
 User speech
   ↓
 microphone_node.py publishes /audio/raw
   ↓
-transcriber.py uses openai/whisper-tiny
+transcriber.py — tries openai/whisper-tiny, falls back to moonshine/base if Whisper unavailable
   ↓
 /speech/transcript
   ↓
@@ -30,10 +33,22 @@ Backend runs the same command pipeline used by the dashboard
   ↓
 Backend publishes British English response to /juno/tts
   ↓
-tts_node.py speaks the response using en_GB/UK voice where available
+tts_node.py speaks the response, then publishes /juno/tts_done
+  ↓
+transcriber.py resumes listening
 ```
 
-Vision flow:
+### Manual fallback
+
+```text
+example_transcriptor.py or external ASR
+  ↓
+/speech/raw_transcript
+  ↓
+transcriber.py relays it directly to /speech/transcript
+```
+
+### Vision pipeline
 
 ```text
 Jupiter camera
@@ -47,13 +62,54 @@ EmotionDetector receives latest frame
 Dashboard updates current emotion via WebSocket
 ```
 
-## 3. Why Whisper Tiny Replaces the Heavy Local Model
+## 3. ASR Engine Strategy
 
-The previous Malaysian Llama + LoRA path was too large for the local machine connected to the robot. Whisper Tiny is used only for speech-to-text or speech translation. It does not replace backend intent logic or response generation.
+| Engine | Package | Model | When used |
+|---|---|---|---|
+| Whisper Tiny | `transformers` (HuggingFace) | `openai/whisper-tiny` | Primary — always tried first |
+| Moonshine Base | `moonshine-onnx` | `moonshine/base` | Fallback — used if Whisper fails to load (e.g. PyTorch/memory issue on robot) |
 
-The architecture stays intact because `/speech/transcript` remains the backend-facing topic.
+The transcriber logs which engine loaded:
 
-## 4. Running the Integrated System
+```
+JUNO transcriber ready. Primary: openai/whisper-tiny | Fallback: moonshine/base
+```
+
+Per-transcript output shows the active engine:
+
+```
+[TRANSCRIBED SPEECH] (Whisper) hey john what is my schedule today
+[TRANSCRIBED SPEECH] (Moonshine) hey john what is my schedule today
+```
+
+Whisper is an ASR/speech-translation model, not a chatbot. It converts speech to text only. Backend intent classification and response generation remain deterministic.
+
+## 4. Environment Variables
+
+```bash
+# ASR — primary (Whisper)
+export JUNO_ASR_MODEL_ID=openai/whisper-tiny
+export JUNO_ASR_TASK=transcribe
+export JUNO_ASR_LANGUAGE=
+export JUNO_ASR_SAMPLE_RATE=16000
+export JUNO_ASR_WINDOW_SECONDS=3.0
+export JUNO_ASR_MIN_RMS=0.035
+export JUNO_ASR_DEVICE=-1
+export JUNO_ASR_TTS_RESUME_DELAY=0.5
+
+# ASR — fallback (Moonshine)
+export JUNO_ASR_MOONSHINE_MODEL=moonshine/base
+
+# Microphone — use name-based selection so index does not change on reboot
+export JUNO_MIC_DEVICE_NAME="0x46d:0x825"   # substring of pyaudio device name; adjust if mic differs
+export JUNO_MIC_SOURCE_RATE=48000
+export JUNO_MIC_CHUNK_SIZE=1024
+# export JUNO_MIC_DEVICE_INDEX=7             # fallback: use index only if JUNO_MIC_DEVICE_NAME is unset
+```
+
+Use `JUNO_ASR_TASK=translate` when you want non-English speech translated to English before intent classification. Use `JUNO_ASR_TASK=transcribe` to keep the transcript in the spoken language.
+
+## 5. Running the Integrated System
 
 ### Terminal 1: ROS Core
 
@@ -61,7 +117,7 @@ The architecture stays intact because `/speech/transcript` remains the backend-f
 roscore
 ```
 
-### Terminal 2: Catkin Workspace
+### Terminal 2: Catkin Workspace and ROS Nodes
 
 From the project root:
 
@@ -69,31 +125,32 @@ From the project root:
 catkin_make
 source devel/setup.bash
 pip install -r src/language_pkg/requirements-asr.txt
+amixer -c 3 sset Mic cap on
+amixer -c 3 sset Mic 16
 roslaunch juno_bringup juno_robot.launch
 ```
 
 This launches:
 
-- camera publisher
-- microphone publisher
-- Whisper Tiny transcriber node
-- British-English TTS node
+- `camera_node.py` — camera publisher
+- `microphone_node.py` — microphone publisher (device resolved by `JUNO_MIC_DEVICE_NAME`, 48 kHz → 16 kHz)
+- `transcriber.py` — Whisper primary / Moonshine fallback ASR
+- `tts_node.py` — British English TTS with `/juno/tts_done` signal
 
 ### Terminal 3: Backend in ROS Mode
 
 ```bash
 cd backend
 source ../devel/setup.bash
-python -m venv .venv
+python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
 pip install -r requirements.txt
-
 export JUNO_ROBOT_INTERFACE=ros
 export JUNO_DASHBOARD_URL=http://localhost:5173
 python main.py
 ```
 
-If the dashboard is opened from another laptop, replace `localhost` with the robot IP:
+If the dashboard runs on a different machine from the backend:
 
 ```bash
 export JUNO_DASHBOARD_URL=http://ROBOT_IP:5173
@@ -120,94 +177,76 @@ source devel/setup.bash
 rosrun language_pkg example_transcriptor.py
 ```
 
-Then type commands such as:
+Then type commands:
 
 ```text
-Hey, Juno
+Hey, John
 Yes
 What is my schedule today?
 I feel tired, what should I do?
 ```
 
-## 5. Testing the ROS Bridge
+## 6. Testing
 
-Check camera topic:
-
-```bash
-rostopic list
-rostopic echo /camera/image_raw/header
-```
-
-Check raw audio topic:
+Check audio is being published:
 
 ```bash
 rostopic echo /audio/raw
 ```
 
-Check recognised speech transcript topic:
+Check recognised transcripts:
 
 ```bash
 rostopic echo /speech/transcript
 ```
 
-Manually test the fallback transcript path:
+Manually inject transcript (bypasses ASR):
 
 ```bash
-rostopic pub /speech/raw_transcript std_msgs/String "data: 'Hey, Juno'"
+rostopic pub /speech/raw_transcript std_msgs/String "data: 'Hey, John'"
 rostopic pub /speech/raw_transcript std_msgs/String "data: 'Yes'"
 rostopic pub /speech/raw_transcript std_msgs/String "data: 'What is my schedule today?'"
 ```
 
-Check backend speech output:
+Check TTS output and done signal:
 
 ```bash
 rostopic echo /juno/tts
 rostopic echo /juno/tts_done
 ```
 
-## 6. What Was Changed
+Check backend ASR/AI status:
 
-### `backend/src/robot/ros_jupiter_interface.py`
+```bash
+curl http://localhost:8000/api/ai/status
+```
 
-Unchanged topic boundary. This file still subscribes to:
+## 7. Key Source Files
 
-- `/speech/transcript`
-- `/camera/image_raw`
+| File | Purpose |
+|---|---|
+| `src/language_pkg/scripts/transcriber.py` | ASR node — Whisper primary, Moonshine fallback, TTS mute/resume, manual relay. |
+| `src/language_pkg/scripts/tts_node.py` | TTS node — British English voice, publishes `/juno/tts_done`. |
+| `src/language_pkg/scripts/helper.py` | Pre-downloads Whisper model assets into local cache. |
+| `src/language_pkg/scripts/example_transcriptor.py` | Manual text input that publishes to `/speech/raw_transcript`. |
+| `src/juno_bringup/launch/juno_robot.launch` | Launches all robot-side ROS nodes. |
+| `src/perception_pkg/scripts/microphone_node.py` | Captures mic audio, downsamples 48 kHz → 16 kHz, publishes `/audio/raw`. |
+| `backend/src/robot/ros_jupiter_interface.py` | Backend ROS bridge — subscribes `/speech/transcript`, `/camera/image_raw`; publishes `/juno/tts`, `/juno/led_state`. |
+| `backend/src/api/app.py` | Centralised `process_command_text()` pipeline shared by dashboard and ROS. |
+| `backend/src/activation/wake_word_detector.py` | Fuzzy wake word detection with `difflib` — handles ASR mishearing of "Hey, John". |
+| `backend/src/core/config.py` | All `JUNO_ASR_*` and robot settings. |
+| `backend/src/speech/speech_to_text.py` | Lazy-loaded Whisper utility for non-ROS/test paths. |
+| `src/language_pkg/requirements-asr.txt` | ASR dependencies (Whisper + Moonshine). |
 
-It publishes to:
+## 8. Demo Script
 
-- `/juno/tts`
-- `/juno/led_state`
-
-### `backend/src/api/app.py`
-
-The command processing remains centralised in `process_command_text()`. Whisper Tiny transcribes speech before it reaches this backend, and the backend continues to use deterministic intent classification and response handling.
-
-### `backend/src/core/config.py`
-
-Adds `JUNO_ASR_*` settings for the robot-friendly ASR path. Text LLM settings remain available but are disabled and blank by default.
-
-### `src/language_pkg/scripts/transcriber.py`
-
-Runs Hugging Face `openai/whisper-tiny` on `/audio/raw` windows and publishes recognised text to `/speech/transcript`. It now mirrors the working `anas` branch logic: buffered audio windows, RMS/VAD filtering, TTS mute on `/juno/tts`, resume on `/juno/tts_done`, and manual `/speech/raw_transcript` fallback.
-
-### `src/language_pkg/scripts/tts_node.py`
-
-Selects a British English voice in `pyttsx3` where possible, falls back to `espeak-ng`/`espeak -v en-gb`, and publishes `/juno/tts_done` once speech output finishes.
-
-### `src/juno_bringup/launch/juno_robot.launch`
-
-Starts the same robot-facing ROS package structure while replacing the old language normaliser with `whisper_tiny_transcriber`.
-
-## 7. Feasible Demo Script
-
-1. Launch ROS nodes.
-2. Start backend with `JUNO_ROBOT_INTERFACE=ros`.
-3. Start dashboard.
+1. Launch ROS nodes (Terminal 2).
+2. Start backend with `JUNO_ROBOT_INTERFACE=ros` (Terminal 3).
+3. Start dashboard (Terminal 4).
 4. Say or publish:
 
 ```text
-Hey, Juno
+Hey, John
 ```
 
 5. JUNO replies:
@@ -222,7 +261,7 @@ Are you sure you would like to power Juno on? Answer yes if you do, else ignore.
 Yes
 ```
 
-7. JUNO opens the dashboard and enters active mode.
+7. JUNO enters active mode and opens the dashboard.
 8. Try:
 
 ```text
@@ -233,15 +272,14 @@ Play relaxing music.
 Juno, go to sleep.
 ```
 
-## 8. Recommended Course Scope
-
-For the undergraduate robotics course, keep the final integration scope to:
+## 9. Recommended Scope for Course Demo
 
 - ROS camera and microphone input
-- Whisper Tiny or manual transcript fallback
-- backend command handling
-- dashboard visual feedback
-- British-English TTS output
-- mock or lightweight emotion estimate
+- Whisper Tiny ASR with Moonshine fallback
+- Manual transcript fallback via `example_transcriptor.py`
+- Backend deterministic intent handling
+- Dashboard visual feedback
+- British English TTS output
+- Lightweight emotion estimate
 
 Avoid depending on a large cloud or local LLM during the live robot demo.

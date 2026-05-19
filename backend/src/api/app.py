@@ -75,24 +75,33 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": Intent.WAKE, "response": response, "status": robot_state.snapshot()}
 
-            response = "JUNO is sleeping. Say Hey, Juno to wake me up."
+            response = "JUNO is sleeping. Say Hey, John to wake me up."
             robot_state.set_response(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.CONFIRMATION:
-            if confirmation_handler.is_confirmed(text):
-                robot_state.set_mode(RobotMode.ACTIVE)
-                robot.set_led_state("active")
-                robot.open_dashboard(settings.dashboard_url)
-                response = "JUNO Assist is now online. Opening your dashboard."
+            _explicit_no = {"no", "nope", "nah", "cancel", "stop", "ignore", "negative", "abort"}
+            words = set(text.lower().split())
+
+            # explicit rejection — reset to idle
+            if words & _explicit_no:
+                response = "Confirmation not received. JUNO will return to idle mode."
+                robot_state.set_mode(RobotMode.IDLE)
                 robot_state.set_response(response)
                 tts.speak(response)
-                return {"intent": Intent.CONFIRM, "response": response, "status": robot_state.snapshot()}
+                return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
-            response = "Confirmation not received. JUNO will return to idle mode."
-            robot_state.set_mode(RobotMode.IDLE)
+            # any non-empty speech that isn't a clear "no" = confirmation
+            robot_state.set_mode(RobotMode.ACTIVE)
+            robot.set_led_state("active")
+            robot.open_dashboard(settings.dashboard_url)
+            response = "JUNO Assist is now online. Opening your dashboard."
             robot_state.set_response(response)
-            return {"intent": intent, "response": response, "status": robot_state.snapshot()}
+            tts.speak(response)
+            return {"intent": Intent.CONFIRM, "response": response, "status": robot_state.snapshot()}
+
+            # unreachable — kept for structure
+            return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.ACTIVE:
             if intent == Intent.SLEEP:
@@ -146,10 +155,16 @@ def create_app() -> FastAPI:
 
     async def _ros_speech_command_loop():
         """Consumes transcripts published by language_pkg/transcriber.py."""
+        import logging
+        _log = logging.getLogger("juno.ros_loop")
+        loop = asyncio.get_event_loop()
         while True:
-            transcript = await asyncio.to_thread(robot.listen)
-            if transcript:
-                process_command_text(transcript)
+            try:
+                transcript = await loop.run_in_executor(None, robot.listen)
+                if transcript:
+                    process_command_text(transcript)
+            except Exception as exc:
+                _log.error("ROS speech loop error (continuing): %s", exc)
             await asyncio.sleep(0.05)
 
     @app.get("/api/features")

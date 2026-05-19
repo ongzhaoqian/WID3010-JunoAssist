@@ -25,7 +25,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 
 ## Main Features
 
-- Wake command: `Hey, Juno`
+- Wake command: `Hey, Jude`
 - Voice confirmation before activation
 - Web dashboard after activation
 - Facial emotion monitoring using a mockable vision module
@@ -107,7 +107,7 @@ WID3010-JunoAssist/
 
 ```text
 1. Robot stays in Idle Mode.
-2. User says: "Hey, Juno".
+2. User says: "Hey, Jude".
 3. JUNO replies:
    "Are you sure you would like to power Juno on? Answer yes if you do, else ignore."
 4. User says: "Yes".
@@ -221,7 +221,7 @@ If the lab machine has an older Python version, install Python through the opera
 3. In the dashboard command box, type:
 
 ```text
-Hey, Juno
+Hey, Jude
 ```
 
 4. Then type:
