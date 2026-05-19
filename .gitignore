@@ -31,16 +31,6 @@ __pycache__/
 # Ignore metadata files
 *:Zone.Identifier
 
-# Ignore generated ROS/catkin build folders
-build/
-devel/
-install/
-log/
-logs/
-.catkin_workspace
-backend/src/CMakeLists.txt
-dashboard/src/CMakeLists.txt
-
 # Ignore temporary and environment artifacts
 *.log
 *.sqlite3

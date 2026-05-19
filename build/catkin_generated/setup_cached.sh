@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# generated from catkin/python/catkin/environment_cache.py
+
+# based on a snapshot of the environment before and after calling the setup script
+# it emulates the modifications of the setup script without recurring computations
+
+# new environment variables
+
+# modified environment variables
+export CMAKE_PREFIX_PATH="/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/devel:$CMAKE_PREFIX_PATH"
+export LD_LIBRARY_PATH="/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/devel/lib:$LD_LIBRARY_PATH"
+export PATH='/opt/ros/noetic/bin:/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/backend/.venv/bin:/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/backend/.venv/bin:/home/mustar/.nvm/versions/node/v20.20.2/bin:/home/mustar/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/mustar/.vscode/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/scripts/noConfigScripts'
+export PKG_CONFIG_PATH="/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/devel/lib/pkgconfig:$PKG_CONFIG_PATH"
+export PWD='/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/build'
+export ROSLISP_PACKAGE_DIRECTORIES="/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/devel/share/common-lisp:$ROSLISP_PACKAGE_DIRECTORIES"
+export ROS_PACKAGE_PATH="/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/src:$ROS_PACKAGE_PATH"

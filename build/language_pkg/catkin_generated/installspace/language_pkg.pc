@@ -1,0 +1,8 @@
+prefix=/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/install
+
+Name: language_pkg
+Description: Description of language_pkg
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 
