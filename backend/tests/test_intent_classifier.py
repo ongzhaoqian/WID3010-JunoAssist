@@ -4,7 +4,7 @@ from src.core.models import Intent
 
 def test_wake_intent():
     classifier = IntentClassifier()
-    assert classifier.classify("Hey, Juno") == Intent.WAKE
+    assert classifier.classify("Hey, John") == Intent.WAKE
 
 
 def test_timer_intent():

@@ -25,11 +25,12 @@ Students often face many assignments, tests, classes, and deadlines during the s
 
 ## Main Features
 
-- Wake command: `Hey, Juno`
+- Wake command: `Hey, John`
 - Voice confirmation before activation
 - Web dashboard after activation
 - Facial emotion monitoring using a mockable vision module
 - Rule-based intent detection for course-level feasibility
+- Lightweight Whisper Tiny speech recognition for robot microphone input
 - Calendar and reminder storage using SQLite
 - Study timer and productivity recommendations
 - REST API and WebSocket updates using FastAPI
@@ -44,7 +45,7 @@ User
 ├── Voice Input
 │   ├── Wake Word Detection
 │   ├── Confirmation Handler
-│   ├── Speech-to-Text
+│   ├── Transcript Normalisation
 │   └── Intent Classifier
 │
 ├── Vision Input
@@ -97,8 +98,8 @@ WID3010-JunoAssist/
 | Real-time updates | WebSocket |
 | Storage | SQLite |
 | Vision | OpenCV-ready module, mock emotion detector by default |
-| Speech | Mock text input by default, replaceable with Whisper / Vosk / Jupiter speech |
-| NLP | Rule-based intent classifier |
+| Speech | ROS microphone input transcribed by Hugging Face `openai/whisper-tiny`; manual transcript fallback retained |
+| NLP | Rule-based intent classifier with deterministic backend responses; optional text LLM boundary disabled by default |
 | Dashboard | React, Vite, Tailwind CSS |
 | Testing | Pytest |
 
@@ -106,7 +107,7 @@ WID3010-JunoAssist/
 
 ```text
 1. Robot stays in Idle Mode.
-2. User says: "Hey, Juno".
+2. User says: "Hey, John".
 3. JUNO replies:
    "Are you sure you would like to power Juno on? Answer yes if you do, else ignore."
 4. User says: "Yes".
@@ -126,6 +127,65 @@ source .venv/bin/activate   # macOS / Linux
 pip install -r requirements.txt
 python main.py
 ```
+
+### Optional: Enable Whisper Tiny ASR for the Robot
+
+The robot-facing speech path now uses Hugging Face `openai/whisper-tiny` instead of the previous heavy Malaysian Llama + LoRA setup. Whisper Tiny is used for automatic speech recognition, while the backend continues to use deterministic intent classification and response logic.
+
+Install the optional ASR dependencies on the machine that runs the ROS transcriber node:
+
+```bash
+cd backend
+pip install -r requirements-asr.txt
+```
+
+For ROS usage, the language package also includes the same dependency list:
+
+```bash
+pip install -r src/language_pkg/requirements-asr.txt
+```
+
+Recommended ASR environment settings:
+
+```bash
+export JUNO_ASR_MODEL_ID=openai/whisper-tiny
+export JUNO_ASR_TASK=translate      # translate non-English speech to English
+export JUNO_ASR_SAMPLE_RATE=16000
+export JUNO_MIC_DEVICE_NAME=0x46d:0x825  # preferred: substring match on USB device name
+export JUNO_MIC_DEVICE_INDEX=7            # fallback if JUNO_MIC_DEVICE_NAME is unset
+export JUNO_ASR_WINDOW_SECONDS=3.0
+export JUNO_ASR_MIN_RMS=0.03
+export JUNO_ASR_DEVICE=-1                 # CPU; use 0 for first CUDA GPU if available
+export JUNO_ASR_TTS_RESUME_DELAY=0.5
+export JUNO_TTS_PUBLISHER_WAIT_SECONDS=2.0
+export JUNO_TTS_PUBLISH_RETRIES=1
+```
+
+Check the active AI/ASR configuration at:
+
+```text
+http://localhost:8000/api/ai/status
+```
+
+To test speech output independently from STT and intent classification, start ROS and the backend in ROS mode, then run either command:
+
+```bash
+rosrun language_pkg tts_test_publisher.py "Hello, I am JUNO and my speech output is working."
+# or, through the backend publisher:
+curl -X POST http://localhost:8000/api/robot/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello, I am JUNO and my backend speech path is working."}'
+```
+
+If `/speech/transcript` works but the robot is silent, check that `/juno/tts` receives text and that `juno_tts_node` is running:
+
+```bash
+rostopic echo /juno/tts
+rostopic echo /juno/tts_done
+rosnode list | grep tts
+```
+
+The backend no longer requires the Malaysian Llama base model or LoRA adapter for the robot demo. Manual or external transcript fallback remains available through `/speech/raw_transcript`, and the backend still consumes `/speech/transcript`.
 
 The backend will run at:
 
@@ -182,7 +242,7 @@ If the lab machine has an older Python version, install Python through the opera
 3. In the dashboard command box, type:
 
 ```text
-Hey, Juno
+Hey, John
 ```
 
 4. Then type:

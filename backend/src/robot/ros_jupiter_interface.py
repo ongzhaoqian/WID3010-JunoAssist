@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from queue import Queue, Empty
 from typing import Any
-import logging
 import subprocess
+import time
 import webbrowser
 
-from .jupiter_interface import JupiterInterface
+from src.core.config import settings
 
-logger = logging.getLogger("juno.backend.ros")
+from .jupiter_interface import JupiterInterface
 
 
 class RosJupiterInterface(JupiterInterface):
@@ -21,6 +21,11 @@ class RosJupiterInterface(JupiterInterface):
     Topics published by this backend:
     - /juno/tts               std_msgs/String
     - /juno/led_state         std_msgs/String
+
+    The TTS publisher is latched and waits briefly for a subscriber before
+    sending speech. This avoids the common startup issue where the backend
+    processes the first transcript correctly but the first response is dropped
+    because the ROS TTS node has not fully connected yet.
     """
 
     def __init__(self) -> None:
@@ -43,24 +48,33 @@ class RosJupiterInterface(JupiterInterface):
         self.transcript_queue: Queue[str] = Queue()
         self.latest_frame: Any = None
 
+        self.tts_topic = settings.tts_topic
+        self.led_topic = settings.led_topic
+        self.tts_wait_seconds = max(0.0, settings.tts_publisher_wait_seconds)
+        self.tts_publish_retries = max(1, settings.tts_publish_retries)
+        self.tts_publish_retry_delay = max(0.0, settings.tts_publish_retry_delay)
+
         if not rospy.core.is_initialized():
             rospy.init_node("juno_backend_bridge", anonymous=True, disable_signals=True)
 
-        self.tts_pub = rospy.Publisher("/juno/tts", String, queue_size=10)
-        self.led_pub = rospy.Publisher("/juno/led_state", String, queue_size=10)
+        # latch=True lets a restarted TTS subscriber receive the latest response,
+        # and the explicit connection wait below protects normal startup.
+        self.tts_pub = rospy.Publisher(self.tts_topic, String, queue_size=10, latch=True)
+        self.led_pub = rospy.Publisher(self.led_topic, String, queue_size=10, latch=True)
 
         rospy.Subscriber("/speech/transcript", String, self._transcript_callback)
         rospy.Subscriber("/camera/image_raw", Image, self._camera_callback)
 
-        rospy.loginfo("JUNO backend ROS bridge is ready.")
-        logger.info("JUNO backend ROS bridge is ready. Subscribed to /speech/transcript and /camera/image_raw")
+        rospy.loginfo(
+            "JUNO backend ROS bridge is ready. TTS topic=%s, LED topic=%s",
+            self.tts_topic,
+            self.led_topic,
+        )
 
     def _transcript_callback(self, msg: Any) -> None:
         text = str(msg.data).strip()
         if text:
-            print(f"[BACKEND ROS TRANSCRIPT] {text}", flush=True)
-            self.rospy.loginfo(f"Backend received /speech/transcript: {text}")
-            logger.info("Backend received /speech/transcript: %s", text)
+            self.rospy.loginfo("Backend received transcript: %s", text)
             self.transcript_queue.put(text)
 
     def _camera_callback(self, msg: Any) -> None:
@@ -69,9 +83,43 @@ class RosJupiterInterface(JupiterInterface):
         except Exception as exc:
             self.rospy.logwarn(f"Could not convert ROS image to OpenCV frame: {exc}")
 
+    def _wait_for_tts_subscriber(self) -> bool:
+        """Wait briefly for language_pkg/tts_node.py to subscribe."""
+        if self.tts_wait_seconds <= 0:
+            return self.tts_pub.get_num_connections() > 0
+
+        deadline = time.monotonic() + self.tts_wait_seconds
+        while not self.rospy.is_shutdown() and time.monotonic() < deadline:
+            if self.tts_pub.get_num_connections() > 0:
+                return True
+            self.rospy.sleep(0.05)
+        return self.tts_pub.get_num_connections() > 0
+
     def speak(self, text: str) -> None:
-        logger.info("Publishing backend response to /juno/tts: %s", text)
-        self.tts_pub.publish(self.String(data=text))
+        text = str(text).strip()
+        if not text:
+            return
+
+        connected = self._wait_for_tts_subscriber()
+        if not connected:
+            self.rospy.logwarn(
+                "Publishing JUNO speech without an active subscriber on %s. "
+                "Check that language_pkg/scripts/tts_node.py is running.",
+                self.tts_topic,
+            )
+
+        msg = self.String(data=text)
+        for attempt in range(1, self.tts_publish_retries + 1):
+            self.tts_pub.publish(msg)
+            self.rospy.loginfo(
+                "Published JUNO speech to %s (attempt %d/%d): %s",
+                self.tts_topic,
+                attempt,
+                self.tts_publish_retries,
+                text,
+            )
+            if attempt < self.tts_publish_retries:
+                self.rospy.sleep(self.tts_publish_retry_delay)
 
     def listen(self) -> str:
         try:
@@ -94,4 +142,8 @@ class RosJupiterInterface(JupiterInterface):
                 pass
 
     def set_led_state(self, state: str) -> None:
+        state = str(state).strip()
+        if not state:
+            return
         self.led_pub.publish(self.String(data=state))
+        self.rospy.loginfo("Published JUNO LED state to %s: %s", self.led_topic, state)

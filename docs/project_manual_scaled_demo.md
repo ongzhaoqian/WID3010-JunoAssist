@@ -23,7 +23,7 @@ The repository currently supports the following functions:
 | Area | Verified Files | Current Capability |
 |---|---|---|
 | Backend API | `backend/src/api/app.py` | Central command processing, dashboard API, WebSocket status stream, startup tasks, robot mode transitions. |
-| Wake/confirmation | `backend/src/activation/` | Detects “Hey, Juno” and requires user confirmation before active mode. |
+| Wake/confirmation | `backend/src/activation/` | Detects “Hey, John” and requires user confirmation before active mode. |
 | NLP | `backend/src/nlp/intent_classifier.py`, `response_generator.py` | Rule-based intent detection for schedule, deadline, timer, reminder, music, break, status, sleep. |
 | Speech output | `backend/src/speech/text_to_speech.py`, `src/language_pkg/scripts/tts_node.py` | Backend can publish responses to robot/ROS TTS topic. |
 | Speech input | `backend/src/robot/ros_jupiter_interface.py`, `src/language_pkg/scripts/transcriber.py` | ROS transcript topic can feed spoken text into the same command pipeline as dashboard input. |
@@ -51,7 +51,7 @@ The recommended approach is to **scale down to a stable MVP** while still satisf
 
 The final demo should show:
 
-1. User wakes JUNO with “Hey, Juno”.
+1. User wakes JUNO with “Hey, John”.
 2. JUNO asks for confirmation.
 3. User confirms with “Yes”.
 4. JUNO becomes active and responds by voice.
@@ -150,8 +150,8 @@ The final report should include an RQT graph screenshot showing the ROS nodes an
 
 - camera node publishing `/camera/image_raw`,
 - microphone node publishing `/audio/raw`,
-- transcriber subscribing to `/audio/raw`,
-- transcriber publishing `/speech/transcript`,
+- ASR/manual transcript source publishing `/speech/raw_transcript`,
+- Whisper Tiny transcriber publishing `/speech/transcript`,
 - backend bridge subscribing to `/speech/transcript` and `/camera/image_raw`,
 - backend bridge publishing `/juno/tts`,
 - TTS node subscribing to `/juno/tts`.
@@ -252,7 +252,7 @@ For extra RQT evidence, include:
 Use this sequence for the demo video and live presentation:
 
 1. Show the robot and dashboard in idle mode.
-2. User says or enters “Hey, Juno”.
+2. User says or enters “Hey, John”.
 3. JUNO asks for confirmation.
 4. User says or enters “Yes”.
 5. JUNO becomes active and the dashboard updates.
@@ -287,7 +287,7 @@ The project should be considered successful if the team can demonstrate:
 | Camera device path changes | Use laptop camera or mock emotion state. |
 | TTS package fails | Use terminal/log response plus dashboard response, then explain intended `/juno/tts` path. |
 | ROS environment unstable | Record RQT evidence during a successful lab session. |
-| Speech recognition inaccurate | Use short commands only: “Hey Juno”, “Yes”, “What do I have today”, “Set timer”. |
+| Speech recognition inaccurate | Use short commands only: “Hey John”, “Yes”, “What do I have today”, “Set timer”. |
 | Not enough robot time | Prepare and test in mock/laptop mode before each robot session. |
 
 ## Recommended Work Plan for 2-3 Weeks
