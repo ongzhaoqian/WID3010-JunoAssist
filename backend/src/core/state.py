@@ -51,7 +51,6 @@ class RobotState:
                 self.timer_remaining_seconds -= 1
             if self.timer_remaining_seconds == 0:
                 self.active_timer_label = None
-        self.vision_enabled = False
 
 
 robot_state = RobotState()
