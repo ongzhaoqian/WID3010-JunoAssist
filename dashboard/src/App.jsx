@@ -52,7 +52,7 @@ export default function App() {
         <p className="text-sm uppercase tracking-[0.25em] text-slate-300">Personal Daily Assistant Robot</p>
         <h1 className="mt-2 text-4xl font-bold">JUNO Assist Dashboard</h1>
         <p className="mt-3 max-w-3xl text-slate-300">
-          Wake JUNO with “Hey, Jude”, confirm with “Yes”, then use the assistant to manage study schedules, reminders, timers, and emotion-aware break suggestions.
+          Wake JUNO with “Hey, John”, confirm with “Yes”, then use the assistant to manage study schedules, reminders, timers, and emotion-aware break suggestions.
         </p>
       </header>
 

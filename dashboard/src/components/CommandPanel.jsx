@@ -26,7 +26,7 @@ export default function CommandPanel({ onCommandResult }) {
       <form onSubmit={submitCommand} className="space-y-3">
         <input
           className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none focus:ring-2 focus:ring-slate-400"
-          placeholder='Try "Hey, Jude", then "Yes", or "What do I have today?"'
+          placeholder='Try "Hey, John", then "Yes", or "What do I have today?"'
           value={text}
           onChange={(event) => setText(event.target.value)}
         />

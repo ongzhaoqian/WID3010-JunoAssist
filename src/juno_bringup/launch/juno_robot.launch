@@ -4,7 +4,7 @@
     <param name="camera_device" value="/dev/video2" />
   </node>
 
-  <!-- Audio input. Device resolved by name; index fallback removed. -->
+  <!-- Audio input. Device resolved by name via JUNO_MIC_DEVICE_NAME; falls back to JUNO_MIC_DEVICE_INDEX if name is unset. -->
   <node pkg="perception_pkg" type="microphone_node.py" name="microphone_node" output="screen">
     <param name="source_rate" value="48000" />
     <param name="target_rate" value="16000" />

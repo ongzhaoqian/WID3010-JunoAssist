@@ -25,7 +25,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 
 ## Main Features
 
-- Wake command: `Hey, Jude`
+- Wake command: `Hey, John`
 - Voice confirmation before activation
 - Web dashboard after activation
 - Facial emotion monitoring using a mockable vision module
@@ -107,7 +107,7 @@ WID3010-JunoAssist/
 
 ```text
 1. Robot stays in Idle Mode.
-2. User says: "Hey, Jude".
+2. User says: "Hey, John".
 3. JUNO replies:
    "Are you sure you would like to power Juno on? Answer yes if you do, else ignore."
 4. User says: "Yes".
@@ -151,13 +151,14 @@ Recommended ASR environment settings:
 export JUNO_ASR_MODEL_ID=openai/whisper-tiny
 export JUNO_ASR_TASK=translate      # translate non-English speech to English
 export JUNO_ASR_SAMPLE_RATE=16000
-export JUNO_MIC_DEVICE_INDEX=7
+export JUNO_MIC_DEVICE_NAME=0x46d:0x825  # preferred: substring match on USB device name
+export JUNO_MIC_DEVICE_INDEX=7            # fallback if JUNO_MIC_DEVICE_NAME is unset
 export JUNO_ASR_WINDOW_SECONDS=3.0
 export JUNO_ASR_MIN_RMS=0.03
-export JUNO_ASR_DEVICE=-1           # CPU; use 0 for first CUDA GPU if available
+export JUNO_ASR_DEVICE=-1                 # CPU; use 0 for first CUDA GPU if available
 export JUNO_ASR_TTS_RESUME_DELAY=0.5
 export JUNO_TTS_PUBLISHER_WAIT_SECONDS=2.0
-export JUNO_TTS_PUBLISH_RETRIES=3
+export JUNO_TTS_PUBLISH_RETRIES=1
 ```
 
 Check the active AI/ASR configuration at:
@@ -241,7 +242,7 @@ If the lab machine has an older Python version, install Python through the opera
 3. In the dashboard command box, type:
 
 ```text
-Hey, Jude
+Hey, John
 ```
 
 4. Then type:
