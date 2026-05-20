@@ -98,6 +98,7 @@ def create_app() -> FastAPI:
             response = "JUNO Assist is now online. Opening your dashboard."
             robot_state.set_response(response)
             tts.speak(response)
+            tts.speak("What can I help you with?")
             return {"intent": Intent.CONFIRM, "response": response, "status": robot_state.snapshot()}
 
             # unreachable — kept for structure
@@ -125,7 +126,9 @@ def create_app() -> FastAPI:
                 )
 
             robot_state.set_response(response)
-            tts.speak(response)
+            is_fallback = response == "Sorry, I can't help with that yet."
+            if not is_fallback:
+                tts.speak(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
         response = "JUNO is not ready yet."

@@ -40,7 +40,7 @@ class Settings:
     tts_topic: str = os.getenv("JUNO_TTS_TOPIC", "/juno/tts")
     led_topic: str = os.getenv("JUNO_LED_TOPIC", "/juno/led_state")
     tts_publisher_wait_seconds: float = float(os.getenv("JUNO_TTS_PUBLISHER_WAIT_SECONDS", "2.0"))
-    tts_publish_retries: int = int(os.getenv("JUNO_TTS_PUBLISH_RETRIES", "3"))
+    tts_publish_retries: int = int(os.getenv("JUNO_TTS_PUBLISH_RETRIES", "1"))
     tts_publish_retry_delay: float = float(os.getenv("JUNO_TTS_PUBLISH_RETRY_DELAY", "0.15"))
 
     # Optional text-generation LLM. Disabled by default because the robot target
