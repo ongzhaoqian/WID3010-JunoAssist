@@ -16,8 +16,8 @@ JUNO Assist is a prototype for a **Jupiter Robot-based personal daily assistant*
 
 The system is designed to run in two modes:
 
-1. **Mock / Laptop Mode** — runs without the Jupiter Robot using simulated robot hardware, suitable for development and demonstration.
-2. **Jupiter Integration Mode** — replaces the mock adapters with Jupiter Robot camera, microphone, speaker, and optional movement APIs.
+1. **Mock / Laptop Mode**: Runs without the Jupiter Robot using simulated robot hardware, suitable for development and demonstration.
+2. **Jupiter Integration Mode**: Replaces the mock adapters with Jupiter Robot camera, microphone, and speaker APIs.
 
 ## Project Scenario
 
@@ -94,11 +94,11 @@ WID3010-JunoAssist/
 └── README.md
 ```
 
-## Recommended Technology Stack
+## Technology Stack
 
 | Layer | Technology |
 |---|---|
-| Robot platform | Jupiter Robot / laptop mock mode |
+| Robot platform | Jupiter Robot mode |
 | Backend | Python, FastAPI, Uvicorn |
 | Real-time updates | WebSocket |
 | Storage | SQLite |
@@ -136,7 +136,7 @@ python main.py
 
 ### Optional: Enable Whisper Tiny ASR for the Robot
 
-The robot-facing speech path now uses Hugging Face `openai/whisper-tiny` instead of the previous heavy Malaysian Llama + LoRA setup. Whisper Tiny is used for automatic speech recognition, while the backend continues to use deterministic intent classification and response logic.
+The robot-facing speech path now uses Hugging Face `openai/whisper-tiny` for automatic speech recognition, while the backend continues to use deterministic intent classification and response logic.
 
 Install the optional ASR dependencies on the machine that runs the ROS transcriber node:
 
@@ -173,7 +173,7 @@ Check the active AI/ASR configuration at:
 http://localhost:8000/api/ai/status
 ```
 
-To test speech output independently from STT and intent classification, start ROS and the backend in ROS mode, then run either command:
+To test speech output independently from speech-to-text and intent classification, start ROS and the backend in ROS mode, then run either command:
 
 ```bash
 rosrun language_pkg tts_test_publisher.py "Hello, I am JUNO and my speech output is working."
@@ -213,7 +213,7 @@ The Jupiter webcam feed is shown inside the dashboard instead of a separate ROS 
 camera_node.py → /camera/image_raw → FastAPI ROS bridge → /api/vision/camera/stream → React CameraPanel
 ```
 
-On first dashboard load, the camera is **off by default**. The camera window remains visible as a placeholder with a **Switch On Camera** button, so the operator decides when the live `/dev/video2` feed should appear. The **Vision Module** toggle is separate: switch it on only when you want to load/run the emotion-recognition model. If the camera is on but the Vision Module is off, the panel works as a normal camera monitor only.
+On first dashboard load, the camera is **off by default**. To gain consent from the user for live image use, the camera window remains visible as a placeholder with a **Switch On Camera** button, so the operator decides when the live `/dev/video2` feed should appear. The **Vision Module** toggle is separate: switch it on only when you want to load/run the emotion-recognition model. If the camera is on but the Vision Module is off, the panel works as a normal camera monitor only.
 
 Useful endpoints:
 
@@ -273,7 +273,7 @@ DELETE http://localhost:8000/api/schedule/{item_id}
 
 ### Voice-driven study timer flow
 
-When the user says a generic timer request such as `start study timer`, JUNO now asks:
+When the user says a generic timer request, such as `start study timer`, JUNO now asks:
 
 ```text
 How long do you want to have the study timer for? Answer in minutes and seconds.
@@ -303,6 +303,38 @@ The dashboard will run at:
 ```text
 http://localhost:5173
 ```
+
+## Dashboard Visuals and Natural Response Layer
+
+The dashboard is styled with a gradient background, glass-morphism cards, soft neon accents, and a more polished operator layout inspired by the UMHackathon-style visual direction (https://umhackathon.org), which is implemented mainly in `dashboard/src/index.css`, `dashboard/src/App.jsx`, and shared card/form components.
+
+Robot responses are now centralised through `backend/src/nlp/phrase_bank.py`. Instead of hard-coding a single sentence in every invocation path, intent handlers now request phrasing from the phrase bank, which gives JUNO more natural response variation while keeping the behaviour deterministic enough for a course prototype.
+
+## Voice Schedule Capture
+
+JUNO can now add schedule items from a transcribed command that includes `date`, `time`, `purpose`, and `priority`.
+
+Example voice/text command:
+
+```text
+add schedule date 2026-05-20 time 15:30 purpose deep learning revision priority high
+```
+
+The backend stores the original ISO-style date for consistency, but also returns a display date for the dashboard and speech response:
+
+```text
+2026-05-20 → 20 May, 2026
+```
+
+The relevant implementation is in:
+
+```text
+backend/src/nlp/intent_classifier.py      # ADD_SCHEDULE intent + structured field parsing
+backend/src/calendar_module/calendar_service.py  # formatted_date generation
+backend/src/api/app.py                    # voice command handling and schedule creation
+dashboard/src/components/SchedulePanel.jsx # displays formatted_date when available
+```
+
 
 ## Troubleshooting Guide
 
@@ -372,7 +404,7 @@ open_dashboard(url: str) -> None
 set_led_state(state: str) -> None
 ```
 
-## Feasibility for Undergraduate Robotics Course
+## Scope Evaluation
 
 This project is intentionally scoped to be achievable:
 
@@ -385,41 +417,10 @@ This project is intentionally scoped to be achievable:
 
 ## Ethical Note
 
-The facial emotion module estimates visible expressions only. It must not be presented as a medical or psychological diagnosis. JUNO should use careful language such as:
+The facial emotion module estimates visible expressions only. It must not be presented as a medical or psychological diagnosis. JUNO should use careful language, such as:
 
 > "You seem a little tired. Would you like to take a short break?"
 
 not:
 
 > "You are definitely stressed."
-
-## Dashboard Visual Refresh and Natural Response Layer
-
-The dashboard has been restyled with a gradient background, glass-morphism cards, soft neon accents, and a more polished operator layout inspired by the UMHackathon-style visual direction. The redesign is implemented mainly in `dashboard/src/index.css`, `dashboard/src/App.jsx`, and shared card/form components.
-
-Robot responses are now centralised through `backend/src/nlp/phrase_bank.py`. Instead of hard-coding a single sentence in every invocation path, intent handlers now request phrasing from the phrase bank, which gives JUNO more natural response variation while keeping the behaviour deterministic enough for a course prototype.
-
-## Voice Schedule Capture
-
-JUNO can now add schedule items from a transcribed command that includes `date`, `time`, `purpose`, and `priority`.
-
-Example voice/text command:
-
-```text
-add schedule date 2026-05-20 time 15:30 purpose deep learning revision priority high
-```
-
-The backend stores the original ISO-style date for consistency, but also returns a display date for the dashboard and speech response:
-
-```text
-2026-05-20 → 20 May, 2026
-```
-
-The relevant implementation is in:
-
-```text
-backend/src/nlp/intent_classifier.py      # ADD_SCHEDULE intent + structured field parsing
-backend/src/calendar_module/calendar_service.py  # formatted_date generation
-backend/src/api/app.py                    # voice command handling and schedule creation
-dashboard/src/components/SchedulePanel.jsx # displays formatted_date when available
-```
