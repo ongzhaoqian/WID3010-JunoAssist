@@ -25,14 +25,14 @@ export default function CommandPanel({ onCommandResult }) {
     <Card title="Ask JUNO">
       <form onSubmit={submitCommand} className="space-y-3">
         <input
-          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none focus:ring-2 focus:ring-slate-400"
-          placeholder='Try "Hey, John", then "Yes", or "What do I have today?"'
+          className="input-glass w-full rounded-2xl px-4 py-3 text-sm"
+          placeholder='Try “add schedule date 2026-05-20 time 15:30 purpose revision priority high”'
           value={text}
           onChange={(event) => setText(event.target.value)}
         />
         <button
           type="submit"
-          className="rounded-xl bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50"
+          className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
           disabled={loading}
         >
           {loading ? "Sending..." : "Send Command"}

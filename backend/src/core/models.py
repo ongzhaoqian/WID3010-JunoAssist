@@ -24,6 +24,7 @@ class Intent(str, Enum):
     CONFIRM = "confirm"
     CHECK_SCHEDULE = "check_schedule"
     CHECK_DEADLINE = "check_deadline"
+    ADD_SCHEDULE = "add_schedule"
     SET_TIMER = "set_timer"
     ADD_REMINDER = "add_reminder"
     PLAY_MUSIC = "play_music"

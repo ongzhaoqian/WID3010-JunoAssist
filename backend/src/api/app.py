@@ -18,6 +18,7 @@ from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
 from src.nlp.llm_client import MalaysianLlamaClient
 from src.nlp.response_generator import ResponseGenerator
+from src.nlp.phrase_bank import PhraseBank
 from src.productivity.music_service import MusicService
 from src.productivity.timer_service import TimerService
 from src.robot.jupiter_interface import get_robot_interface
@@ -48,7 +49,8 @@ def create_app() -> FastAPI:
     calendar_service = CalendarService(settings.database_path)
     llm_client = MalaysianLlamaClient()
     input_normalizer = MalaysianInputNormalizer(llm_client)
-    response_generator = ResponseGenerator(calendar_service, llm_client=llm_client)
+    phrase_bank = PhraseBank()
+    response_generator = ResponseGenerator(calendar_service, llm_client=llm_client, phrase_bank=phrase_bank)
     timer_service = TimerService()
     music_service = MusicService()
     # The emotion model is created only when the operator explicitly enables
@@ -132,17 +134,48 @@ def create_app() -> FastAPI:
         minutes = total_seconds // 60
         seconds = total_seconds % 60
         result = timer_service.start_timer_duration(minutes=minutes, seconds=seconds)
-        response = f"Study timer started for {_format_timer_duration(minutes, seconds)}."
+        response = phrase_bank.say("timer_started", duration=_format_timer_duration(minutes, seconds))
         robot_state.set_response(response)
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "timer": result, "status": robot_state.snapshot()}
 
     def _ask_for_timer_duration() -> dict:
-        response = "How long do you want to have the study timer for? Answer in minutes and seconds."
+        response = phrase_bank.say("timer_ask")
         robot_state.set_awaiting_timer_duration(True)
         robot_state.set_response(response)
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+    def _add_schedule_from_transcript(command_text: str) -> dict:
+        parsed = intent_classifier.extract_schedule_item(command_text)
+        if not parsed.get("title"):
+            response = phrase_bank.say("schedule_missing")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.ADD_SCHEDULE, "response": response, "status": robot_state.snapshot()}
+
+        item = calendar_service.add_schedule_item(
+            title=str(parsed["title"]).strip(),
+            date=parsed.get("date"),
+            time=parsed.get("time"),
+            type=parsed.get("type") or "study",
+            priority=parsed.get("priority") or "medium",
+        )
+        response = phrase_bank.say(
+            "schedule_added",
+            purpose=item["title"],
+            date=item.get("formatted_date") or item.get("date") or "not specified",
+            time=item.get("time") or "not specified",
+            priority=item.get("priority") or "medium",
+        )
+        robot_state.set_response(response)
+        tts.speak(response)
+        return {
+            "intent": Intent.ADD_SCHEDULE,
+            "response": response,
+            "schedule_item": item,
+            "status": robot_state.snapshot(),
+        }
 
     def process_command_text(text: str) -> dict:
         """Shared command pipeline for dashboard text and ROS speech input.
@@ -161,15 +194,12 @@ def create_app() -> FastAPI:
         if snapshot["mode"] == RobotMode.IDLE:
             if wake_detector.is_wake_command(text):
                 robot_state.set_mode(RobotMode.CONFIRMATION)
-                response = (
-                    "Are you sure you would like to power Juno on? "
-                    "Answer yes if you do, else ignore."
-                )
+                response = phrase_bank.say("wake_confirmation")
                 robot_state.set_response(response)
                 tts.speak(response)
                 return {"intent": Intent.WAKE, "response": response, "status": robot_state.snapshot()}
 
-            response = "JUNO is sleeping. Say Hey, John to wake me up."
+            response = phrase_bank.say("idle_sleep")
             robot_state.set_response(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
@@ -179,7 +209,7 @@ def create_app() -> FastAPI:
 
             # explicit rejection — reset to idle
             if words & _explicit_no:
-                response = "Confirmation not received. JUNO will return to idle mode."
+                response = phrase_bank.say("confirmation_cancelled")
                 robot_state.set_mode(RobotMode.IDLE)
                 robot_state.set_response(response)
                 tts.speak(response)
@@ -189,10 +219,10 @@ def create_app() -> FastAPI:
             robot_state.set_mode(RobotMode.ACTIVE)
             robot.set_led_state("active")
             robot.open_dashboard(settings.dashboard_url)
-            response = "JUNO Assist is now online. Opening your dashboard."
+            response = phrase_bank.say("online")
             robot_state.set_response(response)
             tts.speak(response)
-            tts.speak("What can I help you with?")
+            tts.speak(phrase_bank.say("prompt_help"))
             return {"intent": Intent.CONFIRM, "response": response, "status": robot_state.snapshot()}
 
             # unreachable — kept for structure
@@ -204,14 +234,14 @@ def create_app() -> FastAPI:
                 if duration_seconds:
                     return _start_study_timer_from_seconds(duration_seconds)
 
-                response = "I could not understand the duration. Please answer with minutes and seconds, for example, 25 minutes or 1 minute 30 seconds."
+                response = phrase_bank.say("timer_unclear")
                 robot_state.set_response(response)
                 tts.speak(response)
                 return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
             if intent == Intent.SLEEP:
                 robot_state.set_mode(RobotMode.IDLE)
-                response = "JUNO is going back to sleep mode."
+                response = phrase_bank.say("sleep")
                 robot_state.set_response(response)
                 tts.speak(response)
                 return {"intent": intent, "response": response, "status": robot_state.snapshot()}
@@ -221,6 +251,8 @@ def create_app() -> FastAPI:
                 if duration_seconds:
                     return _start_study_timer_from_seconds(duration_seconds)
                 return _ask_for_timer_duration()
+            elif intent == Intent.ADD_SCHEDULE:
+                return _add_schedule_from_transcript(text)
             elif intent == Intent.PLAY_MUSIC:
                 music_result = music_service.play_for_emotion(snapshot.get("current_emotion", EmotionState.UNKNOWN))
                 response = music_result["message"]
@@ -232,12 +264,12 @@ def create_app() -> FastAPI:
                 )
 
             robot_state.set_response(response)
-            is_fallback = response == "I am not sure how to help with that yet."
+            is_fallback = intent == Intent.UNKNOWN and response.startswith("I am not sure how to help")
             if not is_fallback:
                 tts.speak(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
-        response = "JUNO is not ready yet."
+        response = phrase_bank.say("not_ready")
         robot_state.set_response(response)
         return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
@@ -283,7 +315,8 @@ def create_app() -> FastAPI:
     @app.get("/api/features")
     def get_features():
         return [
-            {"name": "Today's Schedule", "description": "Check classes, meetings, and deadlines."},
+            {"name": "Today's Schedule", "description": "Check classes, meetings, deadlines, and add structured schedule items by voice."},
+            {"name": "Voice Schedule Capture", "description": "Accept date, time, purpose, and priority from speech, then format dates such as 2026-05-20 as 20 May, 2026."},
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
             {"name": "Dashboard Camera View", "description": "Choose when to view the Jupiter webcam directly inside the dashboard, with a refreshable MJPEG stream."},
             {"name": "Optional Vision Module", "description": "Enable emotion recognition only when needed; camera-only monitoring remains available."},
@@ -400,7 +433,7 @@ def create_app() -> FastAPI:
             type=request.type or "study",
             priority=request.priority or "medium",
         )
-        robot_state.set_response(f"Schedule item added: {item['title']}.")
+        robot_state.set_response(phrase_bank.say("schedule_added", purpose=item["title"], date=item.get("formatted_date") or item.get("date") or "not specified", time=item.get("time") or "not specified", priority=item.get("priority") or "medium"))
         return item
 
     @app.delete("/api/schedule/{item_id}")
@@ -427,7 +460,7 @@ def create_app() -> FastAPI:
             due_time=request.due_time,
             priority=request.priority,
         )
-        robot_state.set_response(f"Reminder added: {request.title}.")
+        robot_state.set_response(phrase_bank.say("reminder_added", title=request.title))
         return reminder
 
     @app.post("/api/timer/start")
@@ -436,7 +469,7 @@ def create_app() -> FastAPI:
             minutes=request.minutes,
             seconds=request.seconds,
         )
-        response = f"Study timer started for {_format_timer_duration(result['minutes'], result['seconds'])}."
+        response = phrase_bank.say("timer_started", duration=_format_timer_duration(result["minutes"], result["seconds"]))
         robot_state.set_response(response)
         return {**result, "message": response}
 
@@ -468,9 +501,10 @@ def create_app() -> FastAPI:
     @app.post("/api/robot/sleep")
     def sleep_robot():
         robot_state.set_mode(RobotMode.IDLE)
-        robot_state.set_response("JUNO is now in sleep mode.")
+        response = phrase_bank.say("direct_sleep")
+        robot_state.set_response(response)
         robot.set_led_state("sleep")
-        tts.speak("JUNO is now in sleep mode.")
+        tts.speak(response)
         return robot_state.snapshot()
 
     @app.post("/api/robot/speak")

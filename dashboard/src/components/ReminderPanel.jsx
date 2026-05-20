@@ -29,26 +29,26 @@ export default function ReminderPanel() {
 
   return (
     <Card title="Reminders">
-      <form onSubmit={addReminder} className="flex gap-2 mb-4">
+      <form onSubmit={addReminder} className="mb-4 flex gap-2">
         <input
-          className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2"
+          className="input-glass min-w-0 flex-1 rounded-2xl px-3 py-2 text-sm"
           placeholder="Add reminder"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
-        <button className="rounded-xl bg-slate-900 px-4 py-2 text-white">
+        <button className="btn-primary px-5 py-2.5 text-sm font-semibold">
           Add
         </button>
       </form>
 
       <div className="space-y-2">
         {reminders.length === 0 ? (
-          <p className="text-slate-500">No reminders added yet.</p>
+          <p className="text-slate-300/75">No reminders added yet.</p>
         ) : (
           reminders.map((reminder) => (
-            <div key={reminder.id} className="rounded-xl border border-slate-200 p-3">
-              <p className="font-medium text-slate-900">{reminder.title}</p>
-              <p className="text-sm text-slate-500">{reminder.priority} priority</p>
+            <div key={reminder.id} className="rounded-2xl border border-white/20 bg-white/[0.08] p-3">
+              <p className="font-medium text-white">{reminder.title}</p>
+              <p className="text-sm text-slate-300/75">{reminder.priority} priority</p>
             </div>
           ))
         )}

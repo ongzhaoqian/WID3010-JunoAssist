@@ -82,8 +82,8 @@ export default function CameraPanel({ status }) {
   }, []);
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-5 border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white lg:flex-row lg:items-center lg:justify-between">
+    <section className="glass-card overflow-hidden rounded-[2rem] text-slate-100">
+      <div className="flex flex-col gap-5 border-b border-white/10 bg-gradient-to-br from-slate-950/85 via-indigo-950/70 to-fuchsia-950/55 p-5 text-white lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm font-medium uppercase tracking-[0.18em] text-slate-300">
             <Camera className="h-4 w-4" />
@@ -193,39 +193,39 @@ export default function CameraPanel({ status }) {
           )}
         </div>
 
-        <div className="flex flex-col justify-between gap-5 bg-slate-50 p-5">
+        <div className="flex flex-col justify-between gap-5 bg-slate-950/25 p-5">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Live status</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300/70">Live status</p>
             <dl className="mt-4 space-y-3 text-sm">
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-                <dt className="text-slate-500">Camera stream</dt>
-                <dd className="font-medium text-slate-900">{cameraOn ? "On" : "Off"}</dd>
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                <dt className="text-slate-300/70">Camera stream</dt>
+                <dd className="font-medium text-white">{cameraOn ? "On" : "Off"}</dd>
               </div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-                <dt className="text-slate-500">ROS topic</dt>
-                <dd className="font-medium text-slate-900">{vision.camera_topic}</dd>
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                <dt className="text-slate-300/70">ROS topic</dt>
+                <dd className="font-medium text-white">{vision.camera_topic}</dd>
               </div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-                <dt className="text-slate-500">Frames</dt>
-                <dd className="font-medium text-slate-900">{frameAvailable ? "Receiving" : "Not detected"}</dd>
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                <dt className="text-slate-300/70">Frames</dt>
+                <dd className="font-medium text-white">{frameAvailable ? "Receiving" : "Not detected"}</dd>
               </div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-                <dt className="text-slate-500">Vision model</dt>
-                <dd className="font-medium text-slate-900">{visionModelOn ? "Running" : "Off"}</dd>
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                <dt className="text-slate-300/70">Vision model</dt>
+                <dd className="font-medium text-white">{visionModelOn ? "Running" : "Off"}</dd>
               </div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-                <dt className="text-slate-500">Emotion estimate</dt>
-                <dd className="font-medium capitalize text-slate-900">
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                <dt className="text-slate-300/70">Emotion estimate</dt>
+                <dd className="font-medium capitalize text-white">
                   {visionModelOn ? status?.current_emotion ?? vision.emotion ?? "unknown" : "Not running"}
                 </dd>
               </div>
             </dl>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            <p className="font-medium text-slate-900">Operator note</p>
+          <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 text-sm text-slate-300/80">
+            <p className="font-medium text-white">Operator note</p>
             <p className="mt-1">
-              Use <span className="font-medium text-slate-900">Camera On</span> for normal monitoring. Enable the <span className="font-medium text-slate-900">Vision Module</span> only when you want JUNO to run emotion recognition on the camera frames.
+              Use <span className="font-medium text-white">Camera On</span> for normal monitoring. Enable the <span className="font-medium text-white">Vision Module</span> only when you want JUNO to run emotion recognition on the camera frames.
             </p>
           </div>
         </div>

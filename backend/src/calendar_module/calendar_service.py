@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +106,7 @@ class CalendarService:
             "id": item_id,
             "title": title,
             "date": date,
+            "formatted_date": self.format_display_date(date),
             "time": time,
             "type": type,
             "priority": priority,
@@ -158,11 +160,22 @@ class CalendarService:
         ]
 
     @staticmethod
-    def _schedule_row_to_dict(row) -> dict[str, Any]:
+    def format_display_date(value: str | None) -> str | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            return value
+        return f"{parsed.day} {parsed.strftime('%B')}, {parsed.year}"
+
+    @classmethod
+    def _schedule_row_to_dict(cls, row) -> dict[str, Any]:
         return {
             "id": row[0],
             "title": row[1],
             "date": row[2],
+            "formatted_date": cls.format_display_date(row[2]),
             "time": row[3],
             "type": row[4],
             "priority": row[5],

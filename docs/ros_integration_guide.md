@@ -348,3 +348,26 @@ Juno, go to sleep.
 - Lightweight emotion estimate
 
 Avoid depending on a large cloud or local LLM during the live robot demo.
+
+## 8. Voice Schedule Capture
+
+The ROS speech path can now send structured schedule commands to the backend. After Whisper publishes a transcript to `/speech/transcript`, the backend can detect schedule creation requests and extract the following fields:
+
+```text
+date: YYYY-MM-DD
+time: HH:MM or spoken AM/PM format
+purpose: schedule title / task purpose
+priority: low, medium, high, urgent, or important
+```
+
+Example command:
+
+```text
+add schedule date 2026-05-20 time 15:30 purpose project discussion priority high
+```
+
+The backend stores the date as `2026-05-20` but returns the dashboard-friendly format `20 May, 2026` through the `formatted_date` field. This allows the dashboard to remain readable while retaining a standard machine-readable date internally.
+
+## 9. Phrase Bank Responses
+
+Robot phrasing is centralised in `backend/src/nlp/phrase_bank.py`. This avoids scattering one fixed sentence across each scenario and lets JUNO vary its spoken responses naturally for wake confirmation, timer setup, schedule creation, reminders, music, and fallback responses.

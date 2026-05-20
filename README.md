@@ -392,3 +392,34 @@ The facial emotion module estimates visible expressions only. It must not be pre
 not:
 
 > "You are definitely stressed."
+
+## Dashboard Visual Refresh and Natural Response Layer
+
+The dashboard has been restyled with a gradient background, glass-morphism cards, soft neon accents, and a more polished operator layout inspired by the UMHackathon-style visual direction. The redesign is implemented mainly in `dashboard/src/index.css`, `dashboard/src/App.jsx`, and shared card/form components.
+
+Robot responses are now centralised through `backend/src/nlp/phrase_bank.py`. Instead of hard-coding a single sentence in every invocation path, intent handlers now request phrasing from the phrase bank, which gives JUNO more natural response variation while keeping the behaviour deterministic enough for a course prototype.
+
+## Voice Schedule Capture
+
+JUNO can now add schedule items from a transcribed command that includes `date`, `time`, `purpose`, and `priority`.
+
+Example voice/text command:
+
+```text
+add schedule date 2026-05-20 time 15:30 purpose deep learning revision priority high
+```
+
+The backend stores the original ISO-style date for consistency, but also returns a display date for the dashboard and speech response:
+
+```text
+2026-05-20 → 20 May, 2026
+```
+
+The relevant implementation is in:
+
+```text
+backend/src/nlp/intent_classifier.py      # ADD_SCHEDULE intent + structured field parsing
+backend/src/calendar_module/calendar_service.py  # formatted_date generation
+backend/src/api/app.py                    # voice command handling and schedule creation
+dashboard/src/components/SchedulePanel.jsx # displays formatted_date when available
+```

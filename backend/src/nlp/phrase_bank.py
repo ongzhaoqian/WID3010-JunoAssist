@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class PhraseBank:
+    """Centralised response phrase bank for JUNO.
+
+    The backend keeps the robot's phrasing here instead of scattering fixed
+    sentences across every intent handler. Templates remain deterministic enough
+    for testing, while still allowing lightweight natural variation at runtime.
+    """
+
+    seed: int | None = None
+    templates: dict[str, list[str]] = field(default_factory=lambda: {
+        "wake_confirmation": [
+            "I heard the wake command. Would you like me to power JUNO on? Please answer yes to continue.",
+            "JUNO is ready to wake. Should I power on now? Please say yes if you would like me to continue.",
+            "Wake command received. Would you like me to come online? Say yes to confirm.",
+        ],
+        "idle_sleep": [
+            "JUNO is sleeping for now. Say Hey, John when you would like me to wake up.",
+            "I am currently in sleep mode. Wake me by saying Hey, John.",
+            "JUNO is standing by. Say Hey, John to wake me up.",
+        ],
+        "confirmation_cancelled": [
+            "No problem. I will return to idle mode.",
+            "Understood. JUNO will stay in sleep mode.",
+            "Confirmation cancelled. I will remain idle.",
+        ],
+        "online": [
+            "JUNO Assist is now online. Opening your dashboard.",
+            "I am online now. Your dashboard is opening.",
+            "JUNO is ready. I am bringing up your dashboard.",
+        ],
+        "prompt_help": [
+            "What can I help you with?",
+            "How can I support you now?",
+            "What would you like to do next?",
+        ],
+        "sleep": [
+            "JUNO is going back to sleep mode.",
+            "All right, I will return to sleep mode.",
+            "Okay, JUNO is powering down into sleep mode.",
+        ],
+        "not_ready": [
+            "JUNO is not ready yet.",
+            "I am not fully ready yet. Please try again shortly.",
+        ],
+        "timer_ask": [
+            "How long do you want to have the study timer for? Answer in minutes and seconds.",
+            "Sure. How long should the study timer be? Please answer in minutes and seconds.",
+            "I can start that. How many minutes and seconds would you like for the study timer?",
+        ],
+        "timer_started": [
+            "Study timer started for {duration}.",
+            "Done. I have started a study timer for {duration}.",
+            "Your focus session is ready. The timer is set for {duration}.",
+        ],
+        "timer_unclear": [
+            "I could not understand the duration. Please answer with minutes and seconds, for example, 25 minutes or 1 minute 30 seconds.",
+            "I did not catch the timer duration clearly. Please say it in minutes and seconds, such as 20 minutes or 90 seconds.",
+        ],
+        "schedule_empty": [
+            "You do not have any scheduled items in the current list.",
+            "There are no scheduled items in the current list yet.",
+        ],
+        "schedule_summary": [
+            "Here are your upcoming scheduled items: {items}.",
+            "Your current scheduled items are: {items}.",
+        ],
+        "schedule_added": [
+            "Added {purpose} to your schedule for {date} at {time}, with {priority} priority.",
+            "Done. I have scheduled {purpose} on {date} at {time}. Priority is {priority}.",
+            "I have added {purpose} to the dashboard schedule: {date}, {time}, {priority} priority.",
+        ],
+        "schedule_missing": [
+            "I can add that to your schedule, but I need the purpose first. For example, say: add schedule date 2026-05-20 time 15:30 purpose revision priority high.",
+            "I could not identify the schedule purpose. Please include the date, time, purpose, and priority.",
+        ],
+        "deadline_empty": [
+            "I could not find any upcoming deadlines.",
+            "There are no upcoming deadlines in the current list.",
+        ],
+        "deadline_nearest": [
+            "Your nearest academic task is {title} on {date} at {time}.",
+            "The closest task I found is {title}, scheduled for {date} at {time}.",
+        ],
+        "reminder_prompt": [
+            "I can add that as a reminder. For this prototype, please use the reminder form in the dashboard.",
+            "I can help with reminders. For now, please add the reminder details through the dashboard form.",
+        ],
+        "music_requested": [
+            "I will play music based on your current emotion estimate.",
+            "Sure. I will choose a playlist that fits your latest emotion estimate.",
+        ],
+        "status_prefix": [
+            "Here is what I suggest: {suggestion}",
+            "Based on the current state, {suggestion}",
+        ],
+        "fallback": [
+            "I am not sure how to help with that yet. Could you try phrasing it as a schedule, timer, music, break, or reminder request?",
+            "I am not sure how to help with that yet, but I can handle schedules, timers, music, breaks, and reminders.",
+        ],
+        "direct_sleep": [
+            "JUNO is now in sleep mode.",
+            "JUNO has returned to sleep mode.",
+        ],
+        "reminder_added": [
+            "Reminder added: {title}.",
+            "Done. I have added the reminder: {title}.",
+        ],
+    })
+
+    def __post_init__(self) -> None:
+        self._random = random.Random(self.seed)
+
+    def say(self, key: str, **values: Any) -> str:
+        options = self.templates.get(key)
+        if not options:
+            return key.format(**values)
+        template = self._random.choice(options)
+        safe_values = {name: ("not specified" if value in (None, "") else value) for name, value in values.items()}
+        return template.format(**safe_values)

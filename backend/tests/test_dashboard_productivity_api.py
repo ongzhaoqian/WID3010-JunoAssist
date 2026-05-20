@@ -80,3 +80,26 @@ def test_timer_duration_parser_supports_minutes_and_seconds():
     assert classifier.extract_timer_duration_seconds("90 seconds") == 90
     assert classifier.extract_timer_duration_seconds("2:30") == 150
     assert classifier.extract_timer_duration_seconds("25") == 1500
+
+
+def test_voice_schedule_add_accepts_structured_transcription(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+
+    response = client.post(
+        "/api/command",
+        json={
+            "text": "add schedule date 2026-05-20 time 15:30 purpose deep learning revision priority high"
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"] == "add_schedule"
+    assert payload["schedule_item"]["title"] == "Deep learning revision"
+    assert payload["schedule_item"]["date"] == "2026-05-20"
+    assert payload["schedule_item"]["formatted_date"] == "20 May, 2026"
+    assert payload["schedule_item"]["time"] == "15:30"
+    assert payload["schedule_item"]["priority"] == "high"
+    assert "20 May, 2026" in payload["response"]

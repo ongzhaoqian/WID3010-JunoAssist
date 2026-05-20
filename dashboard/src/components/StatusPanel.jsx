@@ -6,14 +6,18 @@ export default function StatusPanel({ status }) {
 
   return (
     <Card title="Robot Status">
-      <div className="space-y-2">
-        <p className="text-sm text-slate-600">Mode</p>
-        <p className="text-2xl font-bold capitalize text-slate-900">{mode}</p>
+      <div className="space-y-4">
+        <div className="soft-panel rounded-2xl p-4">
+          <p className="text-sm text-slate-300/75">Mode</p>
+          <p className="mt-1 text-3xl font-bold capitalize text-white">{mode}</p>
+        </div>
 
-        <p className="text-sm text-slate-600 pt-3">Current Emotion Estimate</p>
-        <p className="text-2xl font-bold capitalize text-slate-900">{emotion}</p>
+        <div className="soft-panel rounded-2xl p-4">
+          <p className="text-sm text-slate-300/75">Current Emotion Estimate</p>
+          <p className="mt-1 text-3xl font-bold capitalize text-white">{emotion}</p>
+        </div>
 
-        <p className="text-sm text-slate-500 pt-3">
+        <p className="text-sm leading-6 text-slate-300/75">
           Emotion is an estimate based on visible expression, not a diagnosis.
         </p>
       </div>
