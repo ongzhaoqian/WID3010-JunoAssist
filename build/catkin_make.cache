@@ -1,2 +1,0 @@
-language_pkg:perception_pkg
--DCATKIN_DEVEL_PREFIX=/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/devel -DCMAKE_INSTALL_PREFIX=/home/mustar/Desktop/WID3010-JunoAssist/WID3010-JunoAssist/install -G Unix Makefiles

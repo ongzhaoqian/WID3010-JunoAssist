@@ -10,6 +10,7 @@ backend/.venv-*/
 dashboard/node_modules/
 dashboard/dist/
 dashboard/.next/
+dashboard/.vite/
 
 # Ignore Python bytecode and caches
 __pycache__/
