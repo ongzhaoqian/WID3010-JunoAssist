@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+import os
+import queue
+import shutil
+import subprocess
+import threading
+
+import rospy
+from std_msgs.msg import String
+
+
+def _env_int(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _env_float(name, default):
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+class JunoTTSNode:
+    """ROS TTS node for JUNO responses.
+
+    The backend publishes text to /juno/tts. This node speaks the text and then
+    publishes /juno/tts_done so the Whisper STT node can safely resume listening.
+
+    Changes from the previous integration patch:
+    - topic names are parameterised;
+    - speech is handled on a single worker thread, avoiding pyttsx3 callback
+      threading issues;
+    - espeak-ng/espeak fallback is checked and logged clearly;
+    - /juno/tts_done is published even when the speech backend fails, so STT is
+      never left permanently muted.
+    """
+
+    def __init__(self):
+        rospy.init_node('juno_tts_node', anonymous=True)
+
+        self.tts_topic = rospy.get_param('~tts_topic', os.getenv('JUNO_TTS_TOPIC', '/juno/tts'))
+        self.done_topic = rospy.get_param('~tts_done_topic', os.getenv('JUNO_TTS_DONE_TOPIC', '/juno/tts_done'))
+        self.voice_locale = rospy.get_param('~voice_locale', os.getenv('JUNO_TTS_VOICE_LOCALE', 'en_GB'))
+        self.rate = int(rospy.get_param('~rate', _env_int('JUNO_TTS_RATE', 165)))
+        self.done_delay = float(rospy.get_param('~done_delay', _env_float('JUNO_TTS_DONE_DELAY', 1.0)))
+        self.backend = str(rospy.get_param('~backend', os.getenv('JUNO_TTS_BACKEND', 'auto'))).strip().lower()
+        self.command_setting = str(rospy.get_param('~command', os.getenv('JUNO_TTS_COMMAND', 'auto'))).strip()
+
+        self.engine = None
+        self.queue = queue.Queue()
+        self.done_pub = rospy.Publisher(self.done_topic, String, queue_size=1, latch=True)
+
+        if self.backend not in {'auto', 'pyttsx3', 'espeak'}:
+            rospy.logwarn('Invalid JUNO_TTS_BACKEND=%s. Falling back to auto.', self.backend)
+            self.backend = 'auto'
+
+        if self.backend in {'auto', 'pyttsx3'}:
+            self._init_pyttsx3()
+
+        rospy.Subscriber(self.tts_topic, String, self.callback, queue_size=10)
+        self.worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self.worker.start()
+
+        rospy.loginfo(
+            'JUNO TTS node subscribed to %s, done topic=%s, backend=%s, rate=%s',
+            self.tts_topic,
+            self.done_topic,
+            self.backend,
+            self.rate,
+        )
+
+    def _init_pyttsx3(self):
+        try:
+            import pyttsx3
+
+            self.engine = pyttsx3.init()
+            self.engine.setProperty('rate', self.rate)
+            selected_voice = self._select_british_voice()
+            if selected_voice:
+                self.engine.setProperty('voice', selected_voice)
+                rospy.loginfo('Using pyttsx3 British English voice: %s', selected_voice)
+            else:
+                rospy.logwarn('No explicit British English pyttsx3 voice found; using default pyttsx3 voice.')
+        except Exception as exc:
+            self.engine = None
+            if self.backend == 'pyttsx3':
+                rospy.logerr('pyttsx3 requested but unavailable: %s', exc)
+            else:
+                rospy.logwarn('pyttsx3 unavailable. Will try espeak/espeak-ng fallback. Details: %s', exc)
+
+    def _select_british_voice(self):
+        if self.engine is None:
+            return None
+
+        preferred_exact_names = {
+            'english (received pronunciation)',
+            'english_rp',
+            'english-uk',
+        }
+        preferred_tokens = [
+            'en_gb', 'en-gb', 'gb', 'uk', 'british', 'received pronunciation',
+            'english_rp', 'english-uk', 'english+f3'
+        ]
+        requested = self.voice_locale.lower().replace('-', '_')
+
+        for voice in self.engine.getProperty('voices'):
+            voice_name = str(getattr(voice, 'name', '')).lower()
+            if voice_name in preferred_exact_names:
+                return voice.id
+
+        for voice in self.engine.getProperty('voices'):
+            voice_blob = ' '.join(
+                str(value).lower()
+                for value in [
+                    getattr(voice, 'id', ''),
+                    getattr(voice, 'name', ''),
+                    getattr(voice, 'languages', ''),
+                ]
+            ).replace('-', '_')
+            if requested in voice_blob or any(token.replace('-', '_') in voice_blob for token in preferred_tokens):
+                return voice.id
+        return None
+
+    def callback(self, msg):
+        text = str(msg.data).strip()
+        if not text:
+            return
+        rospy.loginfo('Queued JUNO speech from %s: %s', self.tts_topic, text)
+        self.queue.put(text)
+
+    def _worker_loop(self):
+        while not rospy.is_shutdown():
+            try:
+                text = self.queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            try:
+                self._speak(text)
+            except Exception as exc:
+                rospy.logerr('JUNO TTS failed for text %r: %s', text, exc)
+            finally:
+                rospy.sleep(self.done_delay)
+                self.done_pub.publish(String(data='done'))
+                rospy.loginfo('Published %s after TTS attempt', self.done_topic)
+                self.queue.task_done()
+
+    def _speak(self, text):
+        rospy.loginfo('JUNO says in British English: %s', text)
+
+        if self.backend in {'auto', 'pyttsx3'} and self.engine is not None:
+            try:
+                self.engine.say(text)
+                self.engine.runAndWait()
+                return
+            except Exception as exc:
+                rospy.logwarn('pyttsx3 failed; trying espeak fallback. Details: %s', exc)
+                if self.backend == 'pyttsx3':
+                    raise
+
+        if self.backend in {'auto', 'espeak'}:
+            self._speak_with_espeak(text)
+            return
+
+        raise RuntimeError('No TTS backend available. Install pyttsx3 or espeak-ng/espeak.')
+
+    def _candidate_commands(self):
+        if self.command_setting and self.command_setting.lower() != 'auto':
+            return [self.command_setting]
+        return ['espeak-ng', 'espeak']
+
+    def _candidate_voices(self):
+        requested = self.voice_locale.strip().lower().replace('_', '-')
+        voices = []
+        if requested:
+            voices.append(requested)
+        voices.extend(['en-gb', 'en-uk', 'en-rp', 'en'])
+        result = []
+        for voice in voices:
+            if voice not in result:
+                result.append(voice)
+        return result
+
+    def _speak_with_espeak(self, text):
+        last_error = None
+        for command in self._candidate_commands():
+            if shutil.which(command) is None:
+                last_error = 'command not found: {}'.format(command)
+                rospy.logwarn('%s', last_error)
+                continue
+
+            for voice in self._candidate_voices():
+                args = [command, '-v', voice, '-s', str(self.rate), text]
+                rospy.loginfo('Trying TTS command: %s -v %s', command, voice)
+                completed = subprocess.run(args, check=False)
+                if completed.returncode == 0:
+                    return
+                last_error = '{} exited with code {} for voice {}'.format(command, completed.returncode, voice)
+                rospy.logwarn('%s', last_error)
+
+        raise RuntimeError(last_error or 'No espeak-compatible command available')
+
+    def run(self):
+        rospy.spin()
+
+
+if __name__ == '__main__':
+    node = JunoTTSNode()
+    node.run()

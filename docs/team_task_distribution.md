@@ -67,7 +67,7 @@ This checklist tracks the actual software components that still need to be compl
 |---|---|---|---|---|
 | FastAPI app | Implemented in `backend/src/api/app.py` | Run backend locally and confirm all routes work. | Jon, Zhao Qian | Must |
 | Robot mode state | Implemented: idle, confirmation, active | Verify full state flow: idle → confirmation → active → sleep/idle. | Jon | Must |
-| Wake word detector | Implemented | Test with `Hey, Juno`, `hey juno`, and wrong phrases. | Jon | Must |
+| Wake word detector | Implemented | Test with `Hey, John`, `hey john`, and wrong phrases. | Jon | Must |
 | Confirmation handler | Implemented | Test `Yes` confirmation and non-confirmation fallback. | Jon | Must |
 | Command pipeline | Implemented in `process_command_text()` | Verify both dashboard command and ROS transcript use same logic. | Jon, Anas | Must |
 | Text-to-speech wrapper | Implemented | Confirm backend calls `tts.speak()` for key responses. | Anas, Jon | Must |
@@ -117,7 +117,7 @@ This checklist tracks the actual software components that still need to be compl
 | `language_pkg` | Exists | Confirm package builds/runs on ROS machine. | Anas | Must |
 | `juno_bringup` | Exists | Confirm launch file starts required nodes. | Anas | Must |
 | Camera node | Implemented | Verify `/camera/image_raw` publishes on robot/laptop camera. | Anas, Vanness | Must |
-| Microphone node | Implemented | Verify `/audio/raw` publishes. | Anas | Must |
+| Microphone node | Implemented | Verify `/audio/raw` publishes for Whisper Tiny ASR, and `/speech/raw_transcript` can still be used as a manual fallback. | Anas | Must |
 | Transcriber node | Implemented | Verify `/speech/transcript` publishes text or use manual transcript backup. | Anas | Must |
 | TTS node | Implemented | Verify `/juno/tts` is spoken by `pyttsx3`/`espeak`. | Anas | Must |
 | Backend ROS bridge | Implemented | Run backend in ROS mode and confirm subscriptions/publishers work. | Anas, Jon | Must |
@@ -141,7 +141,7 @@ This checklist tracks the actual software components that still need to be compl
 | Component | Current Status | What Still Needs To Be Done | Owner | Priority |
 |---|---|---|---|---|
 | User input via dashboard | Implemented | Use as reliable backup for demo. | Mack | Must |
-| User input via ROS transcript | Implemented path | Test with microphone/transcriber; if unstable, use manually published transcript evidence. | Anas | Must |
+| User input via ROS transcript | Implemented path | Test with Whisper Tiny ASR/manual transcript fallback; if unstable, use manually published `/speech/transcript` evidence. | Anas | Must |
 | Robot output via TTS | Implemented path | Confirm `/juno/tts` triggers speech. | Anas | Must |
 | Two-way demo | Not yet recorded | Record user command and robot/dashboard response. | Anas, Mack | Must |
 | Speech fallback plan | Documented | Use dashboard command if robot microphone fails. | Jon | Must |
@@ -221,7 +221,7 @@ Mack should own the demo-facing dashboard and make sure the system looks complet
 2. **Command panel reliability**
    - Ensure the typed command flow works as a backup for speech.
    - Confirm demo commands work:
-     - “Hey, Juno”
+     - “Hey, John”
      - “Yes”
      - “What do I have today?”
      - “Set a 25 minute timer”
@@ -257,7 +257,7 @@ Mack should own the demo-facing dashboard and make sure the system looks complet
 The `anas` branch contains the main ROS integration work:
 
 - `src/perception_pkg/` camera and microphone nodes,
-- `src/language_pkg/` Moonshine transcriber and TTS node,
+- `src/language_pkg/` Whisper Tiny transcriber and British-English TTS node,
 - `src/juno_bringup/launch/juno_robot.launch`,
 - `backend/src/robot/ros_jupiter_interface.py`,
 - backend API updates to consume ROS speech transcripts,
@@ -273,7 +273,7 @@ Anas should own the live robot/ROS side and produce the RQT graph evidence.
    - Confirm these nodes can run on the robot/lab machine:
      - `camera_node`
      - `microphone_node`
-     - `moonshine_transcriber`
+     - `whisper_tiny_transcriber`
      - `juno_tts_node`
    - Confirm the bringup launch starts the required nodes.
 
@@ -281,6 +281,7 @@ Anas should own the live robot/ROS side and produce the RQT graph evidence.
    - Verify these topics appear:
      - `/camera/image_raw`
      - `/audio/raw`
+     - `/speech/raw_transcript`
      - `/speech/transcript`
      - `/juno/tts`
      - `/juno/led_state` if used
@@ -580,7 +581,7 @@ Everyone is responsible for writing part of the final report, not only coding or
 
 1. Jon introduces JUNO Assist as an emotion-aware student productivity robot.
 2. Mack shows dashboard in idle mode.
-3. User says/types “Hey, Juno”.
+3. User says/types “Hey, John”.
 4. JUNO asks for confirmation.
 5. User says/types “Yes”.
 6. Dashboard changes to active mode.

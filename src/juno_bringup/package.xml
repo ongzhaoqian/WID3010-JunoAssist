@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>juno_bringup</name>
+  <version>0.0.0</version>
+  <description>Launch files for JUNO Assist integration.</description>
+  <maintainer email="mackwong1@gmail.com">Mack Wong</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>perception_pkg</exec_depend>
+  <exec_depend>language_pkg</exec_depend>
+</package>

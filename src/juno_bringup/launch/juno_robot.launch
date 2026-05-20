@@ -1,0 +1,36 @@
+<launch>
+  <!-- Camera and microphone publishers from the attached Jupiter Robot code. -->
+  <node pkg="perception_pkg" type="camera_node.py" name="camera_node" output="screen">
+    <param name="camera_device" value="/dev/video2" />
+  </node>
+
+  <!-- Audio input. Device resolved by name via JUNO_MIC_DEVICE_NAME; falls back to JUNO_MIC_DEVICE_INDEX if name is unset. -->
+  <node pkg="perception_pkg" type="microphone_node.py" name="microphone_node" output="screen">
+    <param name="source_rate" value="48000" />
+    <param name="target_rate" value="16000" />
+  </node>
+
+  <!-- Speech-to-text: Whisper Tiny ASR with anas-style TTS mute/resume logic. -->
+  <node pkg="language_pkg" type="transcriber.py" name="whisper_tiny_transcriber" output="screen">
+    <param name="audio_topic" value="/audio/raw" />
+    <param name="manual_text_topic" value="/speech/raw_transcript" />
+    <param name="output_text_topic" value="/speech/transcript" />
+    <param name="tts_topic" value="/juno/tts" />
+    <param name="tts_done_topic" value="/juno/tts_done" />
+    <env name="JUNO_ASR_WINDOW_SECONDS" value="1.0" />
+    <env name="JUNO_ASR_MIN_RMS" value="0.010" />
+    <env name="JUNO_ASR_TTS_RESUME_DELAY" value="0.5" />
+    <env name="JUNO_ASR_TASK" value="transcribe" />
+    <env name="JUNO_ASR_LANGUAGE" value="en" />
+    <env name="JUNO_MIC_DEVICE_NAME" value="0x46d:0x825" />
+  </node>
+
+  <!-- Text-to-speech: speaks backend responses and publishes /juno/tts_done afterwards. -->
+  <node pkg="language_pkg" type="tts_node.py" name="juno_tts_node" output="screen">
+    <param name="tts_topic" value="/juno/tts" />
+    <param name="tts_done_topic" value="/juno/tts_done" />
+    <param name="voice_locale" value="en_GB" />
+    <param name="rate" value="165" />
+    <param name="backend" value="espeak" />
+  </node>
+</launch>
