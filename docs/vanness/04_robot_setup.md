@@ -54,59 +54,81 @@ Verify build succeeded — no red errors in the output. The last line should be:
 
 ---
 
-## 3. Create the Python Virtual Environment
+## 3. Create the Python Virtual Environments
 
-> **Critical:** Source catkin `devel/setup.bash` BEFORE activating the venv.  
-> Reversing the order breaks `rospy`, `cv_bridge`, and `sensor_msgs` imports.
+Two venvs are required. Vision deps (`numpy`, `opencv`, `tensorflow`) conflict with the backend's `typing-extensions` — they use separate venvs.
 
 ```bash
-# From project root — source catkin FIRST
-source devel/setup.bash
-
-# Then create and activate the venv
+# Backend venv (for running main.py)
 cd backend
 python3 -m venv .venv
+
+# Bootstrap a fresh pip — the bundled pip on this machine is broken due to a system OpenSSL issue
+wget -O /tmp/get-pip.py https://bootstrap.pypa.io/pip/3.8/get-pip.py
+.venv/bin/python3 /tmp/get-pip.py
+
 source .venv/bin/activate
 ```
 
 Your prompt should now show `(.venv)`.
 
+```bash
+# Vision venv (for tests and TensorFlow inference) — separate terminal
+cd backend
+python3 -m venv .venv-vision
+```
+
 ---
 
 ## 4. Install Python Dependencies
+
+### Backend venv (`.venv`)
 
 ```bash
 # Confirm you are inside backend/ with (.venv) active
 pip install --upgrade pip
 pip install -r requirements.txt
+pip install -r requirements-vision.txt
+
+# tensorflow downgrades typing-extensions to 4.5.0 — fix it:
+pip install "typing-extensions>=4.12.2"
+
+# rospkg is not bundled with ROS Noetic — install it in the venv:
+pip install rospkg
 ```
 
-This installs:
-- `fastapi`, `uvicorn`, `pydantic` — backend API
-- `numpy>=1.24,<1.25` — EMA probability smoothing (numpy 1.25 dropped Python 3.8)
-- `opencv-python-headless>=4.8` — face detection, headless build avoids conflict with ROS system `python3-opencv`
-- `tensorflow>=2.13,<2.14` — Mini-Xception emotion CNN (TF 2.14 dropped Python 3.8)
-- `pytest` — test runner
+This installs fastapi, uvicorn, pydantic, pytest, numpy, opencv, tensorflow, rospkg. The `typing-extensions` pin after tensorflow is required — tensorflow's declared constraint (`<4.6.0`) is overly strict and the fix is safe to ignore.
 
-> **Note:** `tensorflow` is ~500 MB. This step will take several minutes on first install. Keep the terminal open.
-
-Verify key packages after install:
+### Vision venv (`.venv-vision`)
 
 ```bash
-python3 -c "import numpy; print('numpy', numpy.__version__)"        # must be 1.24.x
-python3 -c "import cv2; print('cv2', cv2.__version__)"              # must be 4.8.x or higher
-python3 -c "import tensorflow as tf; print('tensorflow', tf.__version__)"  # must be 2.13.x
+.venv-vision/bin/pip install --upgrade pip
+.venv-vision/bin/pip install -r requirements-vision.txt
+.venv-vision/bin/pip install pytest pydantic
 ```
 
-All three must print a version number, not an error. Numpy must be `1.24.x` and TensorFlow must be `2.13.x` — higher minor versions have dropped Python 3.8.
+`requirements-vision.txt` installs:
+- `numpy>=1.24,<1.25` — EMA probability smoothing (numpy 1.25 dropped Python 3.8)
+- `opencv-python-headless>=4.8` — face detection, headless avoids conflict with ROS system `python3-opencv`
+- `tensorflow>=2.13,<2.14` — Mini-Xception emotion CNN (TF 2.14 dropped Python 3.8)
+
+> **Note:** `tensorflow` is ~500 MB. This step will take several minutes on first install.
+
+Verify vision venv after install:
+
+```bash
+.venv-vision/bin/python3 -c "import numpy; import cv2; import tensorflow as tf; print('numpy', numpy.__version__); print('cv2', cv2.__version__); print('tf', tf.__version__)"
+```
+
+All three must print a version number. Numpy must be `1.24.x`, TensorFlow `2.13.x`.
 
 ---
 
 ## 5. Run the Unit Tests
 
 ```bash
-# From backend/ with (.venv) active
-python3 -m pytest tests/ -v
+# From backend/ — use .venv-vision (tests import numpy via emotion_fusion)
+.venv-vision/bin/python3 -m pytest tests/ -v
 ```
 
 Expected: **18 passed, 0 failed**.
@@ -225,12 +247,16 @@ rostopic hz /camera/image_raw
 ### Terminal 3 — FastAPI Backend (ROS mode)
 
 ```bash
-# Source catkin FIRST, then venv
 source /opt/ros/noetic/setup.bash
 cd /path/to/WID3010-JunoAssist
 source devel/setup.bash
 cd backend
 source .venv/bin/activate
+# Expose ROS Python packages to the venv (rospy, cv_bridge, sensor_msgs, etc.)
+unset PYTHONPATH
+source /opt/ros/noetic/setup.bash
+source devel/setup.bash
+export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:$PYTHONPATH
 export JUNO_ROBOT_INTERFACE=ros
 python3 main.py
 ```
@@ -240,7 +266,7 @@ Expected log output:
 INFO:     Application startup complete.
 ```
 
-No import errors. If you see `rospy could not be imported`, catkin was not sourced before the venv.
+The `[EmotionDetector] Model load failed` warning is normal if model files are not downloaded — falls back to mock automatically. TF-TRT and CUDA warnings are also safe to ignore (CPU-only machine).
 
 ### Terminal 4 — Dashboard
 
@@ -271,7 +297,7 @@ curl -s http://localhost:8000/api/status | python3 -m json.tool
 # 4. Wake JUNO and confirm active mode
 curl -s -X POST http://localhost:8000/api/command \
      -H "Content-Type: application/json" \
-     -d '{"text": "Hey, Juno"}'
+     -d '{"text": "Hey, John"}'
 
 curl -s -X POST http://localhost:8000/api/command \
      -H "Content-Type: application/json" \
@@ -293,10 +319,13 @@ curl -s -X POST http://localhost:8000/api/command \
 
 | Error | Cause | Fix |
 |---|---|---|
-| `ModuleNotFoundError: rospy` | venv activated before catkin sourced | Deactivate venv, `source devel/setup.bash`, then reactivate venv |
-| `ModuleNotFoundError: cv_bridge` | Same as above | Same fix |
-| `ModuleNotFoundError: numpy` | requirements not installed | `pip install -r requirements.txt` |
-| `ModuleNotFoundError: cv2` | opencv not installed | `pip install opencv-python-headless>=4.8` |
+| `ModuleNotFoundError: rospy` | PYTHONPATH missing ROS noetic path | `unset PYTHONPATH && source /opt/ros/noetic/setup.bash && source devel/setup.bash && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:$PYTHONPATH` |
+| `ModuleNotFoundError: rospkg` | rospkg not installed in venv | `pip install rospkg` |
+| `ModuleNotFoundError: cv_bridge` | PYTHONPATH not set | Same fix |
+| `ImportError: cannot import name 'TypeIs' from 'typing_extensions'` | tensorflow install downgraded typing-extensions | `pip install "typing-extensions>=4.12.2"` |
+| `ModuleNotFoundError: numpy` | running tests with `.venv` instead of `.venv-vision` | Use `.venv-vision/bin/python3 -m pytest` |
+| `ModuleNotFoundError: cv2` | opencv not in vision venv | `.venv-vision/bin/pip install -r requirements-vision.txt` |
+| `pip._vendor` crash with OpenSSL error | system pip bundled with broken OpenSSL | Bootstrap fresh pip: `wget -O /tmp/get-pip.py https://bootstrap.pypa.io/pip/3.8/get-pip.py && .venv/bin/python3 /tmp/get-pip.py` |
 | `current_emotion: unknown` | Backend not in ACTIVE mode | Send wake phrase + confirmation first |
 | `rostopic hz` shows 0 Hz | Camera node not running | Check Terminal 2 for errors; try `camera_device:=/dev/video0` |
 | `/dev/video2 not found` | Wrong camera device index | `roslaunch juno_bringup juno_robot.launch camera_device:=/dev/video0` |
@@ -313,4 +342,4 @@ curl -s -X POST http://localhost:8000/api/command \
 | `JUNO_EMOTION_UPDATE_SECONDS` | `3.0` | How often the emotion monitor loop polls the camera (seconds) |
 | `EMOTION_MODEL_PATH` | `models/emotion_model.h5` | Path to Mini-Xception `.h5` model file |
 | `JUNO_DASHBOARD_URL` | `http://localhost:5173` | Dashboard URL opened by JUNO on activation |
-| `JUNO_WAKE_PHRASE` | `hey, juno` | Wake phrase that activates JUNO |
+| `JUNO_WAKE_PHRASE` | `hey john` | Wake phrase that activates JUNO |

@@ -94,19 +94,22 @@ roscore
 # Terminal 2: launch perception + language nodes
 roslaunch juno_bringup juno_robot.launch
 
-# Terminal 3: backend in ROS mode (source catkin devel BEFORE activating venv)
+# Terminal 3: backend in ROS mode
+unset PYTHONPATH
+source /opt/ros/noetic/setup.bash
 source devel/setup.bash
 cd backend
 source .venv/bin/activate
+export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:$PYTHONPATH
 export JUNO_ROBOT_INTERFACE=ros
-python main.py
+python3 main.py
 
 # Terminal 4: dashboard
 cd dashboard
 npm run dev
 ```
 
-> The backend must `source devel/setup.bash` BEFORE activating the Python venv so that `rospy`, `cv_bridge`, and `sensor_msgs` are importable. Sourcing order matters.
+> `rospkg` must be installed in the venv (`pip install rospkg`). `unset PYTHONPATH` before sourcing prevents stale paths from a previous session causing protobuf version conflicts.
 
 ---
 
@@ -182,7 +185,7 @@ curl -s http://localhost:8000/api/status | python3 -m json.tool
 # Activate JUNO then check emotion changes
 curl -s -X POST http://localhost:8000/api/command \
      -H "Content-Type: application/json" \
-     -d '{"text": "Hey, Juno"}'
+     -d '{"text": "Hey, John"}'
 
 curl -s -X POST http://localhost:8000/api/command \
      -H "Content-Type: application/json" \
@@ -199,30 +202,33 @@ curl -s http://localhost:8000/api/status | python3 -m json.tool
 The upgrade replaces `EmotionSmoother` (majority vote) with `EMAFusion + HysteresisStateMachine`.  
 **The public interface `predict_from_frame(frame=None) -> EmotionState` is unchanged — `app.py` needs zero modification.**
 
-### 3.1 Step 0: Add `numpy` to `backend/requirements.txt`
+### 3.1 Step 0: Install vision deps in `.venv-vision`
 
-`numpy` is not currently in `requirements.txt` but is required by `emotion_fusion.py`.
-
-Edit `backend/requirements.txt` to add `numpy`:
-
-```
-fastapi==0.115.6
-uvicorn[standard]==0.33.0
-pydantic==2.10.4
-python-multipart==0.0.20
-pytest==8.3.4
-numpy>=1.24
-```
-
-Then reinstall:
+Vision dependencies (`numpy`, `opencv`, `tensorflow`) conflict with the backend's `typing-extensions` requirement — tensorflow 2.13 requires `<4.6.0` while fastapi/pydantic require `>=4.8.0`. They live in a separate venv.
 
 ```bash
 cd backend
-source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv-vision
+.venv-vision/bin/pip install --upgrade pip
+.venv-vision/bin/pip install -r requirements-vision.txt
 ```
 
-Verify: `python -c "import numpy; print(numpy.__version__)"` — should print a version, not an error.
+`requirements-vision.txt` contains:
+```
+numpy>=1.24,<1.25
+opencv-python-headless>=4.8
+tensorflow>=2.13,<2.14
+```
+
+Verify:
+
+```bash
+.venv-vision/bin/python3 -c "import numpy; import cv2; import tensorflow as tf; print('numpy', numpy.__version__); print('cv2', cv2.__version__); print('tf', tf.__version__)"
+```
+
+All three must print a version number. Numpy must be `1.24.x`, TensorFlow `2.13.x`.
+
+> **Important:** The backend (`python main.py`) still uses `.venv`, not `.venv-vision`. Vision tests and any TensorFlow inference must use `.venv-vision/bin/python3`. The two venvs are kept separate — do not merge them.
 
 ### 3.2 Create `backend/src/vision/emotion_fusion.py` (new file)
 
@@ -364,13 +370,16 @@ class EmotionDetector:
 ### 3.4 Migration steps (in order)
 
 ```
-Step 0: Add numpy to backend/requirements.txt and reinstall
+Step 0: Create .venv-vision and install requirements-vision.txt (§ 3.1)
 Step 1: Create backend/src/vision/emotion_fusion.py  (new file, § 3.2)
 Step 2: Replace backend/src/vision/emotion_detector.py  (§ 3.3)
         DO NOT delete emotion_smoothing.py
-Step 3: Run tests:  cd backend && python -m pytest tests/ -v
+Step 3: Run tests with .venv-vision:
+          cd backend && .venv-vision/bin/pip install pytest pydantic
+          .venv-vision/bin/python3 -m pytest tests/test_emotion_smoothing.py -v
         All tests must pass before committing
-Step 4: Verify backend starts:  python main.py  (no import errors)
+Step 4: Verify backend starts with .venv (not .venv-vision):
+          source .venv/bin/activate && python main.py  (no import errors)
 Step 5: Extend test file with EMA + Hysteresis tests  (see 02_testing_verification.md)
 ```
 
@@ -567,7 +576,7 @@ robot_state.set_response()  → broadcast via /ws/status → dashboard last_resp
 
 ## 6. Dependency Reference
 
-### Backend `requirements.txt` (after adding numpy)
+### Backend `requirements.txt` (backend venv — no vision deps)
 
 ```
 fastapi==0.115.6
@@ -575,15 +584,17 @@ uvicorn[standard]==0.33.0
 pydantic==2.10.4
 python-multipart==0.0.20
 pytest==8.3.4
-numpy>=1.24
 ```
 
-### Optional CNN dependencies (add only if implementing Phase 2)
+### Vision `requirements-vision.txt` (`.venv-vision` only)
 
 ```
-opencv-python>=4.8
-tensorflow>=2.13
+numpy>=1.24,<1.25
+opencv-python-headless>=4.8
+tensorflow>=2.13,<2.14
 ```
+
+Vision deps are intentionally separated from backend deps — tensorflow 2.13 requires `typing-extensions<4.6.0` which conflicts with fastapi/pydantic's `>=4.8.0` requirement.
 
 Do not install `deepface` — it adds ~200 MB and runs at ~80 ms/frame vs ~15 ms for Mini-Xception.
 

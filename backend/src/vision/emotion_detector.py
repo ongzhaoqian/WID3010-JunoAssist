@@ -119,8 +119,10 @@ class EmotionDetector:
             model_path = os.getenv("EMOTION_MODEL_PATH", "models/emotion_model.h5")
             if os.path.exists(proto) and os.path.exists(caffe):
                 self._face_net = cv2.dnn.readNetFromCaffe(proto, caffe)
+                print("[EmotionDetector] Face detection model loaded.")
             if os.path.exists(model_path):
                 self._cnn_model = load_model(model_path, compile=False)
+                print("[EmotionDetector] Emotion classification model loaded.")
         except Exception as exc:
             print(f"[EmotionDetector] Model load failed: {exc}. Falling back to mock.")
             self.use_real = False
@@ -135,6 +137,8 @@ class EmotionDetector:
                 tensor = preprocess_face(face_roi)
                 P_raw = self._cnn_model.predict(tensor, verbose=0)[0]
                 P_juno = _remap(P_raw)
+                print("[EmotionDetector] inference running")
+                print("[EmotionDetector] probs:", P_juno    )
                 P_t = self.ema.update(P_juno)
             else:
                 P_t = self.ema.skip()

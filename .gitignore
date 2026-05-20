@@ -1,8 +1,10 @@
 # Ignore virtual environment folders
 .venv/
+.venv-*/
 venv/
 env/
 backend/.venv/
+backend/.venv-*/
 
 # Ignore frontend dependencies/build outputs
 dashboard/node_modules/

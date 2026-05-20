@@ -48,7 +48,7 @@ def create_app() -> FastAPI:
     response_generator = ResponseGenerator(calendar_service, llm_client=llm_client)
     timer_service = TimerService()
     music_service = MusicService()
-    emotion_detector = EmotionDetector()
+    emotion_detector = EmotionDetector(use_real=True)
 
     def process_command_text(text: str) -> dict:
         """Shared command pipeline for dashboard text and ROS speech input.

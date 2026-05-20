@@ -7,17 +7,29 @@
 
 ## 1. Environment Setup
 
+Vision tests require `.venv-vision` (not `.venv`). Two separate venvs are used to avoid a `typing-extensions` conflict between tensorflow and fastapi/pydantic.
+
+**Backend venv** (for running `main.py`):
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt  # Must include numpy>=1.24 (see 01_vision_emotion_pipeline.md § 3.1)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Vision venv** (for tests that import numpy/tensorflow):
+```bash
+cd backend
+python3 -m venv .venv-vision
+.venv-vision/bin/pip install --upgrade pip
+.venv-vision/bin/pip install -r requirements-vision.txt
+.venv-vision/bin/pip install pytest pydantic
 
 # Confirm numpy is installed
-python -c "import numpy; print('numpy', numpy.__version__)"
+.venv-vision/bin/python3 -c "import numpy; print('numpy', numpy.__version__)"
 
 # Confirm pytest is available
-python -m pytest --version
+.venv-vision/bin/python3 -m pytest --version
 ```
 
 ---
@@ -25,7 +37,7 @@ python -m pytest --version
 ## 2. Baseline Test (Run Before Any Changes)
 
 ```bash
-python -m pytest tests/ -v
+.venv-vision/bin/python3 -m pytest tests/ -v
 ```
 
 Expected output before making any modifications:
@@ -277,7 +289,7 @@ def test_mock_detector_hsm_prevents_rapid_state_change():
 Run after creating `emotion_fusion.py`:
 
 ```bash
-python -m pytest tests/test_emotion_smoothing.py -v
+.venv-vision/bin/python3 -m pytest tests/test_emotion_smoothing.py -v
 ```
 
 Expected output:
@@ -320,7 +332,7 @@ tests/test_emotion_smoothing.py::test_mock_detector_hsm_prevents_rapid_state_cha
 ## 4. Backend Mock Mode Verification (No ROS Required)
 
 ```bash
-# Terminal 1 — Start backend in mock mode
+# Terminal 1 — Start backend in mock mode (use .venv, NOT .venv-vision)
 cd backend
 source .venv/bin/activate
 python main.py
@@ -330,7 +342,7 @@ python main.py
 # First wake JUNO
 curl -s -X POST http://localhost:8000/api/command \
      -H "Content-Type: application/json" \
-     -d '{"text": "Hey, Juno"}' | python3 -m json.tool
+     -d '{"text": "Hey, John"}' | python3 -m json.tool
 
 # Confirm
 curl -s -X POST http://localhost:8000/api/command \
