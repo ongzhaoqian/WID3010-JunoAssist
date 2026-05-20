@@ -1,0 +1,3 @@
+# Deprecated filename kept for compatibility with older setup notes.
+# The current robot-friendly path uses Whisper Tiny ASR, not Malaysian Llama + LoRA.
+-r requirements-asr.txt

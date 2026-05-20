@@ -37,10 +37,10 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 
 #### Requirements
 - The microphone node (`microphone_node.py`) shall continuously publish raw float32 audio frames to `/audio/raw` at 16 kHz, 512-sample chunks.
-- `moonshine_transcriber` converts audio to text and publishes on `/speech/transcript`.
+- The microphone node publishes audio to `/audio/raw`; `whisper_tiny_transcriber` transcribes it with `openai/whisper-tiny` and publishes `/speech/transcript`. Manual/external transcript fallback remains available through `/speech/raw_transcript`.
 - The backend `WakeWordDetector` (`activation/wake_word_detector.py`) receives transcripts via `RosJupiterInterface.listen()`, which drains an internal queue populated by the `/speech/transcript` subscriber.
-- The following trigger phrases shall activate the confirmation flow (case-insensitive, as configured by `JUNO_WAKE_PHRASE` env var, default `"hey, juno"`):
-  - `"hey, juno"` / `"hey juno"`
+- The following trigger phrases shall activate the confirmation flow (case-insensitive, as configured by `JUNO_WAKE_PHRASE` env var, default `"hey john"`):
+  - `"hey, john"` / `"hey john"`
   - `"ok juno"`
   - `"juno"`
 - On detection, the backend transitions the global `RobotMode` to `CONFIRMATION`.
@@ -51,7 +51,7 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 
 | Direction | Topic | Message Type | Description |
 | :--- | :--- | :--- | :--- |
-| Subscribe | `/speech/transcript` | `std_msgs/String` | Incoming STT output, queued internally for `listen()` |
+| Subscribe | `/speech/transcript` | `std_msgs/String` | recognised speech transcript, queued internally for `listen()` |
 
 ---
 
@@ -244,7 +244,7 @@ class JupiterInterface(ABC):
 | :--- | :--- | :--- | :--- |
 | `camera_node` | `perception_pkg` | `camera_node.py` | Captures video from `/dev/video2`, publishes frames at 30 Hz |
 | `microphone_node` | `perception_pkg` | `microphone_node.py` | Captures audio, publishes float32 chunks at 16 kHz |
-| `moonshine_transcriber` | `language_pkg` | `transcriber.py` | Runs Moonshine ONNX STT, publishes transcript strings |
+| `whisper_tiny_transcriber` | `language_pkg` | `transcriber.py` | Transcribes microphone audio with Whisper Tiny and publishes transcript strings |
 | `juno_tts_node` | `language_pkg` | `tts_node.py` | Subscribes to `/juno/tts`, speaks via pyttsx3/espeak |
 
 All wake detection, state management, and emotion inference are handled inside the **FastAPI backend** via `RosJupiterInterface` — not by additional ROS nodes.
@@ -263,13 +263,13 @@ All wake detection, state management, and emotion inference are handled inside t
 │  └───────────────┘                                                    │
 │                                                                       │
 │  ┌───────────────────┐  /audio/raw (Float32MultiArray, 16 kHz)       │
-│  │  microphone_node  │──────────────────────────────────────────────►│
-│  └───────────────────┘                         │                     │
-│                                                │                     │
+│  │  microphone_node  │──────────────────────────► future ASR/manual  │
+│  └───────────────────┘                         transcript source    │
+│                                                │ /speech/raw_transcript
 │  [language_pkg]                                ▼                     │
 │  ┌──────────────────────┐  /speech/transcript (std_msgs/String)      │
-│  │ moonshine_transcriber│◄── /audio/raw                              │
-│  │                      │──────────────────────────────────────────►│
+│  │ whisper_tiny_     │◄── audio/transcript input               │
+│  │ language_normalizer  │──────────────────────────────────────────►│
 │  └──────────────────────┘                                            │
 │                                                                       │
 │  ┌──────────────────┐                                                │
@@ -307,9 +307,10 @@ All wake detection, state management, and emotion inference are handled inside t
 
 | Topic | Message Type | Publisher | Subscriber(s) | Rate |
 | :--- | :--- | :--- | :--- | :--- |
-| `/audio/raw` | `std_msgs/Float32MultiArray` | `microphone_node` | `moonshine_transcriber` | 16 kHz chunks |
+| `/audio/raw` | `std_msgs/Float32MultiArray` | `microphone_node` | Future ASR source / optional monitor | 16 kHz chunks |
+| `/speech/raw_transcript` | `std_msgs/String` | Manual/external transcript fallback | `whisper_tiny_transcriber` | On utterance |
 | `/camera/image_raw` | `sensor_msgs/Image` | `camera_node` | Backend (`RosJupiterInterface`) | 30 Hz |
-| `/speech/transcript` | `std_msgs/String` | `moonshine_transcriber` | Backend (`RosJupiterInterface`) | On utterance |
+| `/speech/transcript` | `std_msgs/String` | `whisper_tiny_transcriber` | Backend (`RosJupiterInterface`) | On utterance |
 | `/juno/tts` | `std_msgs/String` | Backend (`RosJupiterInterface`) | `juno_tts_node` | On event |
 | `/juno/led_state` | `std_msgs/String` | Backend (`RosJupiterInterface`) | Jupiter LED controller | On mode change |
 
@@ -372,7 +373,7 @@ The single entry point for all ROS nodes is `src/juno_bringup/launch/juno_robot.
 
 1. `camera_node` (perception_pkg)
 2. `microphone_node` (perception_pkg)
-3. `moonshine_transcriber` (language_pkg) — depends on microphone_node
+3. `whisper_tiny_transcriber` (language_pkg) — depends on `/audio/raw` for live ASR and can relay `/speech/raw_transcript` as a manual/external fallback
 4. `juno_tts_node` (language_pkg)
 
 The backend FastAPI server and React dashboard are **not** launched via ROS; they are started separately after sourcing the catkin workspace:
@@ -416,7 +417,7 @@ Run `rqt_graph` after bringup to verify the node/topic graph matches Section 4.
 ```bash
 # Watch live transcripts (and manually inject wake word)
 rostopic echo /speech/transcript
-rostopic pub /speech/transcript std_msgs/String "data: 'Hey, Juno'"
+rostopic pub /speech/transcript std_msgs/String "data: 'Hey, John'"
 rostopic pub /speech/transcript std_msgs/String "data: 'yes'"
 rostopic pub /speech/transcript std_msgs/String "data: 'What do I have today?'"
 
@@ -434,7 +435,7 @@ rostopic echo /juno/led_state
 
 # Node health
 rosnode list
-rosnode info /moonshine_transcriber
+rosnode info /whisper_tiny_transcriber
 ```
 
 ### rosnode Expected List (after full bringup)
@@ -442,7 +443,7 @@ rosnode info /moonshine_transcriber
 ```
 /camera_node
 /microphone_node
-/moonshine_transcriber
+/whisper_tiny_transcriber
 /juno_tts_node
 ```
 
@@ -452,7 +453,7 @@ State management, wake detection, emotion inference, and intent classification a
 
 | Symptom | Check |
 | :--- | :--- |
-| Wake word never fires | `rostopic echo /speech/transcript` — confirm STT is producing output; check `JUNO_WAKE_PHRASE` env var |
+| Wake word never fires | `rostopic echo /speech/transcript` — confirm the ASR/manual transcript source is producing output; check `JUNO_WAKE_PHRASE` env var |
 | Emotion always `unknown` | `rostopic hz /camera/image_raw` — confirm 30 Hz; check backend log for OpenCV/cv_bridge errors |
 | TTS silent | `rostopic echo /juno/tts`; check pyttsx3 installation on robot |
 | Dashboard not updating | Check WebSocket in browser DevTools; confirm backend running on port 8000 |
