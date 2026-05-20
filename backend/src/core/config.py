@@ -40,6 +40,20 @@ class Settings:
     camera_topic: str = os.getenv("JUNO_CAMERA_TOPIC", "/camera/image_raw")
     camera_stream_fps: float = float(os.getenv("JUNO_CAMERA_STREAM_FPS", "12"))
     camera_jpeg_quality: int = int(os.getenv("JUNO_CAMERA_JPEG_QUALITY", "80"))
+    camera_enabled_default: bool = _env_bool("JUNO_CAMERA_ENABLED_DEFAULT", False)
+    vision_model_enabled_default: bool = _env_bool("JUNO_VISION_MODEL_ENABLED_DEFAULT", False)
+
+    # Emotion-aware music. The dashboard uses Spotify embeds by default because
+    # they do not require storing API secrets in this student prototype. Direct
+    # Spotify playback through the Web Playback SDK can be layered later with
+    # OAuth and a Premium account. Each URL can be overridden in .env.
+    music_provider: str = os.getenv("JUNO_MUSIC_PROVIDER", "spotify")
+    spotify_happy_url: str = os.getenv("JUNO_SPOTIFY_HAPPY_URL", "https://open.spotify.com/playlist/37i9dQZF1DXdPec7aLTmlC")
+    spotify_neutral_url: str = os.getenv("JUNO_SPOTIFY_NEUTRAL_URL", "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ")
+    spotify_tired_url: str = os.getenv("JUNO_SPOTIFY_TIRED_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4sWSpwq3LiO")
+    spotify_stressed_url: str = os.getenv("JUNO_SPOTIFY_STRESSED_URL", "https://open.spotify.com/playlist/37i9dQZF1DWWQRwui0ExPn")
+    spotify_frustrated_url: str = os.getenv("JUNO_SPOTIFY_FRUSTRATED_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6")
+    spotify_unknown_url: str = os.getenv("JUNO_SPOTIFY_UNKNOWN_URL", "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ")
 
     # ROS text-to-speech publishing configuration. The backend publishes responses
     # to /juno/tts and waits briefly for the ROS TTS subscriber so speech messages

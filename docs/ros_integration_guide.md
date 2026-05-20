@@ -181,14 +181,26 @@ VITE_API_BASE=http://ROBOT_IP:8000 npm run dev
 After ROS, backend, and dashboard are running:
 
 1. Open the dashboard.
-2. Use the **Vision Module** button in the **Jupiter Camera View** panel.
-3. The browser will load the MJPEG stream from the backend at `/api/vision/camera/stream`.
+2. The **Jupiter Camera View** panel appears as an inactive camera window.
+3. Click **Switch On Camera** to show the raw webcam stream from `/camera/image_raw`.
+4. Leave **Vision Module** off for camera-only monitoring, or switch it on to load/run emotion recognition.
+5. Use **Refresh** to restart the browser MJPEG stream without restarting ROS.
 
 Useful diagnostics:
 
 ```bash
 rostopic hz /camera/image_raw
 curl http://localhost:8000/api/vision/status
+```
+
+Camera and vision controls are intentionally separate:
+
+```text
+POST /api/vision/camera/start     # show camera feed in dashboard
+POST /api/vision/camera/stop      # hide camera feed and stop model inference
+POST /api/vision/camera/refresh   # refresh browser stream/status
+POST /api/vision/model/start      # enable emotion recognition
+POST /api/vision/model/stop       # disable emotion recognition
 ```
 
 If the dashboard is on a separate laptop, set the frontend API base to the robot/backend IP:

@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 
 
@@ -44,8 +44,29 @@ class ReminderRequest(BaseModel):
     priority: str = "medium"
 
 
+class ScheduleItemRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120)
+    date: Optional[str] = None
+    time: Optional[str] = None
+    type: str = Field(default="study", max_length=40)
+    priority: str = Field(default="medium", max_length=20)
+
+
 class TimerRequest(BaseModel):
-    minutes: int = Field(default=25, ge=1, le=180)
+    # Keep minutes for backwards compatibility, but allow seconds too so the
+    # dashboard and voice flow can start timers such as 1 minute 30 seconds.
+    minutes: int = Field(default=25, ge=0, le=180)
+    seconds: int = Field(default=0, ge=0, le=59)
+
+    @model_validator(mode="after")
+    def validate_duration(self):
+        if self.minutes == 0 and self.seconds == 0:
+            raise ValueError("Timer duration must be at least one second.")
+        return self
+
+
+class MusicPlayRequest(BaseModel):
+    emotion: Optional[EmotionState] = None
 
 
 class RobotStatus(BaseModel):

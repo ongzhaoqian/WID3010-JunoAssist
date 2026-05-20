@@ -25,6 +25,18 @@ export async function postJson(path, data = {}) {
   return response.json();
 }
 
+export async function deleteJson(path) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export function statusSocket() {
   return new WebSocket(`${WS_BASE}/ws/status`);
 }

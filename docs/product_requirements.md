@@ -161,6 +161,8 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/schedule/today` | Events where `start_dt` date = today |
+| `POST` | `/api/schedule` | Add a new dashboard schedule item |
+| `DELETE` | `/api/schedule/{item_id}` | Remove a dashboard schedule item |
 | `GET` | `/api/reminders` | All incomplete reminders, ordered by due date |
 | `POST` | `/api/reminders` | Create reminder `{ title, due_date?, due_time?, priority? }` |
 | `GET` | `/api/deadlines` | Reminders due within the next 7 days |
@@ -186,8 +188,8 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 
 | Method | Endpoint | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/timer/start` | `{ minutes? }` | Start focus session |
-| `POST` | `/api/music/play` | — | Start background music |
+| `POST` | `/api/timer/start` | `{ minutes?, seconds? }` | Start focus session with minute-and-second precision |
+| `POST` | `/api/music/play` | `{ emotion? }` | Select and display emotion-aware Spotify music on the dashboard |
 | `POST` | `/api/robot/sleep` | — | Put Juno into SLEEP mode |
 | `POST` | `/api/command` | `{ text: string }` | Manual text command (same pipeline as voice) |
 

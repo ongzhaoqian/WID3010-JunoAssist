@@ -6,6 +6,7 @@ import SchedulePanel from "./components/SchedulePanel";
 import TimerPanel from "./components/TimerPanel";
 import ReminderPanel from "./components/ReminderPanel";
 import CameraPanel from "./components/CameraPanel";
+import MusicPanel from "./components/MusicPanel";
 import Card from "./components/Card";
 
 export default function App() {
@@ -13,6 +14,11 @@ export default function App() {
   const [schedule, setSchedule] = useState([]);
   const [features, setFeatures] = useState([]);
   const [lastCommand, setLastCommand] = useState(null);
+
+  async function loadSchedule() {
+    const scheduleData = await getJson("/api/schedule/today");
+    setSchedule(scheduleData);
+  }
 
   async function loadInitialData() {
     const [statusData, scheduleData, featureData] = await Promise.all([
@@ -27,7 +33,7 @@ export default function App() {
   }
 
   async function playMusic() {
-    await postJson("/api/music/play");
+    await postJson("/api/music/play", { emotion: status?.current_emotion ?? "unknown" });
   }
 
   async function sleepJuno() {
@@ -53,7 +59,7 @@ export default function App() {
         <p className="text-sm uppercase tracking-[0.25em] text-slate-300">Personal Daily Assistant Robot</p>
         <h1 className="mt-2 text-4xl font-bold">JUNO Assist Dashboard</h1>
         <p className="mt-3 max-w-3xl text-slate-300">
-          Wake JUNO with “Hey, John”, confirm with “Yes”, then use the assistant to manage study schedules, reminders, timers, and emotion-aware break suggestions.
+          Wake JUNO with “Hey, John”, confirm with “Yes”, then use the assistant to manage study schedules, reminders, timers, camera view, emotion-aware music, and break suggestions.
         </p>
       </header>
 
@@ -82,7 +88,7 @@ export default function App() {
               onClick={playMusic}
               className="rounded-xl bg-slate-900 px-4 py-2 font-medium text-white"
             >
-              Play Soothing Music
+              Play Music by Emotion
             </button>
             <button
               onClick={sleepJuno}
@@ -91,11 +97,18 @@ export default function App() {
               Put JUNO to Sleep
             </button>
           </div>
+          <p className="mt-3 text-sm text-slate-500">
+            Music selection follows the latest emotion estimate when the Vision Module is on; otherwise it falls back to a neutral study playlist.
+          </p>
         </Card>
       </section>
 
+      <section className="mt-5">
+        <MusicPanel status={status} />
+      </section>
+
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
-        <SchedulePanel schedule={schedule} />
+        <SchedulePanel schedule={schedule} onScheduleChanged={loadSchedule} />
         <ReminderPanel />
       </section>
 

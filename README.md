@@ -33,7 +33,9 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Rule-based intent detection for course-level feasibility
 - Lightweight Whisper Tiny speech recognition for robot microphone input
 - Calendar and reminder storage using SQLite
-- Study timer and productivity recommendations
+- Study timer and productivity recommendations, including minute-and-second input
+- Emotion-aware Spotify dashboard music window
+- Editable dashboard schedule items
 - REST API and WebSocket updates using FastAPI
 - React dashboard using Vite and Tailwind CSS
 - Jupiter-ready hardware abstraction layer
@@ -76,6 +78,7 @@ User
     ├── Today's Schedule
     ├── Reminders
     ├── Study Timer
+    ├── Emotion-Aware Music Window
     └── Command Panel
 ```
 
@@ -103,6 +106,7 @@ WID3010-JunoAssist/
 | Speech | ROS microphone input transcribed by Hugging Face `openai/whisper-tiny`; manual transcript fallback retained |
 | NLP | Rule-based intent classifier with deterministic backend responses; optional text LLM boundary disabled by default |
 | Dashboard | React, Vite, Tailwind CSS |
+| Music playback | Spotify dashboard embeds with configurable emotion-to-playlist URLs |
 | Testing | Pytest |
 
 ## Activation Flow
@@ -203,24 +207,85 @@ http://localhost:8000/docs
 
 ## Dashboard Camera Window
 
-The Jupiter webcam feed is now shown inside the dashboard instead of a separate ROS OpenCV pop-up window. The path is:
+The Jupiter webcam feed is shown inside the dashboard instead of a separate ROS OpenCV pop-up window. The path is:
 
 ```text
 camera_node.py → /camera/image_raw → FastAPI ROS bridge → /api/vision/camera/stream → React CameraPanel
 ```
 
-Start the ROS launch file and backend in ROS mode, open the dashboard, then click **Switch On** in the **Jupiter Camera View** panel.
+On first dashboard load, the camera is **off by default**. The camera window remains visible as a placeholder with a **Switch On Camera** button, so the operator decides when the live `/dev/video2` feed should appear. The **Vision Module** toggle is separate: switch it on only when you want to load/run the emotion-recognition model. If the camera is on but the Vision Module is off, the panel works as a normal camera monitor only.
 
-Check camera status from the backend:
+Useful endpoints:
 
 ```text
-http://localhost:8000/api/vision/status
+GET  http://localhost:8000/api/vision/status
+POST http://localhost:8000/api/vision/camera/start
+POST http://localhost:8000/api/vision/camera/stop
+POST http://localhost:8000/api/vision/camera/refresh
+POST http://localhost:8000/api/vision/model/start
+POST http://localhost:8000/api/vision/model/stop
 ```
 
 For normal operation, do not launch `camera_listener_node.py`; it no longer opens a pop-up by default. For debugging only:
 
 ```bash
 rosrun perception_pkg camera_listener_node.py _display_window:=true
+```
+
+
+## Dashboard Music, Schedule, and Study Timer Updates
+
+### Emotion-aware music window
+
+The dashboard now includes an **Emotion-Aware Music** card. When the user asks JUNO to play music, the backend checks the latest `current_emotion` value and selects a matching Spotify playlist for the dashboard player. If the Vision Module is off or the emotion state is unknown, JUNO falls back to a neutral deep-focus playlist.
+
+The current implementation uses Spotify embed URLs instead of storing Spotify API secrets in the repository. This is safer for a student demo and still allows the dashboard to display a Spotify player. The default emotion mapping can be changed in `backend/.env.example` or a local `.env` file:
+
+```text
+JUNO_SPOTIFY_HAPPY_URL=...
+JUNO_SPOTIFY_NEUTRAL_URL=...
+JUNO_SPOTIFY_TIRED_URL=...
+JUNO_SPOTIFY_STRESSED_URL=...
+JUNO_SPOTIFY_FRUSTRATED_URL=...
+JUNO_SPOTIFY_UNKNOWN_URL=...
+```
+
+Useful endpoints:
+
+```text
+GET  http://localhost:8000/api/music/status
+POST http://localhost:8000/api/music/play
+POST http://localhost:8000/api/music/stop
+POST http://localhost:8000/api/music/refresh
+```
+
+### Editable schedule panel
+
+The **Upcoming Schedule** panel now lets the user add and remove schedule items from the dashboard. Added items are stored in the same SQLite `schedule_items` table used by the schedule and deadline response logic.
+
+Useful endpoints:
+
+```text
+GET    http://localhost:8000/api/schedule/today
+POST   http://localhost:8000/api/schedule
+DELETE http://localhost:8000/api/schedule/{item_id}
+```
+
+### Voice-driven study timer flow
+
+When the user says a generic timer request such as `start study timer`, JUNO now asks:
+
+```text
+How long do you want to have the study timer for? Answer in minutes and seconds.
+```
+
+The next user response can be a duration such as `25 minutes`, `1 minute 30 seconds`, `90 seconds`, or `2:30`. The dashboard timer also has separate minute and second fields.
+
+Useful endpoint:
+
+```text
+POST http://localhost:8000/api/timer/start
+Body: { "minutes": 1, "seconds": 30 }
 ```
 
 ## Quick Start: Dashboard

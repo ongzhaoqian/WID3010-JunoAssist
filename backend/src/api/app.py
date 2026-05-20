@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -12,7 +12,7 @@ from src.activation.confirmation_handler import ConfirmationHandler
 from src.activation.wake_word_detector import WakeWordDetector
 from src.calendar_module.calendar_service import CalendarService
 from src.core.config import settings
-from src.core.models import CommandRequest, ReminderRequest, TimerRequest, RobotMode, Intent
+from src.core.models import CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, RobotMode, Intent, EmotionState
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -51,7 +51,9 @@ def create_app() -> FastAPI:
     response_generator = ResponseGenerator(calendar_service, llm_client=llm_client)
     timer_service = TimerService()
     music_service = MusicService()
-    emotion_detector = EmotionDetector(use_real=True)
+    # The emotion model is created only when the operator explicitly enables
+    # the Vision Module. This keeps the dashboard camera lightweight by default.
+    emotion_detector: EmotionDetector | None = None
 
     def _latest_camera_jpeg() -> bytes | None:
         """Return the latest ROS camera frame encoded as JPEG for the dashboard."""
@@ -75,12 +77,17 @@ def create_app() -> FastAPI:
         return encoded.tobytes()
 
     def _camera_stream_generator():
-        """MJPEG stream consumed by the React dashboard camera window."""
+        """MJPEG stream consumed by the React dashboard camera window.
+
+        The raw camera stream is controlled independently from the heavier
+        vision/emotion model. When the camera is off, the endpoint remains open
+        but does not emit frames until the operator switches the camera on.
+        """
         fps = max(1.0, min(30.0, float(settings.camera_stream_fps)))
         delay = 1.0 / fps
 
         while True:
-            if robot_state.snapshot().get("vision_enabled"):
+            if robot_state.snapshot().get("camera_enabled"):
                 jpeg = _latest_camera_jpeg()
                 if jpeg:
                     yield (
@@ -92,13 +99,50 @@ def create_app() -> FastAPI:
 
     def _vision_status() -> dict:
         snapshot = robot_state.snapshot()
+        camera_enabled = bool(snapshot.get("camera_enabled"))
+        vision_model_enabled = bool(snapshot.get("vision_model_enabled"))
         return {
-            "enabled": bool(snapshot.get("vision_enabled")),
+            "camera_enabled": camera_enabled,
+            "vision_model_enabled": vision_model_enabled,
+            # Backwards-compatible alias; now means the emotion-recognition model.
+            "enabled": vision_model_enabled,
             "frame_available": robot.get_camera_frame() is not None,
             "camera_topic": settings.camera_topic,
             "stream_fps": settings.camera_stream_fps,
             "stream_url": "/api/vision/camera/stream",
+            "emotion": snapshot.get("current_emotion"),
+            "model_loaded": emotion_detector is not None,
         }
+
+    def _ensure_emotion_detector() -> EmotionDetector:
+        nonlocal emotion_detector
+        if emotion_detector is None:
+            emotion_detector = EmotionDetector(use_real=True)
+        return emotion_detector
+
+    def _format_timer_duration(minutes: int, seconds: int) -> str:
+        parts: list[str] = []
+        if minutes:
+            parts.append(f"{minutes} minute" + ("s" if minutes != 1 else ""))
+        if seconds:
+            parts.append(f"{seconds} second" + ("s" if seconds != 1 else ""))
+        return " and ".join(parts) if parts else "0 seconds"
+
+    def _start_study_timer_from_seconds(total_seconds: int) -> dict:
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        result = timer_service.start_timer_duration(minutes=minutes, seconds=seconds)
+        response = f"Study timer started for {_format_timer_duration(minutes, seconds)}."
+        robot_state.set_response(response)
+        tts.speak(response)
+        return {"intent": Intent.SET_TIMER, "response": response, "timer": result, "status": robot_state.snapshot()}
+
+    def _ask_for_timer_duration() -> dict:
+        response = "How long do you want to have the study timer for? Answer in minutes and seconds."
+        robot_state.set_awaiting_timer_duration(True)
+        robot_state.set_response(response)
+        tts.speak(response)
+        return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
     def process_command_text(text: str) -> dict:
         """Shared command pipeline for dashboard text and ROS speech input.
@@ -155,6 +199,16 @@ def create_app() -> FastAPI:
             return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.ACTIVE:
+            if snapshot.get("awaiting_timer_duration"):
+                duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
+                if duration_seconds:
+                    return _start_study_timer_from_seconds(duration_seconds)
+
+                response = "I could not understand the duration. Please answer with minutes and seconds, for example, 25 minutes or 1 minute 30 seconds."
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
             if intent == Intent.SLEEP:
                 robot_state.set_mode(RobotMode.IDLE)
                 response = "JUNO is going back to sleep mode."
@@ -163,11 +217,13 @@ def create_app() -> FastAPI:
                 return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
             if intent == Intent.SET_TIMER:
-                minutes = intent_classifier.extract_timer_minutes(text)
-                timer_service.start_timer(minutes)
-                response = f"Study timer started for {minutes} minutes."
+                duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
+                if duration_seconds:
+                    return _start_study_timer_from_seconds(duration_seconds)
+                return _ask_for_timer_duration()
             elif intent == Intent.PLAY_MUSIC:
-                response = music_service.play_soothing_music()["message"]
+                music_result = music_service.play_for_emotion(snapshot.get("current_emotion", EmotionState.UNKNOWN))
+                response = music_result["message"]
             else:
                 response = response_generator.generate(
                     intent=intent,
@@ -188,6 +244,8 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup_event():
         calendar_service.seed_from_json_if_empty(str(Path("data/sample_schedule.json")))
+        robot_state.set_camera_enabled(settings.camera_enabled_default)
+        robot_state.set_vision_model_enabled(settings.vision_model_enabled_default)
         asyncio.create_task(_emotion_monitor_loop())
         asyncio.create_task(_timer_loop())
         if settings.use_ros_robot:
@@ -195,10 +253,12 @@ def create_app() -> FastAPI:
 
     async def _emotion_monitor_loop():
         while True:
-            if robot_state.snapshot()["mode"] == RobotMode.ACTIVE:
+            snapshot = robot_state.snapshot()
+            if snapshot.get("camera_enabled") and snapshot.get("vision_model_enabled"):
                 frame = robot.get_camera_frame()
-                emotion = emotion_detector.predict_from_frame(frame)
-                robot_state.set_emotion(emotion)
+                if frame is not None:
+                    emotion = _ensure_emotion_detector().predict_from_frame(frame)
+                    robot_state.set_emotion(emotion)
             await asyncio.sleep(settings.emotion_update_seconds)
 
     async def _timer_loop():
@@ -225,8 +285,8 @@ def create_app() -> FastAPI:
         return [
             {"name": "Today's Schedule", "description": "Check classes, meetings, and deadlines."},
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
-            {"name": "Dashboard Camera View", "description": "View the Jupiter webcam directly inside the web dashboard instead of a separate ROS pop-up window."},
-            {"name": "Facial Emotion Estimate", "description": "Estimate visible emotion state using camera input."},
+            {"name": "Dashboard Camera View", "description": "Choose when to view the Jupiter webcam directly inside the dashboard, with a refreshable MJPEG stream."},
+            {"name": "Optional Vision Module", "description": "Enable emotion recognition only when needed; camera-only monitoring remains available."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
             {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
@@ -267,15 +327,46 @@ def create_app() -> FastAPI:
     def get_vision_status():
         return _vision_status()
 
+    @app.post("/api/vision/camera/start")
+    def start_camera():
+        robot_state.set_camera_enabled(True)
+        return _vision_status()
+
+    @app.post("/api/vision/camera/stop")
+    def stop_camera():
+        robot_state.set_camera_enabled(False)
+        # Stop emotion inference too; without a live camera stream the model
+        # should not continue running in the background.
+        robot_state.set_vision_model_enabled(False)
+        return _vision_status()
+
+    @app.post("/api/vision/camera/refresh")
+    def refresh_camera():
+        # The ROS camera node continuously publishes frames. Refreshing the
+        # browser stream only needs a fresh status payload; the frontend updates
+        # the stream URL cache-buster.
+        return _vision_status()
+
+    @app.post("/api/vision/model/start")
+    def start_vision_model():
+        robot_state.set_vision_model_enabled(True)
+        _ensure_emotion_detector()
+        return _vision_status()
+
+    @app.post("/api/vision/model/stop")
+    def stop_vision_model():
+        robot_state.set_vision_model_enabled(False)
+        return _vision_status()
+
+    # Backwards compatibility for earlier dashboard builds. These now control
+    # the emotion-recognition model, not the raw camera stream.
     @app.post("/api/vision/start")
     def start_vision():
-        robot_state.set_vision_enabled(True)
-        return _vision_status()
+        return start_vision_model()
 
     @app.post("/api/vision/stop")
     def stop_vision():
-        robot_state.set_vision_enabled(False)
-        return _vision_status()
+        return stop_vision_model()
 
     @app.get("/api/vision/camera/frame.jpg")
     def get_camera_frame_jpeg():
@@ -300,6 +391,26 @@ def create_app() -> FastAPI:
     def get_today_schedule():
         return calendar_service.get_today_schedule()
 
+    @app.post("/api/schedule")
+    def add_schedule_item(request: ScheduleItemRequest):
+        item = calendar_service.add_schedule_item(
+            title=request.title.strip(),
+            date=request.date,
+            time=request.time,
+            type=request.type or "study",
+            priority=request.priority or "medium",
+        )
+        robot_state.set_response(f"Schedule item added: {item['title']}.")
+        return item
+
+    @app.delete("/api/schedule/{item_id}")
+    def delete_schedule_item(item_id: int):
+        deleted = calendar_service.delete_schedule_item(item_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Schedule item not found")
+        robot_state.set_response("Schedule item removed.")
+        return {"deleted": True, "id": item_id}
+
     @app.get("/api/deadlines")
     def get_deadlines():
         return calendar_service.get_upcoming_deadlines()
@@ -321,16 +432,38 @@ def create_app() -> FastAPI:
 
     @app.post("/api/timer/start")
     def start_timer(request: TimerRequest):
-        result = timer_service.start_timer(request.minutes)
-        robot_state.set_response(f"Study timer started for {request.minutes} minutes.")
-        return result
+        result = timer_service.start_timer_duration(
+            minutes=request.minutes,
+            seconds=request.seconds,
+        )
+        response = f"Study timer started for {_format_timer_duration(result['minutes'], result['seconds'])}."
+        robot_state.set_response(response)
+        return {**result, "message": response}
+
+    @app.get("/api/music/status")
+    def get_music_status():
+        return music_service.status()
 
     @app.post("/api/music/play")
-    def play_music():
-        result = music_service.play_soothing_music()
+    def play_music(request: MusicPlayRequest | None = None):
+        snapshot = robot_state.snapshot()
+        selected_emotion = request.emotion if request and request.emotion else snapshot.get("current_emotion")
+        result = music_service.play_for_emotion(selected_emotion)
         robot_state.set_response(result["message"])
         tts.speak(result["message"])
         return result
+
+    @app.post("/api/music/stop")
+    def stop_music():
+        result = music_service.stop()
+        robot_state.set_response(result["message"])
+        return result
+
+    @app.post("/api/music/refresh")
+    def refresh_music():
+        # The frontend refreshes the iframe cache-buster; the backend returns
+        # the latest selection so the dashboard remains in sync with voice commands.
+        return music_service.status()
 
     @app.post("/api/robot/sleep")
     def sleep_robot():

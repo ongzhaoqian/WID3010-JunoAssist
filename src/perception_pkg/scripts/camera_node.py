@@ -19,6 +19,10 @@ def camera_node():
 
     camera_topic = _param_or_env("~camera_topic", "JUNO_CAMERA_TOPIC", "/camera/image_raw")
     camera_device = _param_or_env("~camera_device", "JUNO_CAMERA_DEVICE", "/dev/video2")
+    if str(camera_device).strip() in {"1", "/dev/video1"}:
+        rospy.logerr("Refusing to use %s because /dev/video1 is reserved for camera metadata. Use /dev/video2 for the Jupiter RGB camera.", camera_device)
+        return
+
     fps = float(_param_or_env("~fps", "JUNO_CAMERA_FPS", "30"))
     width = int(_param_or_env("~width", "JUNO_CAMERA_WIDTH", "640"))
     height = int(_param_or_env("~height", "JUNO_CAMERA_HEIGHT", "480"))
