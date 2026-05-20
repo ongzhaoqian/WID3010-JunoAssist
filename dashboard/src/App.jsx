@@ -5,6 +5,7 @@ import CommandPanel from "./components/CommandPanel";
 import SchedulePanel from "./components/SchedulePanel";
 import TimerPanel from "./components/TimerPanel";
 import ReminderPanel from "./components/ReminderPanel";
+import CameraPanel from "./components/CameraPanel";
 import Card from "./components/Card";
 
 export default function App() {
@@ -67,6 +68,10 @@ export default function App() {
             </p>
           )}
         </Card>
+      </section>
+
+      <section className="mt-5">
+        <CameraPanel status={status} />
       </section>
 
       <section className="mt-5 grid gap-5 lg:grid-cols-2">

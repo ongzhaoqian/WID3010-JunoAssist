@@ -28,6 +28,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Wake command: `Hey, John`
 - Voice confirmation before activation
 - Web dashboard after activation
+- Embedded dashboard camera window for the Jupiter webcam feed
 - Facial emotion monitoring using a mockable vision module
 - Rule-based intent detection for course-level feasibility
 - Lightweight Whisper Tiny speech recognition for robot microphone input
@@ -71,6 +72,7 @@ User
 └── React Web Dashboard
     ├── Robot Status
     ├── Current Emotion
+    ├── Live Camera Window
     ├── Today's Schedule
     ├── Reminders
     ├── Study Timer
@@ -97,7 +99,7 @@ WID3010-JunoAssist/
 | Backend | Python, FastAPI, Uvicorn |
 | Real-time updates | WebSocket |
 | Storage | SQLite |
-| Vision | OpenCV-ready module, mock emotion detector by default |
+| Vision | ROS `/camera/image_raw` frames streamed to the dashboard through FastAPI MJPEG; OpenCV-ready emotion module |
 | Speech | ROS microphone input transcribed by Hugging Face `openai/whisper-tiny`; manual transcript fallback retained |
 | NLP | Rule-based intent classifier with deterministic backend responses; optional text LLM boundary disabled by default |
 | Dashboard | React, Vite, Tailwind CSS |
@@ -197,6 +199,28 @@ API documentation:
 
 ```text
 http://localhost:8000/docs
+```
+
+## Dashboard Camera Window
+
+The Jupiter webcam feed is now shown inside the dashboard instead of a separate ROS OpenCV pop-up window. The path is:
+
+```text
+camera_node.py → /camera/image_raw → FastAPI ROS bridge → /api/vision/camera/stream → React CameraPanel
+```
+
+Start the ROS launch file and backend in ROS mode, open the dashboard, then click **Switch On** in the **Jupiter Camera View** panel.
+
+Check camera status from the backend:
+
+```text
+http://localhost:8000/api/vision/status
+```
+
+For normal operation, do not launch `camera_listener_node.py`; it no longer opens a pop-up by default. For debugging only:
+
+```bash
+rosrun perception_pkg camera_listener_node.py _display_window:=true
 ```
 
 ## Quick Start: Dashboard

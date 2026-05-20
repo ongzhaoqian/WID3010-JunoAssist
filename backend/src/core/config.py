@@ -34,6 +34,13 @@ class Settings:
     asr_device: str = os.getenv("JUNO_ASR_DEVICE", "-1")
     asr_tts_resume_delay: float = float(os.getenv("JUNO_ASR_TTS_RESUME_DELAY", "0.5"))
 
+    # Dashboard camera streaming. The ROS backend subscribes to this image topic
+    # and exposes it as an MJPEG feed for the web dashboard, replacing the
+    # separate OpenCV pop-up viewer normally used in ROS demos.
+    camera_topic: str = os.getenv("JUNO_CAMERA_TOPIC", "/camera/image_raw")
+    camera_stream_fps: float = float(os.getenv("JUNO_CAMERA_STREAM_FPS", "12"))
+    camera_jpeg_quality: int = int(os.getenv("JUNO_CAMERA_JPEG_QUALITY", "80"))
+
     # ROS text-to-speech publishing configuration. The backend publishes responses
     # to /juno/tts and waits briefly for the ROS TTS subscriber so speech messages
     # are not dropped during startup or after node restarts.

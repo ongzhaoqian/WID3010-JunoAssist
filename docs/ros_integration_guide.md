@@ -13,6 +13,7 @@ This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot 
 | `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using a British English voice where available. |
 | `tts_node.py` | `/juno/tts_done` | `std_msgs/String` | Signals that TTS has finished so STT can resume. |
 | Backend ROS bridge | `/juno/led_state` | `std_msgs/String` | Optional LED/status feedback. |
+| FastAPI backend | `/api/vision/camera/stream` | MJPEG over HTTP | Streams `/camera/image_raw` to the dashboard camera window. |
 
 ## 2. Integration Flow
 
@@ -57,9 +58,11 @@ camera_node.py publishes /camera/image_raw
   ↓
 FastAPI backend RosJupiterInterface subscribes /camera/image_raw
   ↓
-EmotionDetector receives latest frame
+FastAPI exposes latest frames as /api/vision/camera/stream
   ↓
-Dashboard updates current emotion via WebSocket
+React dashboard shows the live feed inside the Jupiter Camera View panel
+  ↓
+EmotionDetector also receives the latest frame and updates current emotion via WebSocket
 ```
 
 ## 3. ASR Engine Strategy
@@ -132,10 +135,12 @@ roslaunch juno_bringup juno_robot.launch
 
 This launches:
 
-- `camera_node.py` — camera publisher
+- `camera_node.py` — camera publisher for the dashboard stream
 - `microphone_node.py` — microphone publisher (device resolved by `JUNO_MIC_DEVICE_NAME`, 48 kHz → 16 kHz)
 - `transcriber.py` — Whisper primary / Moonshine fallback ASR
 - `tts_node.py` — British English TTS with `/juno/tts_done` signal
+
+The normal camera view is now the web dashboard panel. Do **not** launch `camera_listener_node.py` for normal operation because it is only a diagnostic listener. If you need the old OpenCV pop-up for debugging, run it explicitly with `_display_window:=true`.
 
 ### Terminal 3: Backend in ROS Mode
 
@@ -168,6 +173,34 @@ If the dashboard runs on a different machine from the backend:
 
 ```bash
 VITE_API_BASE=http://ROBOT_IP:8000 npm run dev
+```
+
+
+### Dashboard Camera Stream
+
+After ROS, backend, and dashboard are running:
+
+1. Open the dashboard.
+2. Use the **Vision Module** button in the **Jupiter Camera View** panel.
+3. The browser will load the MJPEG stream from the backend at `/api/vision/camera/stream`.
+
+Useful diagnostics:
+
+```bash
+rostopic hz /camera/image_raw
+curl http://localhost:8000/api/vision/status
+```
+
+If the dashboard is on a separate laptop, set the frontend API base to the robot/backend IP:
+
+```bash
+VITE_API_BASE=http://ROBOT_IP:8000 npm run dev
+```
+
+The old ROS pop-up camera window is disabled by default in `camera_listener_node.py`. To intentionally open it for debugging only:
+
+```bash
+rosrun perception_pkg camera_listener_node.py _display_window:=true
 ```
 
 ### Terminal 5: Manual Speech Input Fallback

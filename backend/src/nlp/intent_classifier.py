@@ -11,7 +11,7 @@ class IntentClassifier:
         if not t:
             return Intent.UNKNOWN
 
-        if "hey" in t and "juno" in t:
+        if "hey" in t and ("juno" in t or "john" in t):
             return Intent.WAKE
 
         if t in {"yes", "yeah", "yep", "confirm"}:

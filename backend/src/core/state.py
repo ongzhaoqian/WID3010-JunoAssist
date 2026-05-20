@@ -11,6 +11,7 @@ class RobotState:
         self.last_response = "JUNO is waiting for the wake command."
         self.timer_remaining_seconds = 0
         self.active_timer_label = None
+        self.vision_enabled = False
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -20,6 +21,7 @@ class RobotState:
                 "last_response": self.last_response,
                 "timer_remaining_seconds": self.timer_remaining_seconds,
                 "active_timer_label": self.active_timer_label,
+                "vision_enabled": self.vision_enabled,
             }
 
     def set_mode(self, mode: RobotMode) -> None:
@@ -34,6 +36,10 @@ class RobotState:
         with self._lock:
             self.last_response = response
 
+    def set_vision_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self.vision_enabled = bool(enabled)
+
     def set_timer(self, seconds: int, label: str | None = None) -> None:
         with self._lock:
             self.timer_remaining_seconds = max(0, seconds)
@@ -45,6 +51,7 @@ class RobotState:
                 self.timer_remaining_seconds -= 1
             if self.timer_remaining_seconds == 0:
                 self.active_timer_label = None
+        self.vision_enabled = False
 
 
 robot_state = RobotState()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from queue import Queue, Empty
+from threading import Lock
 from typing import Any
 import subprocess
 import time
@@ -47,7 +48,9 @@ class RosJupiterInterface(JupiterInterface):
         self.bridge = CvBridge()
         self.transcript_queue: Queue[str] = Queue()
         self.latest_frame: Any = None
+        self._frame_lock = Lock()
 
+        self.camera_topic = settings.camera_topic
         self.tts_topic = settings.tts_topic
         self.led_topic = settings.led_topic
         self.tts_wait_seconds = max(0.0, settings.tts_publisher_wait_seconds)
@@ -63,10 +66,11 @@ class RosJupiterInterface(JupiterInterface):
         self.led_pub = rospy.Publisher(self.led_topic, String, queue_size=10, latch=True)
 
         rospy.Subscriber("/speech/transcript", String, self._transcript_callback)
-        rospy.Subscriber("/camera/image_raw", Image, self._camera_callback)
+        rospy.Subscriber(self.camera_topic, Image, self._camera_callback)
 
         rospy.loginfo(
-            "JUNO backend ROS bridge is ready. TTS topic=%s, LED topic=%s",
+            "JUNO backend ROS bridge is ready. Camera topic=%s, TTS topic=%s, LED topic=%s",
+            self.camera_topic,
             self.tts_topic,
             self.led_topic,
         )
@@ -79,7 +83,9 @@ class RosJupiterInterface(JupiterInterface):
 
     def _camera_callback(self, msg: Any) -> None:
         try:
-            self.latest_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            with self._frame_lock:
+                self.latest_frame = frame
         except Exception as exc:
             self.rospy.logwarn(f"Could not convert ROS image to OpenCV frame: {exc}")
 
@@ -128,7 +134,13 @@ class RosJupiterInterface(JupiterInterface):
             return ""
 
     def get_camera_frame(self) -> Any:
-        return self.latest_frame
+        with self._frame_lock:
+            if self.latest_frame is None:
+                return None
+            try:
+                return self.latest_frame.copy()
+            except AttributeError:
+                return self.latest_frame
 
     def open_dashboard(self, url: str) -> None:
         # On a robot with GUI, this opens the dashboard locally. If the robot is

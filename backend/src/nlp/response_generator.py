@@ -65,7 +65,7 @@ class ResponseGenerator:
         if llm_response:
             return llm_response
 
-        return "Sorry, I can't help with that yet."
+        return "I am not sure how to help with that yet."
 
     def ai_status(self) -> dict:
         return self.llm_client.status()

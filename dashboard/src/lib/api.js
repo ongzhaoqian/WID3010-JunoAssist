@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const WS_BASE = API_BASE.replace("http://", "ws://").replace("https://", "wss://");
 
 export async function getJson(path) {
@@ -27,4 +27,8 @@ export async function postJson(path, data = {}) {
 
 export function statusSocket() {
   return new WebSocket(`${WS_BASE}/ws/status`);
+}
+
+export function cameraStreamUrl() {
+  return `${API_BASE}/api/vision/camera/stream`;
 }

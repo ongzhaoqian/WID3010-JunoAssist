@@ -1,9 +1,11 @@
 import asyncio
 import json
+import time
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from src.activation.confirmation_handler import ConfirmationHandler
 from src.activation.wake_word_detector import WakeWordDetector
@@ -49,6 +51,53 @@ def create_app() -> FastAPI:
     timer_service = TimerService()
     music_service = MusicService()
     emotion_detector = EmotionDetector(use_real=True)
+
+    def _latest_camera_jpeg() -> bytes | None:
+        """Return the latest ROS camera frame encoded as JPEG for the dashboard."""
+        frame = robot.get_camera_frame()
+        if frame is None:
+            return None
+
+        try:
+            import cv2
+        except Exception:
+            return None
+
+        quality = max(10, min(100, int(settings.camera_jpeg_quality)))
+        ok, encoded = cv2.imencode(
+            ".jpg",
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), quality],
+        )
+        if not ok:
+            return None
+        return encoded.tobytes()
+
+    def _camera_stream_generator():
+        """MJPEG stream consumed by the React dashboard camera window."""
+        fps = max(1.0, min(30.0, float(settings.camera_stream_fps)))
+        delay = 1.0 / fps
+
+        while True:
+            if robot_state.snapshot().get("vision_enabled"):
+                jpeg = _latest_camera_jpeg()
+                if jpeg:
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        b"Cache-Control: no-store\r\n\r\n" + jpeg + b"\r\n"
+                    )
+            time.sleep(delay)
+
+    def _vision_status() -> dict:
+        snapshot = robot_state.snapshot()
+        return {
+            "enabled": bool(snapshot.get("vision_enabled")),
+            "frame_available": robot.get_camera_frame() is not None,
+            "camera_topic": settings.camera_topic,
+            "stream_fps": settings.camera_stream_fps,
+            "stream_url": "/api/vision/camera/stream",
+        }
 
     def process_command_text(text: str) -> dict:
         """Shared command pipeline for dashboard text and ROS speech input.
@@ -126,7 +175,7 @@ def create_app() -> FastAPI:
                 )
 
             robot_state.set_response(response)
-            is_fallback = response == "Sorry, I can't help with that yet."
+            is_fallback = response == "I am not sure how to help with that yet."
             if not is_fallback:
                 tts.speak(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}
@@ -175,6 +224,7 @@ def create_app() -> FastAPI:
         return [
             {"name": "Today's Schedule", "description": "Check classes, meetings, and deadlines."},
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
+            {"name": "Dashboard Camera View", "description": "View the Jupiter webcam directly inside the web dashboard instead of a separate ROS pop-up window."},
             {"name": "Facial Emotion Estimate", "description": "Estimate visible emotion state using camera input."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
             {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
@@ -209,7 +259,41 @@ def create_app() -> FastAPI:
             "publisher_wait_seconds": settings.tts_publisher_wait_seconds,
             "publish_retries": settings.tts_publish_retries,
         }
+        status["vision_stream"] = _vision_status()
         return status
+
+    @app.get("/api/vision/status")
+    def get_vision_status():
+        return _vision_status()
+
+    @app.post("/api/vision/start")
+    def start_vision():
+        robot_state.set_vision_enabled(True)
+        return _vision_status()
+
+    @app.post("/api/vision/stop")
+    def stop_vision():
+        robot_state.set_vision_enabled(False)
+        return _vision_status()
+
+    @app.get("/api/vision/camera/frame.jpg")
+    def get_camera_frame_jpeg():
+        jpeg = _latest_camera_jpeg()
+        if jpeg is None:
+            return Response(status_code=204)
+        return Response(content=jpeg, media_type="image/jpeg")
+
+    @app.get("/api/vision/camera/stream")
+    def stream_camera():
+        return StreamingResponse(
+            _camera_stream_generator(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     @app.get("/api/schedule/today")
     def get_today_schedule():
