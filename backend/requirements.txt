@@ -3,6 +3,3 @@ uvicorn[standard]==0.33.0
 pydantic==2.10.4
 python-multipart==0.0.20
 pytest==8.3.4
-numpy>=1.24,<1.25
-opencv-python-headless>=4.8
-tensorflow>=2.13,<2.14
