@@ -51,7 +51,7 @@ Located in `/src`, these packages handle low-level hardware interaction and sens
     - **Camera Node**: Captures and publishes video streams from the Jupiter robot's camera.
     - **Microphone Node**: Captures audio data for speech recognition.
 - **`language_pkg`**:
-    - **Moonshine Transcriber**: Implements Speech-to-Text (STT) using the **Moonshine ONNX** model (tiny version) for low-latency transcription.
+    - **Whisper Tiny Transcriber**: Transcribes microphone audio using Hugging Face `openai/whisper-tiny` and publishes recognised text to `/speech/transcript`.
     - **TTS Node**: Subscribes to text messages and performs voice synthesis (using `pyttsx3` or `espeak`).
 - **`juno_bringup`**:
     - **Centralized Launch (`launch/juno_robot.launch`)**: Initializes the camera, microphone, transcriber, and TTS nodes in a single command.
@@ -72,7 +72,7 @@ Located in `/docs`, providing guidance on system architecture and integration.
 | Feature | Implementation | Component |
 | :--- | :--- | :--- |
 | **Emotion Recognition** | OpenCV + CNN (Mocked in current version) | `backend/src/vision` |
-| **Speech-to-Text (STT)** | Moonshine ONNX Model | `src/language_pkg` |
+| **Speech recognition** | Whisper Tiny ASR | `src/language_pkg` |
 | **Text-to-Speech (TTS)** | ROS TTS Node / `pyttsx3` | `src/language_pkg` |
 | **Schedule Management** | SQLite + Calendar Service | `backend/src/calendar_module` |
 | **Affirmations** | NLP Response Generator | `backend/src/nlp` |

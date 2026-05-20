@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,6 +12,8 @@ from src.core.config import settings
 from src.core.models import CommandRequest, ReminderRequest, TimerRequest, RobotMode, Intent
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
+from src.nlp.input_normalizer import MalaysianInputNormalizer
+from src.nlp.llm_client import MalaysianLlamaClient
 from src.nlp.response_generator import ResponseGenerator
 from src.productivity.music_service import MusicService
 from src.productivity.timer_service import TimerService
@@ -40,14 +43,24 @@ def create_app() -> FastAPI:
     confirmation_handler = ConfirmationHandler()
     intent_classifier = IntentClassifier()
     calendar_service = CalendarService(settings.database_path)
-    response_generator = ResponseGenerator(calendar_service)
+    llm_client = MalaysianLlamaClient()
+    input_normalizer = MalaysianInputNormalizer(llm_client)
+    response_generator = ResponseGenerator(calendar_service, llm_client=llm_client)
     timer_service = TimerService()
     music_service = MusicService()
     emotion_detector = EmotionDetector()
 
     def process_command_text(text: str) -> dict:
-        """Shared command pipeline for both dashboard text and ROS speech input."""
-        text = text.strip()
+        """Shared command pipeline for dashboard text and ROS speech input.
+
+        Speech input is transcribed by the ROS Whisper Tiny node before it
+        reaches this backend. If an optional text LLM is configured, it may
+        further normalise the transcript before intent classification; otherwise
+        deterministic backend rules are used. Spoken responses are kept in
+        British English.
+        """
+        raw_text = text.strip()
+        text = input_normalizer.normalise(raw_text)
         intent = intent_classifier.classify(text)
         snapshot = robot_state.snapshot()
 
@@ -62,24 +75,34 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": Intent.WAKE, "response": response, "status": robot_state.snapshot()}
 
-            response = "JUNO is sleeping. Say Hey, Juno to wake me up."
+            response = "JUNO is sleeping. Say Hey, John to wake me up."
             robot_state.set_response(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.CONFIRMATION:
-            if confirmation_handler.is_confirmed(text):
-                robot_state.set_mode(RobotMode.ACTIVE)
-                robot.set_led_state("active")
-                robot.open_dashboard(settings.dashboard_url)
-                response = "JUNO Assist is now online. Opening your dashboard."
+            _explicit_no = {"no", "nope", "nah", "cancel", "stop", "ignore", "negative", "abort"}
+            words = set(text.lower().split())
+
+            # explicit rejection — reset to idle
+            if words & _explicit_no:
+                response = "Confirmation not received. JUNO will return to idle mode."
+                robot_state.set_mode(RobotMode.IDLE)
                 robot_state.set_response(response)
                 tts.speak(response)
-                return {"intent": Intent.CONFIRM, "response": response, "status": robot_state.snapshot()}
+                return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
-            response = "Confirmation not received. JUNO will return to idle mode."
-            robot_state.set_mode(RobotMode.IDLE)
+            # any non-empty speech that isn't a clear "no" = confirmation
+            robot_state.set_mode(RobotMode.ACTIVE)
+            robot.set_led_state("active")
+            robot.open_dashboard(settings.dashboard_url)
+            response = "JUNO Assist is now online. Opening your dashboard."
             robot_state.set_response(response)
-            return {"intent": intent, "response": response, "status": robot_state.snapshot()}
+            tts.speak(response)
+            tts.speak("What can I help you with?")
+            return {"intent": Intent.CONFIRM, "response": response, "status": robot_state.snapshot()}
+
+            # unreachable — kept for structure
+            return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.ACTIVE:
             if intent == Intent.SLEEP:
@@ -99,11 +122,13 @@ def create_app() -> FastAPI:
                 response = response_generator.generate(
                     intent=intent,
                     emotion=snapshot["current_emotion"],
-                    user_text=text,
+                    user_text=raw_text,
                 )
 
             robot_state.set_response(response)
-            tts.speak(response)
+            is_fallback = response == "Sorry, I can't help with that yet."
+            if not is_fallback:
+                tts.speak(response)
             return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
         response = "JUNO is not ready yet."
@@ -133,10 +158,16 @@ def create_app() -> FastAPI:
 
     async def _ros_speech_command_loop():
         """Consumes transcripts published by language_pkg/transcriber.py."""
+        import logging
+        _log = logging.getLogger("juno.ros_loop")
+        loop = asyncio.get_event_loop()
         while True:
-            transcript = await asyncio.to_thread(robot.listen)
-            if transcript:
-                process_command_text(transcript)
+            try:
+                transcript = await loop.run_in_executor(None, robot.listen)
+                if transcript:
+                    process_command_text(transcript)
+            except Exception as exc:
+                _log.error("ROS speech loop error (continuing): %s", exc)
             await asyncio.sleep(0.05)
 
     @app.get("/api/features")
@@ -146,6 +177,7 @@ def create_app() -> FastAPI:
             {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
             {"name": "Facial Emotion Estimate", "description": "Estimate visible emotion state using camera input."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
+            {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
         ]
@@ -153,6 +185,31 @@ def create_app() -> FastAPI:
     @app.get("/api/status")
     def get_status():
         return robot_state.snapshot()
+
+    @app.get("/api/ai/status")
+    def get_ai_status():
+        status = response_generator.ai_status()
+        status["speech_recognition"] = {
+            "enabled": settings.asr_enabled,
+            "model_id": settings.asr_model_id,
+            "task": settings.asr_task,
+            "language": settings.asr_language or None,
+            "sample_rate": settings.asr_sample_rate,
+            "window_seconds": settings.asr_window_seconds,
+            "min_rms": settings.asr_min_rms,
+            "device": settings.asr_device,
+            "input_topic": "/audio/raw",
+            "output_topic": "/speech/transcript",
+        }
+        status["text_to_speech"] = {
+            "robot_interface": settings.robot_interface,
+            "ros_enabled": settings.use_ros_robot,
+            "tts_topic": settings.tts_topic,
+            "led_topic": settings.led_topic,
+            "publisher_wait_seconds": settings.tts_publisher_wait_seconds,
+            "publish_retries": settings.tts_publish_retries,
+        }
+        return status
 
     @app.get("/api/schedule/today")
     def get_today_schedule():
@@ -195,7 +252,21 @@ def create_app() -> FastAPI:
         robot_state.set_mode(RobotMode.IDLE)
         robot_state.set_response("JUNO is now in sleep mode.")
         robot.set_led_state("sleep")
+        tts.speak("JUNO is now in sleep mode.")
         return robot_state.snapshot()
+
+    @app.post("/api/robot/speak")
+    def speak_robot(request: CommandRequest):
+        """Direct TTS diagnostic endpoint.
+
+        This is useful when STT works but the robot is silent: call this endpoint
+        to verify the backend-to-ROS /juno/tts path independently from intent
+        classification.
+        """
+        text = request.text.strip()
+        robot_state.set_response(text)
+        tts.speak(text)
+        return {"message": "Speech request published", "text": text, "status": robot_state.snapshot()}
 
     @app.post("/api/command")
     def handle_command(request: CommandRequest):

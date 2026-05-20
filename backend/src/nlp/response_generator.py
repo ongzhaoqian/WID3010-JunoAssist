@@ -1,12 +1,19 @@
+from __future__ import annotations
 from src.core.models import EmotionState, Intent
 from src.calendar_module.calendar_service import CalendarService
 from src.productivity.break_recommender import BreakRecommender
+from src.nlp.llm_client import LLMGenerationContext, MalaysianLlamaClient
 
 
 class ResponseGenerator:
-    def __init__(self, calendar_service: CalendarService) -> None:
+    def __init__(
+        self,
+        calendar_service: CalendarService,
+        llm_client: MalaysianLlamaClient | None = None,
+    ) -> None:
         self.calendar_service = calendar_service
         self.break_recommender = BreakRecommender()
+        self.llm_client = llm_client or MalaysianLlamaClient()
 
     def generate(self, intent: Intent, emotion: EmotionState, user_text: str = "") -> str:
         if intent == Intent.CHECK_SCHEDULE:
@@ -54,4 +61,46 @@ class ResponseGenerator:
         if intent == Intent.SLEEP:
             return "JUNO is going back to sleep mode."
 
-        return "I am not sure how to help with that yet. You can ask about your schedule, deadlines, timer, reminders, or breaks."
+        llm_response = self._generate_llm_reply(intent, emotion, user_text)
+        if llm_response:
+            return llm_response
+
+        return "Sorry, I can't help with that yet."
+
+    def ai_status(self) -> dict:
+        return self.llm_client.status()
+
+    def _generate_llm_reply(
+        self,
+        intent: Intent,
+        emotion: EmotionState,
+        user_text: str,
+    ) -> str | None:
+        schedule_summary = self._schedule_summary()
+        context = LLMGenerationContext(
+            user_text=user_text,
+            intent=intent,
+            emotion=emotion,
+            schedule_summary=schedule_summary,
+        )
+        return self.llm_client.generate(context)
+
+    def _schedule_summary(self) -> str:
+        items = self.calendar_service.get_today_schedule()[:3]
+        deadlines = self.calendar_service.get_upcoming_deadlines()[:2]
+
+        fragments: list[str] = []
+        if items:
+            fragments.append(
+                "Today: "
+                + "; ".join(f"{item['title']} at {item['time']}" for item in items)
+            )
+        if deadlines:
+            fragments.append(
+                "Upcoming deadlines: "
+                + "; ".join(
+                    f"{item['title']} on {item['date']} at {item['time']}"
+                    for item in deadlines
+                )
+            )
+        return " | ".join(fragments)

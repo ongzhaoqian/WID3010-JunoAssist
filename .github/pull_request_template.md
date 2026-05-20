@@ -54,7 +54,7 @@ Tick all checks that were performed.
 - [ ] Backend starts successfully
 - [ ] `/api/status` checked
 - [ ] `/api/command` checked
-- [ ] Wake flow tested: `Hey, Juno`
+- [ ] Wake flow tested: `Hey, John`
 - [ ] Confirmation flow tested: `Yes`
 - [ ] Schedule/deadline command tested
 - [ ] Reminder command/form tested
