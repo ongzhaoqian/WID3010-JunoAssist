@@ -3,7 +3,7 @@ import numpy as np
 from src.core.models import EmotionState
 
 ALPHA: float = 0.30
-DWELL_FRAMES: int = 5
+DWELL_FRAMES: int = 1
 
 # Ordered labels — index must match probability vector positions used throughout this module
 _LABELS = [
