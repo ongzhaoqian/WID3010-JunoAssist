@@ -1,0 +1,190 @@
+name: CI - Software Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-tests:
+    name: Backend unit and API tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install httpx 'numpy>=1.24,<2'
+
+      - name: Run backend tests that do not require robot hardware
+        working-directory: backend
+        run: |
+          python -m pytest \
+            tests/test_intent_classifier.py \
+            tests/test_dashboard_productivity_api.py \
+            tests/test_vision_stream_api.py \
+            -q
+
+      - name: Vision pipeline smoke test without robot hardware
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from src.core.models import EmotionState
+          from src.vision.emotion_detector import EmotionDetector
+          from src.vision.emotion_fusion import DWELL_FRAMES, EMAFusion, HysteresisStateMachine
+
+          assert DWELL_FRAMES == 1
+
+          ema = EMAFusion(alpha=0.30)
+          result = ema.update(np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32))
+          assert result.shape == (5,)
+          assert abs(float(result.sum()) - 1.0) < 1e-5
+
+          hsm = HysteresisStateMachine()
+          state = hsm.update(np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32))
+          assert state == EmotionState.TIRED
+
+          detector = EmotionDetector()
+          for _ in range(10):
+              assert detector.predict_from_frame(None) in {
+                  EmotionState.HAPPY,
+                  EmotionState.NEUTRAL,
+                  EmotionState.TIRED,
+                  EmotionState.STRESSED,
+                  EmotionState.FRUSTRATED,
+              }
+          print('Vision smoke test passed without robot hardware.')
+          PY
+
+      - name: Compile backend and ROS Python scripts
+        run: |
+          python -m compileall backend/src src/language_pkg/scripts src/perception_pkg/scripts
+
+  ros-workspace-structure:
+    name: ROS workspace structure checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate ROS package files, launch XML, and script permissions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import xml.etree.ElementTree as ET
+
+          required_paths = [
+              'src/CMakeLists.txt',
+              'src/perception_pkg/package.xml',
+              'src/perception_pkg/CMakeLists.txt',
+              'src/language_pkg/package.xml',
+              'src/language_pkg/CMakeLists.txt',
+              'src/juno_bringup/package.xml',
+              'src/juno_bringup/CMakeLists.txt',
+              'src/juno_bringup/launch/juno_robot.launch',
+          ]
+          missing = [p for p in required_paths if not Path(p).exists()]
+          if missing:
+              raise SystemExit('Missing required ROS workspace files:\n' + '\n'.join(missing))
+
+          expected_packages = {'perception_pkg', 'language_pkg', 'juno_bringup'}
+          found_packages = set()
+          for package_xml in Path('src').glob('*/package.xml'):
+              root = ET.parse(package_xml).getroot()
+              name = root.findtext('name')
+              if not name:
+                  raise SystemExit(f'{package_xml} has no <name> tag')
+              found_packages.add(name)
+              if root.findtext('license') is None:
+                  raise SystemExit(f'{package_xml} has no <license> tag')
+              if root.find('buildtool_depend') is None:
+                  raise SystemExit(f'{package_xml} has no <buildtool_depend> tag')
+
+          if expected_packages != found_packages:
+              raise SystemExit(f'Unexpected ROS packages. Expected {expected_packages}, found {found_packages}')
+
+          launch_path = Path('src/juno_bringup/launch/juno_robot.launch')
+          launch_root = ET.parse(launch_path).getroot()
+          launch_nodes = {(node.attrib.get('pkg'), node.attrib.get('type')) for node in launch_root.findall('node')}
+          expected_nodes = {
+              ('perception_pkg', 'camera_node.py'),
+              ('perception_pkg', 'microphone_node.py'),
+              ('language_pkg', 'transcriber.py'),
+              ('language_pkg', 'tts_node.py'),
+          }
+          missing_nodes = expected_nodes - launch_nodes
+          if missing_nodes:
+              raise SystemExit(f'Missing expected launch nodes: {missing_nodes}')
+
+          executable_scripts = [
+              'src/perception_pkg/scripts/camera_node.py',
+              'src/perception_pkg/scripts/microphone_node.py',
+              'src/language_pkg/scripts/transcriber.py',
+              'src/language_pkg/scripts/tts_node.py',
+              'src/language_pkg/scripts/example_transcriptor.py',
+              'src/language_pkg/scripts/tts_test_publisher.py',
+          ]
+          not_executable = [p for p in executable_scripts if not os.access(p, os.X_OK)]
+          if not_executable:
+              raise SystemExit('ROS scripts must be executable:\n' + '\n'.join(not_executable))
+
+          print('ROS workspace structure check passed.')
+          PY
+
+  repository-hygiene:
+    name: Repository hygiene checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for merge conflict markers and generated Python files
+        run: |
+          if grep -RIn --exclude-dir=.git --exclude='*.yml' --exclude='*.yaml' '<<<<<<<\|=======\|>>>>>>>' .; then
+            echo 'Merge conflict markers found.'
+            exit 1
+          fi
+
+          if git ls-files | grep -E '(^|/)__pycache__/|\.pyc$'; then
+            echo 'Generated Python cache files are tracked.'
+            exit 1
+          fi
+
+          echo 'Repository hygiene check passed.'
+
+  dashboard-build:
+    name: Dashboard build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npm run build

@@ -21,8 +21,9 @@ Most teammates should start at **Section 5: Virtual Environment Policy** and **S
 | Know which virtual environment to use | Section 5: Virtual Environment Policy |
 | Run the live demo | Section 6: Running the Integrated System |
 | Check ROS/audio/camera/TTS quickly | Section 7: Testing |
-| Find important source files | Section 8: Key Source Files |
-| Follow the demo speech flow | Section 9: Demo Script |
+| Capture and explain the ROS graph | Section 8: RQT Graph Evidence |
+| Find important source files | Section 9: Key Source Files |
+| Follow the demo speech flow | Section 10: Demo Script |
 | Read detailed preserved vision/robot notes | Appendix A onwards |
 
 ## Demo Rule of Thumb
@@ -352,7 +353,89 @@ Check backend ASR/AI status:
 curl http://localhost:8000/api/ai/status
 ```
 
-## 8. Key Source Files
+## 8. RQT Graph Evidence
+
+Use this section for the Q4 report evidence. Run it after ROS nodes and the backend are active.
+
+### Start the system first
+
+Terminal 1:
+
+```bash
+source /opt/ros/noetic/setup.bash
+roscore
+```
+
+Terminal 2:
+
+```bash
+cd ~/WID3010-JunoAssist
+source /opt/ros/noetic/setup.bash
+source devel/setup.bash
+roslaunch juno_bringup juno_robot.launch
+```
+
+Terminal 3:
+
+```bash
+cd ~/WID3010-JunoAssist/backend
+source ../devel/setup.bash
+source .venv/bin/activate
+export JUNO_ROBOT_INTERFACE=ros
+python main.py
+```
+
+### Open RQT graph
+
+Terminal 4:
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/WID3010-JunoAssist/devel/setup.bash
+rqt_graph
+```
+
+In the graph window, refresh after all nodes are running. The main graph should show the relationships between these nodes/topics where available:
+
+```text
+/camera_node → /camera/image_raw
+/microphone_node → /audio/raw
+/whisper_tiny_transcriber subscribes /audio/raw
+/whisper_tiny_transcriber → /speech/transcript
+/juno_backend_bridge subscribes /speech/transcript and /camera/image_raw, if visible
+/juno_backend_bridge → /juno/tts, if visible
+/juno_tts_node subscribes /juno/tts
+/juno_tts_node → /juno/tts_done
+/whisper_tiny_transcriber subscribes /juno/tts_done
+```
+
+### Supporting commands
+
+Use these commands to support the graph screenshot and verify publishers/subscribers:
+
+```bash
+rosnode list
+rostopic list
+rostopic info /camera/image_raw
+rostopic info /audio/raw
+rostopic info /speech/transcript
+rostopic info /juno/tts
+rostopic info /juno/tts_done
+```
+
+### Report explanation template
+
+```text
+The RQT graph shows the communication structure of JUNO Assist. The camera_node publishes image frames to /camera/image_raw, and the microphone_node publishes raw audio to /audio/raw. The whisper_tiny_transcriber subscribes to /audio/raw, converts speech to text, and publishes recognised commands to /speech/transcript. The backend ROS bridge subscribes to /speech/transcript and /camera/image_raw, allowing the backend to process user commands and camera frames for decision-making. The backend publishes response text to /juno/tts. The juno_tts_node subscribes to /juno/tts, speaks the response, and publishes /juno/tts_done once speech output is complete. The transcriber subscribes to /juno/tts_done so it can resume listening after the robot finishes speaking.
+```
+
+If the backend node does not appear clearly in the graph, include the following note and support it with `rostopic info` screenshots:
+
+```text
+The backend ROS bridge is embedded inside the FastAPI backend process, so it may not always appear clearly in rqt_graph depending on graph refresh timing. Its publisher/subscriber connections were verified using rostopic info and rostopic echo for /speech/transcript, /camera/image_raw, /juno/tts, and /juno/tts_done.
+```
+
+## 9. Key Source Files
 
 | File | Purpose |
 |---|---|
@@ -369,7 +452,7 @@ curl http://localhost:8000/api/ai/status
 | `backend/src/speech/speech_to_text.py` | Lazy-loaded Whisper utility for non-ROS/test paths. |
 | `src/language_pkg/requirements-asr.txt` | ASR dependencies (Whisper + Moonshine). |
 
-## 9. Demo Script
+## 10. Demo Script
 
 1. Launch ROS nodes (Terminal 2).
 2. Start backend with `JUNO_ROBOT_INTERFACE=ros` (Terminal 3).
@@ -403,7 +486,7 @@ Play relaxing music.
 Juno, go to sleep.
 ```
 
-## 10. Recommended Scope for Course Demo
+## 11. Recommended Scope for Course Demo
 
 - ROS camera and microphone input
 - Whisper Tiny ASR with Moonshine fallback
@@ -415,7 +498,7 @@ Juno, go to sleep.
 
 Avoid depending on a large cloud or local LLM during the live robot demo.
 
-## 11. Voice Schedule Capture
+## 12. Voice Schedule Capture
 
 The ROS speech path can now send structured schedule commands to the backend. After Whisper publishes a transcript to `/speech/transcript`, the backend can detect schedule creation requests and extract the following fields:
 
@@ -434,7 +517,7 @@ add schedule date 2026-05-20 time 15:30 purpose project discussion priority high
 
 The backend stores the date as `2026-05-20` but returns the dashboard-friendly format `20 May, 2026` through the `formatted_date` field. This allows the dashboard to remain readable while retaining a standard machine-readable date internally.
 
-## 12. Phrase Bank Responses
+## 13. Phrase Bank Responses
 
 Robot phrasing is centralised in `backend/src/nlp/phrase_bank.py`. This avoids scattering one fixed sentence across each scenario and lets JUNO vary its spoken responses naturally for wake confirmation, timer setup, schedule creation, reminders, music, and fallback responses.
 
@@ -1429,7 +1512,7 @@ def test_mock_detector_accepts_none_frame():
 
 
 def test_mock_detector_hsm_prevents_rapid_state_change():
-    """After committing a state via direct EMA+HSM drive, fewer than DWELL_FRAMES
+    """After committing a state via direct EMA and HSM drive, fewer than DWELL_FRAMES
     calls to predict_from_frame cannot change it — because the new candidate's dwell
     count starts at 0 and needs DWELL_FRAMES more frames to commit a different state.
     This test is deterministic (bypasses random mock) to avoid flakiness.

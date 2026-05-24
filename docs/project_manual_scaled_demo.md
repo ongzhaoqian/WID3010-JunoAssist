@@ -27,6 +27,125 @@ If you are trying to run the robot terminals, use `docs/ros_integration_guide.md
 
 ---
 
+## Q2 Checklist: ROS Workspace Setup
+
+**Status:** The codebase now has the expected ROS/catkin workspace structure. The key improvement is to show clear setup evidence instead of only saying the workspace exists.
+
+| Q2 Requirement from PDF | Current Evidence | Evidence to Capture |
+|---|---|---|
+| Boot into Ubuntu system | Current development environment is Ubuntu WSL; robot/lab machine should also be Ubuntu | Screenshot of `lsb_release -a` and `python3 --version` |
+| Create a folder as ROS workspace | Project root: `/home/johnnyrobs19/WID3010-JunoAssist` | Screenshot of `pwd`, `ls`, and `ls src` |
+| Turn folder into catkin workspace | `.catkin_workspace` and `src/CMakeLists.txt` exist | Screenshot of `catkin_make` output showing source/build/devel spaces |
+| ROS packages inside workspace | `src/perception_pkg`, `src/language_pkg`, `src/juno_bringup` | Screenshot of `find src -maxdepth 2 -name package.xml -print` |
+| Load workspace when opening terminal | Shell config should source ROS + workspace setup | Screenshot of `.bashrc`/`.zshrc` source lines and a new terminal showing `ROS_PACKAGE_PATH` |
+| Verify package discovery | `rospack find` works after sourcing workspace | Screenshot of `rospack find perception_pkg`, `language_pkg`, `juno_bringup` |
+
+### Q2 Commands to Capture as Evidence
+
+For local WSL development using the micromamba ROS Noetic environment:
+
+```bash
+micromamba activate ros_env
+cd ~/WID3010-JunoAssist
+source ~/micromamba/envs/ros_env/setup.bash
+catkin_make -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+source devel/setup.bash
+
+rosversion -d
+echo $ROS_PACKAGE_PATH
+rospack find perception_pkg
+rospack find language_pkg
+rospack find juno_bringup
+```
+
+For the physical robot/lab Ubuntu machine with standard ROS Noetic:
+
+```bash
+cd ~/WID3010-JunoAssist
+source /opt/ros/noetic/setup.bash
+catkin_make
+source devel/setup.bash
+
+rosversion -d
+echo $ROS_PACKAGE_PATH
+rospack find perception_pkg
+rospack find language_pkg
+rospack find juno_bringup
+```
+
+### Recommended Auto-Source Lines
+
+For WSL/local development:
+
+```bash
+alias juno_rosstart='export PYTHONPATH="" && micromamba activate ros_env && cd ~/WID3010-JunoAssist && source ~/micromamba/envs/ros_env/setup.bash && source devel/setup.bash'
+```
+
+For the robot/lab machine:
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/WID3010-JunoAssist/devel/setup.bash
+```
+
+Include both the command outputs and a short explanation that the workspace contains three ROS packages: `perception_pkg` for camera/audio input, `language_pkg` for ASR/TTS, and `juno_bringup` for launching the robot-side nodes.
+
+---
+
+## Q3 Checklist: ROS Application and APIs
+
+**Status:** The codebase has a strong Q3 foundation, but the final submission still needs clear evidence: screenshots, terminal outputs, API examples, and explanation of how each ROS topic connects sensor input to robot/backend decision-making.
+
+| Q3 Requirement from PDF | Current Codebase Evidence | What to Show |
+|---|---|---|
+| Develop robotics application on ROS workspace | `src/perception_pkg`, `src/language_pkg`, `src/juno_bringup` | Screenshot of `catkin_make` success and `roslaunch juno_bringup juno_robot.launch` running |
+| Identify packages to interface with robot | `perception_pkg` for camera/mic, `language_pkg` for ASR/TTS, `juno_bringup` for launch | Report table listing each package, its nodes, and purpose |
+| Serve AI techniques for proposed robot application | Whisper Tiny ASR, Moonshine fallback, emotion detector, rule-based intent classifier | Explain speech-to-text, emotion estimation, and intent/reasoning pipeline |
+| Design ROS APIs: topics/publishers/subscribers | `/camera/image_raw`, `/audio/raw`, `/speech/transcript`, `/juno/tts`, `/juno/tts_done` | Include topic table with message type, publisher, subscriber, sample input/output |
+| Connect sensor output to decision-making | Backend subscribes `/speech/transcript` and `/camera/image_raw`, then updates robot state/dashboard/TTS | Show command flow: speech → transcript → backend intent → response → `/juno/tts` |
+| Unit test each ROS API | `rostopic hz`, `rostopic echo`, manual transcript publish, TTS test publisher | Capture terminal screenshots for each API test |
+| Successful code execution | launch file and backend runtime | Screenshot 4 terminals running plus dashboard active |
+
+### Q3 ROS API Evidence Table to Include in Report
+
+| API / Topic | Publisher | Subscriber | Message Type | Purpose | Example Input | Expected Output |
+|---|---|---|---|---|---|---|
+| `/camera/image_raw` | `camera_node.py` | backend ROS bridge / optional camera listener | `sensor_msgs/Image` | Sends camera frames for dashboard stream and emotion monitoring | Camera frame from Jupiter webcam | `rostopic hz /camera/image_raw` shows stable frame rate |
+| `/audio/raw` | `microphone_node.py` | `transcriber.py` | `std_msgs/Float32MultiArray` | Sends raw microphone audio for speech recognition | User says “Hey, John” | Audio samples published at 16 kHz |
+| `/speech/transcript` | `transcriber.py` | backend ROS bridge | `std_msgs/String` | Sends recognised speech to backend decision-making | `"What is my schedule today?"` | Backend classifies intent and generates response |
+| `/speech/raw_transcript` | `example_transcriptor.py` or manual `rostopic pub` | `transcriber.py` | `std_msgs/String` | Manual fallback to bypass ASR during testing | `"Hey, John"` | Relayed to `/speech/transcript` |
+| `/juno/tts` | backend ROS bridge / test publisher | `tts_node.py` | `std_msgs/String` | Sends robot response text to speech node | `"JUNO Assist is now online."` | Robot/laptop speaker speaks response |
+| `/juno/tts_done` | `tts_node.py` | `transcriber.py` | `std_msgs/String` | Signals that speech output has completed | TTS finishes speaking | ASR resumes listening |
+| `/juno/led_state` | backend ROS bridge | robot LED adapter if available | `std_msgs/String` | Optional robot status feedback | `"active"` | Robot LED/status state changes if hardware is connected |
+
+### Q3 Commands to Capture as Evidence
+
+```bash
+# Build and launch ROS application
+catkin_make
+source devel/setup.bash
+roslaunch juno_bringup juno_robot.launch
+
+# Verify APIs
+rostopic list
+rostopic hz /camera/image_raw
+rostopic echo /speech/transcript
+rostopic echo /juno/tts
+rostopic echo /juno/tts_done
+
+# Manual API test
+rostopic pub /speech/raw_transcript std_msgs/String "data: 'Hey, John'"
+rostopic pub /speech/raw_transcript std_msgs/String "data: 'Yes'"
+rostopic pub /speech/raw_transcript std_msgs/String "data: 'What is my schedule today?'"
+
+# Direct TTS API test
+rosrun language_pkg tts_test_publisher.py "Hello, I am JUNO and my speech node is working."
+```
+
+For Q3, the code is mostly there. The remaining work is to **prove it clearly** with API tables, command outputs, screenshots, and successful demo execution.
+
+---
+
 ## Project Title
 
 **JUNO Assist: Emotion-Aware Personal Daily Assistant Robot for Student Productivity**
