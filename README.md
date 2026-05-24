@@ -4,11 +4,14 @@
 Universiti Malaya, Academic Year 2025/2026, Semester 2
 
 Group 5
-- Wong Yoong Yee
-- Jonathan Siew Zunxian
-- Ong Zhao Qian
-- Vanness Liu Chuen Wei
-- Anas Abdurahman Mohammad
+
+| Name | Matric ID |
+|---|---|
+| Wong Yoong Yee | S2118482 |
+| Jonathan Siew Zunxian | 23004944 |
+| Ong Zhao Qian | 23004986 |
+| Vanness Liu Chuen Wei | 23005021 |
+| Anas Abdurahman Mohammad | 23055727 |
 
 # JUNO Assist: Personal Daily Assistant Robot
 
@@ -18,6 +21,16 @@ The system is designed to run in two modes:
 
 1. **Mock / Laptop Mode**: Runs without the Jupiter Robot using simulated robot hardware, suitable for development and demonstration.
 2. **Jupiter Integration Mode**: Replaces the mock adapters with Jupiter Robot camera, microphone, and speaker APIs.
+
+## Documentation Guide
+
+| File | Purpose | Read this when you need to... |
+|---|---|---|
+| `docs/product_requirements.md` | System requirements and technical design | Understand what JUNO Assist is supposed to do, feature scope, APIs, components, and design decisions. |
+| `docs/ros_integration_guide.md` | ROS setup, runtime commands, robot integration, testing, and troubleshooting | Run the robot/demo terminals, configure `.venv` vs `.venv-vision`, debug ROS topics, ASR/TTS, camera, or vision. |
+| `docs/project_manual_scaled_demo.md` | Demo plan, rubric mapping, team responsibilities, and submission checklist | Prepare the final presentation/report, assign work, collect evidence, and follow the course marking requirements. |
+
+For normal robot setup, start with `docs/ros_integration_guide.md`.
 
 ## Project Scenario
 
