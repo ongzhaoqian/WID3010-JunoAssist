@@ -32,6 +32,19 @@ The system is designed to run in two modes:
 
 For normal robot setup, start with `docs/ros_integration_guide.md`.
 
+## Assessment Mapping
+
+This repository is organised around the WID3010 Autonomous Robots alternative assessment requirements:
+
+| Question | Repository support |
+|---|---|
+| Q1 — robotics application, objectives, scope, AI techniques, experimental setup, testing scenarios | Project overview, architecture, technology stack, and documentation in `docs/product_requirements.md` and `docs/final_submission_checklist.md` |
+| Q2 — ROS workspace and catkin setup | `src/` catkin workspace with `perception_pkg`, `language_pkg`, `juno_bringup`, and `src/CMakeLists.txt` |
+| Q3 — ROS application, packages, APIs, publishers/subscribers, and unit testing | ROS nodes, launch file, backend ROS bridge, GitHub software checks, and robot-side `rostopic` testing guide |
+| Q4 — `rqt_graph` visualisation and node-topic explanation | RQT graph instructions in `docs/ros_integration_guide.md` and `docs/final_submission_checklist.md` |
+| Q5 — manual on how to run/launch the robot application | Four-terminal launch guide in `docs/ros_integration_guide.md` |
+| Q6 — max 5-minute robot demo video | Demo flow and recording checklist in `docs/final_submission_checklist.md` |
+
 ## Project Scenario
 
 Students often face many assignments, tests, classes, and deadlines during the semester. JUNO Assist helps them stay organised by checking schedules, setting timers, recommending breaks, and adjusting its responses based on estimated visible emotional state.
@@ -102,8 +115,8 @@ WID3010-JunoAssist/
 ├── backend/       # FastAPI assistant logic, NLP, productivity, vision, robot interface
 ├── dashboard/     # React/Vite user dashboard
 ├── src/           # ROS catkin packages: perception_pkg, language_pkg, juno_bringup
-├── docs/          # Manuals, requirements, integration notes, task distribution
-├── .github/       # Pull request template
+├── docs/          # Requirements, ROS integration guide, manual/demo checklist, submission checklist
+├── .github/       # Pull request template and GitHub Actions software checks
 └── README.md
 ```
 
