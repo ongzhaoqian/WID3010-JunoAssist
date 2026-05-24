@@ -42,16 +42,14 @@ jobs:
           import numpy as np
           from src.core.models import EmotionState
           from src.vision.emotion_detector import EmotionDetector
-          from src.vision.emotion_fusion import DWELL_FRAMES, EMAFusion, HysteresisStateMachine
-
-          assert DWELL_FRAMES == 1
+          from src.vision.emotion_fusion import EMAFusion, HysteresisStateMachine
 
           ema = EMAFusion(alpha=0.30)
           result = ema.update(np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32))
           assert result.shape == (5,)
           assert abs(float(result.sum()) - 1.0) < 1e-5
 
-          hsm = HysteresisStateMachine()
+          hsm = HysteresisStateMachine(dwell_frames=1)
           state = hsm.update(np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32))
           assert state == EmotionState.TIRED
 
