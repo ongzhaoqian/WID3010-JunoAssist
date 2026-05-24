@@ -2,16 +2,18 @@
 
 Use this file as the practical checklist for completing the WID3010 submission with minimum rework. Complete items in order.
 
-## Submission Requirements from PDF
+## Submission Requirements from `WID3010 AA (Q)_2025.2026.pdf`
 
-| Item | Marks | Required Output |
+Use the same naming as the question paper in the report so the mapping is clear.
+
+| Item | Marks | Question-paper wording / required output |
 |---|---:|---|
-| Q1 | 10 | Report section explaining application, objectives, scope, AI methods, setup diagram, and testing scenarios |
-| Q2 | 5 | ROS workspace setup evidence |
-| Q3 | 20 | ROS application, packages, APIs, publishers/subscribers, testing, and successful execution evidence |
-| Q4 | 5 | `rqt_graph` screenshot and node-topic explanation |
-| Q5 | 5 | Step-by-step launch manual with commands/screenshots |
-| Q6 | 5 | Max 5-minute demo video link |
+| Q1 | 10 | Explain the robotics application, objectives and scope; describe the technique/algorithm/model used for computer vision, speech processing and reasoning tasks; include a sketch/diagram/visual aid of the experimental setup; list testing scenarios. |
+| Q2 | 5 | Develop a ROS workspace: boot Ubuntu, create the ROS workspace folder, turn it into a catkin workspace, and load the workspace when opening a new terminal using `~/.bashrc`. |
+| Q3 | 20 | Develop the robotics application on the ROS workspace; identify appropriate packages; design ROS APIs such as topics, publishers and subscribers; connect sensor input to processing and robot/backend decision-making; run/unit-test each ROS API; explain purpose and example input/output. |
+| Q4 | 5 | Visualise the ROS graph using `rqt_graph`; show nodes and publishers/subscribers; explain node-topic relationships in the report. |
+| Q5 | 5 | Develop a step-by-step manual on how to run/launch the robot application, preferably with screenshots and specific scripts/commands. |
+| Q6 | 5 | Develop a max 5-minute robot demo video showing the experimental setup and testing scenarios, preferably with text labels describing the video flow. |
 
 Final Spectrum submission:
 
@@ -30,7 +32,7 @@ Final Spectrum submission:
 |---|---|---|
 | Q1 | Code/docs ready; no more code changes needed unless a feature is broken | polished report text, setup diagram, testing scenario table |
 | Q2 | Code/docs ready; ROS workspace structure is ready | physical robot/Ubuntu screenshots proving workspace setup and sourcing |
-| Q3 | Code/docs ready; software/ROS structure is ready; CI covers non-hardware checks | physical robot screenshots proving ROS APIs run successfully |
+| Q3 | Code/docs ready; software/ROS structure is ready; CI covers non-hardware unit/API checks | physical robot screenshots proving ROS APIs run successfully, including unit testing each ROS API with `rostopic`/`rosnode` evidence |
 | Q4 | Code/docs ready; no code changes needed | `rqt_graph` screenshot and explanation |
 | Q5 | Code/docs ready; launch commands and manual structure documented | final step-by-step manual with screenshots |
 | Q6 | no code changes unless demo fails | max 5-minute video |
@@ -70,7 +72,7 @@ The repository includes GitHub Actions software checks for pull requests and pus
 
 These checks cover non-hardware validation:
 
-- backend API/unit tests that do not require the robot
+- backend unit/API tests that do not require the robot
 - vision smoke test without robot hardware
 - Python compile checks
 - ROS workspace/package/launch file structure
@@ -82,7 +84,7 @@ These checks do **not** replace physical robot testing for Q3/Q4. Hardware-depen
 
 ---
 
-## Q1: Application, Objectives, Scope, and AI Methods
+## Q1: Explain Robotics Application, Objectives, Scope, and AI Methods
 
 No new code is required for Q1 unless a feature is broken. This is mainly report writing.
 
@@ -140,7 +142,7 @@ Backend → /juno/tts → tts_node → robot/laptop speaker
 
 ---
 
-## Q2: ROS Workspace Setup Evidence
+## Q2: Develop ROS Workspace Setup Evidence
 
 Codebase status: the ROS workspace structure is ready. Main evidence should be captured on the physical robot/lab Ubuntu machine. Use laptop/WSL only as backup.
 
@@ -213,9 +215,14 @@ Screenshots to capture:
 
 ---
 
-## Q3: ROS Application, APIs, and Testing
+## Q3: Develop Robotics Application on ROS Workspace, APIs, and Testing
 
-Codebase/software status: the ROS packages, launch file, backend bridge, and CI non-hardware checks are ready. Do not make more Q3 code changes unless robot testing reveals a bug.
+Codebase/software status: the ROS packages, launch file, backend bridge, and CI non-hardware unit/API checks are ready. Do not make more Q3 code changes unless robot testing reveals a bug.
+
+The question paper specifically asks to **perform unit testing by running each ROS API**. For this project, that means two layers of evidence:
+
+1. **Software unit/API testing** — automated backend/dashboard/vision checks in GitHub Actions.
+2. **ROS API unit testing on the robot** — run each ROS topic/API with `rostopic`, `rosnode`, manual transcript input, and TTS test commands, then screenshot the outputs.
 
 This is the largest technical section. Prioritise clear proof of execution on the physical robot.
 
@@ -239,7 +246,7 @@ This is the largest technical section. Prioritise clear proof of execution on th
 | `/juno/tts_done` | `tts_node.py` | `transcriber.py` | `std_msgs/String` | resume listening after speech |
 | `/juno/led_state` | backend bridge | robot LED adapter if available | `std_msgs/String` | optional robot state feedback |
 
-### Commands to run and screenshot
+### ROS API unit testing commands to run and screenshot
 
 Terminal 1:
 
@@ -300,7 +307,7 @@ npm install
 npm run dev
 ```
 
-Screenshots to capture:
+Screenshots to capture for ROS API unit testing:
 
 - `roslaunch` running nodes
 - `rostopic list`
@@ -321,7 +328,7 @@ The perception package publishes camera/audio sensor data, the language package 
 
 ---
 
-## Q4: RQT Graph
+## Q4: Visualise ROS Graph using RQT Graph
 
 Q4 requires a clear `rqt_graph` screenshot and an explanation of the node-topic relationships. No code changes are required unless the graph reveals a broken node or topic.
 
@@ -431,7 +438,7 @@ The backend ROS bridge is embedded inside the FastAPI backend process, so it may
 
 ---
 
-## Q5: Manual / Launch Instructions
+## Q5: Manual on How to Run/Launch Robot Application
 
 Q5 is a documentation/manual task. No code changes are required unless a launch command fails during testing. The manual should be step-by-step and include screenshots, commands, purpose, and expected output for each step.
 
@@ -571,7 +578,7 @@ Screenshot/Figure:
 
 ---
 
-## Q6: Demo Video
+## Q6: Max 5-Minute Robot Demo Video
 
 Q6 is a recording/editing task. No code changes are required unless the demo fails during rehearsal.
 

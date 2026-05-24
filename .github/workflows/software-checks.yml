@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements.txt
           pip install httpx 'numpy>=1.24,<2'
 
-      - name: Run backend tests that do not require robot hardware
+      - name: Run backend unit/API tests that do not require robot hardware
         working-directory: backend
         run: |
           python -m pytest \

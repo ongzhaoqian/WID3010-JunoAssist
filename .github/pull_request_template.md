@@ -61,7 +61,7 @@ Tick all checks that were performed.
 - [ ] Timer command tested
 - [ ] Break/status recommendation tested
 - [ ] Sleep command tested
-- [ ] Python tests passed
+- [ ] Backend unit/API tests passed
 - [ ] Not applicable
 
 ### Dashboard
