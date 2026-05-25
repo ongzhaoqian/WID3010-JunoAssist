@@ -13,7 +13,7 @@ _WAKE_VARIANTS = [
     "hey jude", "hey dude", "hey jewett", "hey joot", "hey druid",
 ]
 
-_HEY_SOUNDS = ["hey", "hay", "he", "a", "eh"]
+_HEY_SOUNDS = ["hey", "hay", "he", "eh"]
 _JOHN_SOUNDS = ["john", "jon", "jhon", "johan", "johnny", "joan", "jean",
                 "jan", "jawn", "juhn", "yohn", "jong", "jone", "jahn"]
 
@@ -36,7 +36,7 @@ class WakeWordDetector:
                 return True
         words = cleaned.split()
         has_hey = any(
-            any(difflib.SequenceMatcher(None, w, h).ratio() >= 0.8 for h in _HEY_SOUNDS)
+            any(difflib.SequenceMatcher(None, w, h).ratio() >= 0.85 for h in _HEY_SOUNDS)
             for w in words
         )
         has_john = any(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 import asyncio
+import re
 import json
 import time
 from pathlib import Path
@@ -227,7 +228,8 @@ def create_app() -> FastAPI:
 
         if snapshot["mode"] == RobotMode.CONFIRMATION:
             _explicit_no = {"no", "nope", "nah", "cancel", "stop", "ignore", "negative", "abort"}
-            words = set(text.lower().split())
+            _explicit_yes = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "confirm", "go", "start", "ready", "affirmative", "please", "activate"}
+            words = set(re.sub(r"[^a-z0-9 ]", "", text.lower()).split())
 
             # explicit rejection — reset to idle
             if words & _explicit_no:
@@ -237,7 +239,10 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": intent, "response": response, "status": robot_state.snapshot()}
 
-            # any non-empty speech that isn't a clear "no" = confirmation
+            # require explicit positive confirmation — reject hallucinated noise
+            if not (words & _explicit_yes):
+                return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
+
             robot_state.set_mode(RobotMode.ACTIVE)
             robot.set_led_state("active")
             robot.open_dashboard(settings.dashboard_url)
