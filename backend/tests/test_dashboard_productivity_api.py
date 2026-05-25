@@ -1,9 +1,22 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
 from src.core.models import EmotionState, RobotMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
+
+
+@pytest.fixture(autouse=True)
+def reset_robot_state():
+    """Reset shared robot_state between tests to prevent state leakage."""
+    robot_state.delete_timer()
+    robot_state.set_mode(RobotMode.IDLE)
+    robot_state.set_awaiting_timer_duration(False)
+    robot_state.set_awaiting_timer_minutes(False)
+    robot_state.set_awaiting_timer_seconds(False)
+    yield
+    robot_state.delete_timer()
 
 
 def test_schedule_item_can_be_added_and_removed(tmp_path, monkeypatch):

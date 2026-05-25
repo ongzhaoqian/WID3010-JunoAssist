@@ -203,29 +203,55 @@ def create_app() -> FastAPI:
         return None
 
     def _handle_timer_pause_resume_delete(text: str) -> dict | None:
-        t = text.lower()
-        if any(w in t for w in ("pause", "hold", "wait", "stop timer")):
-            if timer_service.pause_timer()["paused"]:
-                response = phrase_bank.say("timer_paused")
-            else:
-                response = phrase_bank.say("timer_already_paused")
-            robot_state.set_response(response)
-            tts.speak(response)
-            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-        if any(w in t for w in ("resume", "continue", "unpause", "go")):
-            if timer_service.resume_timer()["resumed"]:
-                response = phrase_bank.say("timer_resumed")
-            else:
-                response = phrase_bank.say("timer_not_running")
-            robot_state.set_response(response)
-            tts.speak(response)
-            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-        if any(w in t for w in ("delete", "reset", "cancel timer", "remove timer", "clear timer")):
+        # "unpause" removed — it fuzzy-matches "pause" at 0.83, causing both
+        # is_pause and is_resume to fire simultaneously and cancel each other out.
+        _PAUSE_WORDS  = ["pause", "hold", "paus", "pauz", "halted", "freeze"]
+        _RESUME_WORDS = ["resume", "continue", "resoom", "rezume", "contin"]
+        _DELETE_WORDS = ["delete", "reset", "cancel", "remove", "clear", "delet", "cancell", "cancle", "erase"]
+
+        words = re.sub(r"[^a-z0-9 ]", "", text.lower()).split()
+        snap = robot_state.snapshot()
+        is_running = snap.get("timer_remaining_seconds", 0) > 0
+        is_paused  = bool(snap.get("timer_paused"))
+
+        if not is_running and not is_paused:
+            return None
+
+        is_pause  = any(_fuzzy_matches(w, _PAUSE_WORDS)  for w in words)
+        is_resume = any(_fuzzy_matches(w, _RESUME_WORDS) for w in words)
+        is_delete = any(_fuzzy_matches(w, _DELETE_WORDS) for w in words)
+
+        # "stop" alone — treat as pause only when timer is actively running
+        if not is_pause and not is_resume and not is_delete and "stop" in words and is_running:
+            is_pause = True
+
+        if is_delete:
             timer_service.delete_timer()
             response = phrase_bank.say("timer_deleted")
             robot_state.set_response(response)
             tts.speak(response)
             return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+        if is_pause and is_running:
+            timer_service.pause_timer()
+            response = phrase_bank.say("timer_paused")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+        if is_pause and is_paused:
+            response = phrase_bank.say("timer_already_paused")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+        if is_resume and is_paused:
+            timer_service.resume_timer()
+            response = phrase_bank.say("timer_resumed")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
         return None
 
     def _handle_stop_command() -> dict:
