@@ -21,3 +21,17 @@ class TimerService:
             "seconds": total_seconds % 60,
             "remaining_seconds": total_seconds,
         }
+
+    def pause_timer(self) -> dict:
+        success = robot_state.pause_timer()
+        snapshot = robot_state.snapshot()
+        return {"paused": success, "remaining_seconds": snapshot["timer_paused_remaining"]}
+
+    def resume_timer(self) -> dict:
+        success = robot_state.resume_timer()
+        snapshot = robot_state.snapshot()
+        return {"resumed": success, "remaining_seconds": snapshot["timer_remaining_seconds"]}
+
+    def delete_timer(self) -> dict:
+        robot_state.delete_timer()
+        return {"deleted": True}

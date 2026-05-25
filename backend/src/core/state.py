@@ -13,6 +13,11 @@ class RobotState:
         self.timer_remaining_seconds = 0
         self.active_timer_label = None
         self.awaiting_timer_duration = False
+        self.awaiting_timer_minutes = False
+        self.awaiting_timer_seconds = False
+        self.timer_pending_minutes = 0
+        self.timer_paused = False
+        self.timer_paused_remaining = 0
         self.timer_duration_attempts = 0
         self.timer_completed_counter = 0
         self.last_timer_completed_label = None
@@ -46,6 +51,11 @@ class RobotState:
                 "timer_remaining_seconds": self.timer_remaining_seconds,
                 "active_timer_label": self.active_timer_label,
                 "awaiting_timer_duration": self.awaiting_timer_duration,
+                "awaiting_timer_minutes": self.awaiting_timer_minutes,
+                "awaiting_timer_seconds": self.awaiting_timer_seconds,
+                "timer_pending_minutes": self.timer_pending_minutes,
+                "timer_paused": self.timer_paused,
+                "timer_paused_remaining": self.timer_paused_remaining,
                 "timer_duration_attempts": self.timer_duration_attempts,
                 "timer_completed_counter": self.timer_completed_counter,
                 "last_timer_completed_label": self.last_timer_completed_label,
@@ -110,11 +120,64 @@ class RobotState:
             self.timer_remaining_seconds = max(0, seconds)
             self.active_timer_label = label
             self.awaiting_timer_duration = False
+            self.awaiting_timer_minutes = False
+            self.awaiting_timer_seconds = False
+            self.timer_pending_minutes = 0
+            self.timer_paused = False
+            self.timer_paused_remaining = 0
+            self.timer_duration_attempts = 0
+
+    def pause_timer(self) -> bool:
+        with self._lock:
+            if self.timer_remaining_seconds <= 0 or self.timer_paused:
+                return False
+            self.timer_paused = True
+            self.timer_paused_remaining = self.timer_remaining_seconds
+            self.timer_remaining_seconds = 0
+            return True
+
+    def resume_timer(self) -> bool:
+        with self._lock:
+            if not self.timer_paused:
+                return False
+            self.timer_remaining_seconds = self.timer_paused_remaining
+            self.timer_paused = False
+            self.timer_paused_remaining = 0
+            return True
+
+    def delete_timer(self) -> None:
+        with self._lock:
+            self.timer_remaining_seconds = 0
+            self.active_timer_label = None
+            self.timer_paused = False
+            self.timer_paused_remaining = 0
+            self.awaiting_timer_duration = False
+            self.awaiting_timer_minutes = False
+            self.awaiting_timer_seconds = False
+            self.timer_pending_minutes = 0
             self.timer_duration_attempts = 0
 
     def set_awaiting_timer_duration(self, awaiting: bool) -> None:
         with self._lock:
             self.awaiting_timer_duration = bool(awaiting)
+            self.awaiting_timer_minutes = False
+            self.awaiting_timer_seconds = False
+            self.timer_pending_minutes = 0
+            self.timer_duration_attempts = 0
+
+    def set_awaiting_timer_minutes(self, awaiting: bool) -> None:
+        with self._lock:
+            self.awaiting_timer_minutes = bool(awaiting)
+            self.awaiting_timer_seconds = False
+            self.awaiting_timer_duration = False
+            self.timer_duration_attempts = 0
+
+    def set_awaiting_timer_seconds(self, awaiting: bool, pending_minutes: int = 0) -> None:
+        with self._lock:
+            self.awaiting_timer_seconds = bool(awaiting)
+            self.awaiting_timer_minutes = False
+            self.awaiting_timer_duration = False
+            self.timer_pending_minutes = int(pending_minutes)
             self.timer_duration_attempts = 0
 
     def increment_timer_duration_attempts(self) -> int:
@@ -140,7 +203,7 @@ class RobotState:
         of repeating the alert every loop while the timer remains at zero.
         """
         with self._lock:
-            if self.timer_remaining_seconds <= 0:
+            if self.timer_paused or self.timer_remaining_seconds <= 0:
                 return None
 
             self.timer_remaining_seconds -= 1

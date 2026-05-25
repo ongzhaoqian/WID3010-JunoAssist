@@ -55,6 +55,42 @@ class PhraseBank:
             "Sure. How long should the study timer be? Please answer in minutes and seconds.",
             "I can start that. How many minutes and seconds would you like for the study timer?",
         ],
+        "timer_ask_minutes": [
+            "How many minutes for the timer?",
+            "Sure. How many minutes would you like?",
+            "I can set that. How many minutes?",
+        ],
+        "timer_ask_seconds": [
+            "Got it, {minutes} minutes. How many extra seconds? Say zero if none.",
+            "Okay, {minutes} minutes. Any extra seconds to add? Say zero to skip.",
+        ],
+        "timer_paused": [
+            "Timer paused. Say resume to continue, or delete to cancel it.",
+            "I have paused the timer. Say resume to keep going, or delete to remove it.",
+        ],
+        "timer_resumed": [
+            "Timer resumed. Keep going!",
+            "Done. The timer is running again.",
+        ],
+        "timer_deleted": [
+            "Timer deleted. I have reset everything.",
+            "Done. The timer has been removed.",
+        ],
+        "timer_not_running": [
+            "There is no active timer running at the moment.",
+            "I do not have a timer running right now.",
+        ],
+        "timer_already_paused": [
+            "The timer is already paused. Say resume to continue or delete to remove it.",
+        ],
+        "timer_unclear_minutes": [
+            "Sorry, I did not catch the number of minutes. Please say a number, for example: twenty five, or say cancel.",
+            "I could not understand the minutes. Please say a number like ten or thirty, or say cancel.",
+        ],
+        "timer_unclear_seconds": [
+            "I did not catch the seconds. Please say a number like zero, ten, or thirty, or say cancel.",
+            "Sorry, I could not understand the seconds. Say zero if you do not want extra seconds, or say cancel.",
+        ],
         "timer_started": [
             "Study timer started for {duration}.",
             "Done. I have started a study timer for {duration}.",

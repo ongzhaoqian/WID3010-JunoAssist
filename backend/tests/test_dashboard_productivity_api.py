@@ -49,13 +49,18 @@ def test_voice_timer_flow_asks_then_starts_duration():
 
     ask = client.post("/api/command", json={"text": "start study timer"})
     assert ask.status_code == 200
-    assert ask.json()["status"]["awaiting_timer_duration"] is True
+    assert ask.json()["status"]["awaiting_timer_minutes"] is True
 
-    answer = client.post("/api/command", json={"text": "1 minute 15 seconds"})
-    assert answer.status_code == 200
-    payload = answer.json()
+    minutes_reply = client.post("/api/command", json={"text": "1"})
+    assert minutes_reply.status_code == 200
+    assert minutes_reply.json()["status"]["awaiting_timer_seconds"] is True
+
+    seconds_reply = client.post("/api/command", json={"text": "15"})
+    assert seconds_reply.status_code == 200
+    payload = seconds_reply.json()
     assert payload["timer"]["remaining_seconds"] == 75
-    assert payload["status"]["awaiting_timer_duration"] is False
+    assert payload["status"]["awaiting_timer_minutes"] is False
+    assert payload["status"]["awaiting_timer_seconds"] is False
 
 
 def test_music_play_uses_current_emotion_and_spotify_embed():
@@ -112,12 +117,13 @@ def test_voice_timer_flow_can_be_cancelled():
 
     ask = client.post("/api/command", json={"text": "start study timer"})
     assert ask.status_code == 200
-    assert ask.json()["status"]["awaiting_timer_duration"] is True
+    assert ask.json()["status"]["awaiting_timer_minutes"] is True
 
     cancel = client.post("/api/command", json={"text": "cancel"})
     assert cancel.status_code == 200
     payload = cancel.json()
-    assert payload["status"]["awaiting_timer_duration"] is False
+    assert payload["status"]["awaiting_timer_minutes"] is False
+    assert payload["status"]["awaiting_timer_seconds"] is False
     assert "timer" in payload["response"].lower()
 
 

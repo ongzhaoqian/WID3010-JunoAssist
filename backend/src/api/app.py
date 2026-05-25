@@ -155,19 +155,71 @@ def create_app() -> FastAPI:
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "timer": result, "status": robot_state.snapshot()}
 
-    def _ask_for_timer_duration() -> dict:
-        response = phrase_bank.say("timer_ask")
-        robot_state.set_awaiting_timer_duration(True)
+    def _ask_for_timer_minutes() -> dict:
+        response = phrase_bank.say("timer_ask_minutes")
+        robot_state.set_awaiting_timer_minutes(True)
         robot_state.set_response(response)
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
+    def _ask_for_timer_seconds(minutes: int) -> dict:
+        response = phrase_bank.say("timer_ask_seconds", minutes=minutes)
+        robot_state.set_awaiting_timer_seconds(True, pending_minutes=minutes)
+        robot_state.set_response(response)
+        tts.speak(response)
+        return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+    def _ask_for_timer_duration() -> dict:
+        return _ask_for_timer_minutes()
+
     def _cancel_timer_setup(reason_key: str = "timer_cancelled") -> dict:
         robot_state.set_awaiting_timer_duration(False)
+        robot_state.set_awaiting_timer_minutes(False)
+        robot_state.set_awaiting_timer_seconds(False)
         response = phrase_bank.say(reason_key)
         robot_state.set_response(response)
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+    def _extract_bare_number(text: str) -> int | None:
+        t = text.lower().strip()
+        t = re.sub(r"[^a-z0-9\s]", " ", t).strip()
+        digit_match = re.search(r"\b(\d{1,3})\b", t)
+        if digit_match:
+            return int(digit_match.group(1))
+        word_val = intent_classifier._words_to_number(t)
+        if word_val is not None:
+            return word_val
+        # "none" / "no" / "nothing" → 0 seconds
+        if t in {"none", "no", "nothing", "nope", "zero", "nil"}:
+            return 0
+        return None
+
+    def _handle_timer_pause_resume_delete(text: str) -> dict | None:
+        t = text.lower()
+        if any(w in t for w in ("pause", "hold", "wait", "stop timer")):
+            if timer_service.pause_timer()["paused"]:
+                response = phrase_bank.say("timer_paused")
+            else:
+                response = phrase_bank.say("timer_already_paused")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+        if any(w in t for w in ("resume", "continue", "unpause", "go")):
+            if timer_service.resume_timer()["resumed"]:
+                response = phrase_bank.say("timer_resumed")
+            else:
+                response = phrase_bank.say("timer_not_running")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+        if any(w in t for w in ("delete", "reset", "cancel timer", "remove timer", "clear timer")):
+            timer_service.delete_timer()
+            response = phrase_bank.say("timer_deleted")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+        return None
 
     def _handle_stop_command() -> dict:
         """Immediately interrupt speech and music without speaking another reply."""
@@ -305,29 +357,65 @@ def create_app() -> FastAPI:
             return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.ACTIVE:
-            if snapshot.get("awaiting_timer_duration"):
+            # --- step 1: awaiting minutes ---
+            if snapshot.get("awaiting_timer_minutes"):
                 if intent_classifier.is_timer_duration_cancel(text):
                     return _cancel_timer_setup("timer_cancelled")
-
-                duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
-                if duration_seconds:
-                    return _start_study_timer_from_seconds(duration_seconds)
-
-                # Let the user move on naturally. If they answer with another
-                # valid command such as "play music instead", cancel timer setup
-                # and process that command rather than asking forever.
-                if intent_classifier.is_likely_different_active_intent(text):
-                    robot_state.set_awaiting_timer_duration(False)
-                    return process_command_text(raw_text)
-
+                minutes = _extract_bare_number(text)
+                if minutes is not None:
+                    return _ask_for_timer_seconds(minutes)
                 attempts = robot_state.increment_timer_duration_attempts()
                 if attempts >= 2:
                     return _cancel_timer_setup("timer_cancelled_after_unclear")
+                response = phrase_bank.say("timer_unclear_minutes")
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
+            # --- step 2: awaiting seconds ---
+            if snapshot.get("awaiting_timer_seconds"):
+                if intent_classifier.is_timer_duration_cancel(text):
+                    return _cancel_timer_setup("timer_cancelled")
+                seconds = _extract_bare_number(text)
+                if seconds is not None:
+                    pending_minutes = snapshot.get("timer_pending_minutes", 0)
+                    total = pending_minutes * 60 + seconds
+                    if total <= 0:
+                        response = phrase_bank.say("timer_unclear_seconds")
+                        robot_state.set_response(response)
+                        tts.speak(response)
+                        return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+                    return _start_study_timer_from_seconds(total)
+                attempts = robot_state.increment_timer_duration_attempts()
+                if attempts >= 2:
+                    return _cancel_timer_setup("timer_cancelled_after_unclear")
+                response = phrase_bank.say("timer_unclear_seconds")
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+            # --- legacy single-shot path (kept for API/test compatibility) ---
+            if snapshot.get("awaiting_timer_duration"):
+                if intent_classifier.is_timer_duration_cancel(text):
+                    return _cancel_timer_setup("timer_cancelled")
+                duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
+                if duration_seconds:
+                    return _start_study_timer_from_seconds(duration_seconds)
+                if intent_classifier.is_likely_different_active_intent(text):
+                    robot_state.set_awaiting_timer_duration(False)
+                    return process_command_text(raw_text)
+                attempts = robot_state.increment_timer_duration_attempts()
+                if attempts >= 2:
+                    return _cancel_timer_setup("timer_cancelled_after_unclear")
                 response = phrase_bank.say("timer_unclear")
                 robot_state.set_response(response)
                 tts.speak(response)
                 return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+            # --- pause / resume / delete while timer is running or paused ---
+            timer_action = _handle_timer_pause_resume_delete(text)
+            if timer_action:
+                return timer_action
 
             if intent == Intent.SLEEP:
                 robot_state.set_mode(RobotMode.IDLE)
