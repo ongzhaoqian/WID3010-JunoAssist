@@ -60,6 +60,11 @@ class PhraseBank:
             "Done. I have started a study timer for {duration}.",
             "Your focus session is ready. The timer is set for {duration}.",
         ],
+        "timer_finished": [
+            "Time is up. Your {label} has finished.",
+            "Ding. Your {label} is complete.",
+            "Your focus timer has reached zero. Time for a short reset.",
+        ],
         "timer_unclear": [
             "I could not understand the duration clearly. Please answer with a time such as 25 minutes, 1 minute 30 seconds, half an hour, or say cancel to exit timer setup.",
             "I did not catch the timer duration. You can say 20 minutes, 90 seconds, 2:30, one hour, or say cancel if you do not want to set it now.",
@@ -98,9 +103,17 @@ class PhraseBank:
             "Your nearest academic task is {title} on {date} at {time}.",
             "The closest task I found is {title}, scheduled for {date} at {time}.",
         ],
-        "reminder_prompt": [
-            "I can add that as a reminder. For this prototype, please use the reminder form in the dashboard.",
-            "I can help with reminders. For now, please add the reminder details through the dashboard form.",
+        "reminder_empty": [
+            "You do not have any active reminders in the current list.",
+            "There are no active reminders in the dashboard list yet.",
+        ],
+        "reminder_summary": [
+            "Here are your current reminders: {items}.",
+            "Your active reminders are: {items}.",
+        ],
+        "reminder_missing": [
+            "I can add a reminder, but I need the reminder title first. For example, say: remind me to submit the report date 2026-05-20 time 15:30 priority high.",
+            "I could not identify the reminder details clearly. Please include the title, date, time, type, and priority where possible.",
         ],
         "music_requested": [
             "I will play music based on your current emotion estimate.",
@@ -119,8 +132,13 @@ class PhraseBank:
             "JUNO has returned to sleep mode.",
         ],
         "reminder_added": [
-            "Reminder added: {title}.",
-            "Done. I have added the reminder: {title}.",
+            "Reminder added: {title} on {date} at {time}, with {priority} priority.",
+            "Done. I have added the reminder: {title}. Date {date}, time {time}, priority {priority}.",
+            "I have added {title} to your reminders for {date} at {time}.",
+        ],
+        "reminder_removed": [
+            "Reminder removed.",
+            "Done. I have removed that reminder.",
         ],
     })
 

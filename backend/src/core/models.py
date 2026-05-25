@@ -25,8 +25,9 @@ class Intent(str, Enum):
     CHECK_SCHEDULE = "check_schedule"
     CHECK_DEADLINE = "check_deadline"
     ADD_SCHEDULE = "add_schedule"
-    SET_TIMER = "set_timer"
+    CHECK_REMINDERS = "check_reminders"
     ADD_REMINDER = "add_reminder"
+    SET_TIMER = "set_timer"
     PLAY_MUSIC = "play_music"
     REQUEST_BREAK = "request_break"
     ASK_STATUS = "ask_status"
@@ -39,10 +40,23 @@ class CommandRequest(BaseModel):
 
 
 class ReminderRequest(BaseModel):
-    title: str
+    # The reminder schema now mirrors schedule items: title, date, time, type, priority.
+    # due_date/due_time remain accepted for backwards compatibility with older frontend/API calls.
+    title: str = Field(..., min_length=1, max_length=120)
+    date: Optional[str] = None
+    time: Optional[str] = None
+    type: str = Field(default="reminder", max_length=40)
+    priority: str = Field(default="medium", max_length=20)
     due_date: Optional[str] = None
     due_time: Optional[str] = None
-    priority: str = "medium"
+
+    @model_validator(mode="after")
+    def normalise_legacy_due_fields(self):
+        if not self.date and self.due_date:
+            self.date = self.due_date
+        if not self.time and self.due_time:
+            self.time = self.due_time
+        return self
 
 
 class ScheduleItemRequest(BaseModel):
@@ -76,3 +90,6 @@ class RobotStatus(BaseModel):
     last_response: str
     timer_remaining_seconds: int
     active_timer_label: Optional[str] = None
+    awaiting_timer_duration: bool = False
+    timer_completed_counter: int = 0
+    last_timer_completed_label: Optional[str] = None

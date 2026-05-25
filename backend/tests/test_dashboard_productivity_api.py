@@ -156,3 +156,93 @@ def test_speech_emotion_overrides_visual_emotion_for_break_request():
     assert payload["status"]["current_emotion"] == "stressed"
     assert payload["status"]["emotion_source"] == "speech"
     assert "stressed" in payload["response"].lower()
+
+
+def test_dashboard_reminder_uses_schedule_like_columns_and_can_be_deleted(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+
+    created = client.post(
+        "/api/reminders",
+        json={
+            "title": "Submit project report",
+            "date": "2026-05-22",
+            "time": "21:00",
+            "type": "assignment",
+            "priority": "high",
+        },
+    )
+    assert created.status_code == 200
+    item = created.json()
+    assert item["title"] == "Submit project report"
+    assert item["date"] == "2026-05-22"
+    assert item["formatted_date"] == "22 May, 2026"
+    assert item["time"] == "21:00"
+    assert item["type"] == "assignment"
+    assert item["priority"] == "high"
+    assert item["due_date"] == "2026-05-22"
+    assert item["due_time"] == "21:00"
+
+    reminders = client.get("/api/reminders").json()
+    assert any(row["id"] == item["id"] and row["type"] == "assignment" for row in reminders)
+
+    deleted = client.delete(f"/api/reminders/{item['id']}")
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+
+
+def test_voice_can_add_and_then_read_updated_reminder_list(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+
+    add = client.post(
+        "/api/command",
+        json={"text": "remind me to submit project report date 2026-05-22 time 21:00 priority high"},
+    )
+    assert add.status_code == 200
+    add_payload = add.json()
+    assert add_payload["intent"] == "add_reminder"
+    assert add_payload["reminder"]["title"] == "Submit project report"
+
+    check = client.post("/api/command", json={"text": "what are my reminders"})
+    assert check.status_code == 200
+    check_payload = check.json()
+    assert check_payload["intent"] == "check_reminders"
+    assert "Submit project report" in check_payload["response"]
+    assert any(item["title"] == "Submit project report" for item in check_payload["reminders"])
+
+
+def test_voice_schedule_reads_dashboard_added_items(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+
+    created = client.post(
+        "/api/schedule",
+        json={
+            "title": "Dashboard-added consultation",
+            "date": "2026-05-23",
+            "time": "10:30",
+            "type": "meeting",
+            "priority": "medium",
+        },
+    )
+    assert created.status_code == 200
+
+    response = client.post("/api/command", json={"text": "what is my schedule today"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"] == "check_schedule"
+    assert "Dashboard-added consultation" in payload["response"]
+
+
+def test_timer_completion_payload_is_emitted_once():
+    robot_state.set_timer(1, "Study timer")
+    completed = robot_state.decrement_timer()
+    assert completed is not None
+    snapshot = robot_state.snapshot()
+    assert snapshot["timer_remaining_seconds"] == 0
+    assert snapshot["last_timer_completed_label"] == "Study timer"
+    assert snapshot["timer_completed_counter"] >= 1
+    assert robot_state.decrement_timer() is None

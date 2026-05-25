@@ -33,15 +33,7 @@ class IntentClassifier:
         if any(word in t for word in ["deadline", "due", "assignment", "test", "quiz"]):
             return Intent.CHECK_DEADLINE
 
-        _timer_words = ("timer", "pomodoro", "countdown", "study session", "focus session")
-        _duration_words = ("minutes", "minute", "seconds", "second", "hours", "hour", "mins", "secs")
-        if any(w in t for w in _timer_words):
-            return Intent.SET_TIMER
-        # Whisper-tiny often drops the trailing 'r': "set a time for 25 minutes"
-        if "time" in t and any(w in t for w in ("set", "start", "study", "focus", "work")):
-            return Intent.SET_TIMER
-        # "study for 25 minutes" / "focus for half an hour" with no explicit timer word
-        if any(w in t for w in ("study", "focus", "work")) and any(w in t for w in _duration_words):
+        if "timer" in t or "pomodoro" in t:
             return Intent.SET_TIMER
 
         if "remind" in t or "reminder" in t:
