@@ -21,10 +21,6 @@ export default function StatusPanel({ status }) {
             Source: {emotionSource}{confidence > 0 ? ` · ${Math.round(confidence * 100)}% confidence` : ""}
           </p>
         </div>
-
-        <p className="text-sm leading-6 text-slate-300/75">
-          Emotion is an estimate, not a diagnosis. When you state how you feel, JUNO prioritises your speech over the camera estimate.
-        </p>
       </div>
     </Card>
   );

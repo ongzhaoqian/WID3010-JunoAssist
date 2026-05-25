@@ -55,7 +55,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Voice confirmation before activation
 - Web dashboard after activation
 - Embedded dashboard camera window for the Jupiter webcam feed
-- Facial emotion monitoring using a mockable vision module
+- Vision-language emotion analysis using Hugging Face `HuggingFaceTB/SmolVLM-256M-Instruct`, with mock fallback for lightweight demos
 - Rule-based intent detection for course-level feasibility
 - Lightweight Whisper Tiny speech recognition for robot microphone input
 - SQLite-backed schedule and reminder storage
@@ -83,7 +83,7 @@ User
 │
 ├── Vision Input
 │   ├── Camera Adapter
-│   ├── Face / Emotion Detector
+│   ├── SmolVLM Vision-Language Emotion Analyzer
 │   └── Emotion Smoothing
 │
 ├── JUNO Backend
@@ -132,7 +132,7 @@ WID3010-JunoAssist/
 | Backend | Python, FastAPI, Uvicorn |
 | Real-time updates | WebSocket |
 | Storage | SQLite |
-| Vision | ROS `/camera/image_raw` frames streamed to the dashboard through FastAPI MJPEG; OpenCV-ready emotion module |
+| Vision | ROS `/camera/image_raw` frames streamed to the dashboard through FastAPI MJPEG; Hugging Face `HuggingFaceTB/SmolVLM-256M-Instruct` as the core vision-language emotion model with mock fallback |
 | Speech | ROS microphone input transcribed by Hugging Face `openai/whisper-tiny`; manual transcript fallback retained |
 | NLP | Rule-based intent classifier with deterministic backend responses; optional text LLM boundary disabled by default |
 | Dashboard | React, Vite, Tailwind CSS |
@@ -173,6 +173,33 @@ Install the optional ASR dependencies on the machine that runs the ROS transcrib
 ```bash
 cd backend
 pip install -r requirements-asr.txt
+```
+
+### Optional: Enable SmolVLM Vision Module
+
+The core vision model is now `HuggingFaceTB/SmolVLM-256M-Instruct`. It is a compact image-text-to-text model that analyses the latest camera frame with a prompt and returns a JUNO emotion label (`happy`, `neutral`, `tired`, `stressed`, `frustrated`, or `unknown`). The backend then smooths the result with the existing EMA and hysteresis logic so the dashboard emotion does not flicker.
+
+Install the optional vision dependencies before switching on the dashboard Vision Module:
+
+```bash
+cd backend
+pip install -r requirements-vision.txt
+```
+
+Recommended settings:
+
+```bash
+export JUNO_VISION_BACKEND=smolvlm
+export JUNO_VISION_MODEL_ID=HuggingFaceTB/SmolVLM-256M-Instruct
+export JUNO_VISION_DEVICE=auto          # CUDA → Apple MPS → CPU
+export JUNO_VISION_MAX_NEW_TOKENS=64
+export JUNO_VISION_MIN_CONFIDENCE=0.35
+```
+
+Use this lightweight fallback when the demo machine should not load the Hugging Face vision model:
+
+```bash
+export JUNO_VISION_BACKEND=mock
 ```
 
 For ROS usage, the language package also includes the same dependency list:
@@ -246,7 +273,7 @@ The Jupiter webcam feed is shown inside the dashboard instead of a separate ROS 
 camera_node.py → /camera/image_raw → FastAPI ROS bridge → /api/vision/camera/stream → React CameraPanel
 ```
 
-On first dashboard load, the camera is **off by default**. To gain consent from the user for live image use, the camera window remains visible as a placeholder with a **Switch On Camera** button, so the operator decides when the live `/dev/video2` feed should appear. The **Vision Module** toggle is separate: switch it on only when you want to load/run the emotion-recognition model. If the camera is on but the Vision Module is off, the panel works as a normal camera monitor only.
+On first dashboard load, the camera is **off by default**. To gain consent from the user for live image use, the camera window remains visible as a placeholder with a **Switch On Camera** button, so the operator decides when the live `/dev/video2` feed should appear. The **Vision Module** toggle is separate: switch it on only when you want to load/run the SmolVLM vision-language emotion model. If the camera is on but the Vision Module is off, the panel works as a normal camera monitor only.
 
 Useful endpoints:
 
@@ -257,7 +284,10 @@ POST http://localhost:8000/api/vision/camera/stop
 POST http://localhost:8000/api/vision/camera/refresh
 POST http://localhost:8000/api/vision/model/start
 POST http://localhost:8000/api/vision/model/stop
+POST http://localhost:8000/api/vision/analyse       # one-shot analysis of the latest camera frame
 ```
+
+`/api/vision/status` now reports the active vision backend, model ID, whether the model has loaded, the latest visual-emotion confidence, and the latest SmolVLM description/error if available.
 
 For normal operation, do not launch `camera_listener_node.py`; it no longer opens a pop-up by default. For debugging only:
 

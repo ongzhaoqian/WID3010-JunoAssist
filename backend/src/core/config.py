@@ -46,6 +46,16 @@ class Settings:
     camera_enabled_default: bool = _env_bool("JUNO_CAMERA_ENABLED_DEFAULT", False)
     vision_model_enabled_default: bool = _env_bool("JUNO_VISION_MODEL_ENABLED_DEFAULT", False)
 
+    # Core vision-language model. SmolVLM is loaded lazily when the dashboard
+    # Vision Module is switched on and a camera frame is available. Use
+    # JUNO_VISION_BACKEND=mock for demos without Hugging Face/torch installed,
+    # or legacy_cnn if you still want to experiment with the older Mini-Xception path.
+    vision_backend: str = os.getenv("JUNO_VISION_BACKEND", "smolvlm").strip().lower()
+    vision_model_id: str = os.getenv("JUNO_VISION_MODEL_ID", "HuggingFaceTB/SmolVLM-256M-Instruct")
+    vision_device: str = os.getenv("JUNO_VISION_DEVICE", "auto")
+    vision_max_new_tokens: int = int(os.getenv("JUNO_VISION_MAX_NEW_TOKENS", "64"))
+    vision_min_confidence: float = float(os.getenv("JUNO_VISION_MIN_CONFIDENCE", "0.35"))
+
     # Emotion-aware music. The dashboard uses Spotify embeds by default because
     # they do not require storing API secrets in this student prototype. Direct
     # Spotify playback through the Web Playback SDK can be layered later with

@@ -108,6 +108,7 @@ def create_app() -> FastAPI:
         snapshot = robot_state.snapshot()
         camera_enabled = bool(snapshot.get("camera_enabled"))
         vision_model_enabled = bool(snapshot.get("vision_model_enabled"))
+        detector = emotion_detector
         return {
             "camera_enabled": camera_enabled,
             "vision_model_enabled": vision_model_enabled,
@@ -118,7 +119,13 @@ def create_app() -> FastAPI:
             "stream_fps": settings.camera_stream_fps,
             "stream_url": "/api/vision/camera/stream",
             "emotion": snapshot.get("current_emotion"),
-            "model_loaded": emotion_detector is not None,
+            "emotion_source": snapshot.get("emotion_source"),
+            "emotion_confidence": snapshot.get("emotion_confidence"),
+            "vision_backend": detector.backend_name if detector is not None else settings.vision_backend,
+            "model_id": detector.model_id if detector is not None else settings.vision_model_id,
+            "model_loaded": bool(detector.model_loaded) if detector is not None else False,
+            "analysis_description": detector.last_description if detector is not None else "",
+            "analysis_error": detector.last_error if detector is not None else None,
         }
 
     def _ensure_emotion_detector() -> EmotionDetector:
@@ -195,36 +202,9 @@ def create_app() -> FastAPI:
             return 0
         return None
 
-    def _fuzzy_matches(word: str, targets: list, threshold: float = 0.8) -> bool:
-        import difflib
-        return any(
-            difflib.SequenceMatcher(None, word, t).ratio() >= threshold
-            for t in targets
-        )
-
     def _handle_timer_pause_resume_delete(text: str) -> dict | None:
-        _PAUSE_WORDS  = ["pause", "hold", "wait", "paus", "pauz", "halted", "freeze"]
-        _RESUME_WORDS = ["resume", "continue", "unpause", "resoom", "rezume", "contin"]
-        _DELETE_WORDS = ["delete", "reset", "cancel", "remove", "clear", "delet", "cancell", "cancle", "erase"]
-
-        words = re.sub(r"[^a-z0-9 ]", "", text.lower()).split()
-        snapshot = robot_state.snapshot()
-        timer_active = snapshot.get("timer_remaining_seconds", 0) > 0 or snapshot.get("timer_paused")
-
-        if not timer_active:
-            return None
-
-        is_pause  = any(_fuzzy_matches(w, _PAUSE_WORDS)  for w in words)
-        is_resume = any(_fuzzy_matches(w, _RESUME_WORDS) for w in words)
-        is_delete = any(_fuzzy_matches(w, _DELETE_WORDS) for w in words)
-
-        # "stop" alone is ambiguous (also means sleep/cancel); only treat as pause
-        # if the timer is currently running and no other intent matches.
-        if not is_pause and not is_resume and not is_delete:
-            if "stop" in words and timer_active:
-                is_pause = True
-
-        if is_pause and not is_resume:
+        t = text.lower()
+        if any(w in t for w in ("pause", "hold", "wait", "stop timer")):
             if timer_service.pause_timer()["paused"]:
                 response = phrase_bank.say("timer_paused")
             else:
@@ -232,8 +212,7 @@ def create_app() -> FastAPI:
             robot_state.set_response(response)
             tts.speak(response)
             return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-
-        if is_resume and not is_pause:
+        if any(w in t for w in ("resume", "continue", "unpause", "go")):
             if timer_service.resume_timer()["resumed"]:
                 response = phrase_bank.say("timer_resumed")
             else:
@@ -241,14 +220,12 @@ def create_app() -> FastAPI:
             robot_state.set_response(response)
             tts.speak(response)
             return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-
-        if is_delete:
+        if any(w in t for w in ("delete", "reset", "cancel timer", "remove timer", "clear timer")):
             timer_service.delete_timer()
             response = phrase_bank.say("timer_deleted")
             robot_state.set_response(response)
             tts.speak(response)
             return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-
         return None
 
     def _handle_stop_command() -> dict:
@@ -442,6 +419,11 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
+            # --- pause / resume / delete while timer is running or paused ---
+            timer_action = _handle_timer_pause_resume_delete(text)
+            if timer_action:
+                return timer_action
+
             if intent == Intent.SLEEP:
                 robot_state.set_mode(RobotMode.IDLE)
                 response = phrase_bank.say("sleep")
@@ -471,10 +453,6 @@ def create_app() -> FastAPI:
                 music_result = music_service.play_for_emotion(snapshot.get("current_emotion", EmotionState.UNKNOWN))
                 response = music_result["message"]
             else:
-                # pause / resume / delete timer — checked after all intents
-                timer_action = _handle_timer_pause_resume_delete(text)
-                if timer_action:
-                    return timer_action
                 response = response_generator.generate(
                     intent=intent,
                     emotion=snapshot["current_emotion"],
@@ -508,8 +486,13 @@ def create_app() -> FastAPI:
                 frame = robot.get_camera_frame()
                 if frame is not None:
                     if not robot_state.speech_emotion_override_active(settings.speech_emotion_override_seconds):
-                        emotion = _ensure_emotion_detector().predict_from_frame(frame)
-                        robot_state.set_emotion(emotion, source="vision", confidence=0.60)
+                        detector = _ensure_emotion_detector()
+                        emotion = detector.predict_from_frame(frame)
+                        robot_state.set_emotion(
+                            emotion,
+                            source=f"vision:{detector.backend_name}",
+                            confidence=detector.last_confidence or 0.60,
+                        )
             await asyncio.sleep(settings.emotion_update_seconds)
 
     async def _timer_loop():
@@ -615,6 +598,25 @@ def create_app() -> FastAPI:
     def stop_vision_model():
         robot_state.set_vision_model_enabled(False)
         return _vision_status()
+
+    @app.post("/api/vision/analyse")
+    def analyse_current_camera_frame():
+        """Run one immediate SmolVLM/vision analysis on the latest camera frame."""
+        frame = robot.get_camera_frame()
+        if frame is None:
+            raise HTTPException(status_code=404, detail="No camera frame is currently available.")
+        detector = _ensure_emotion_detector()
+        analysis = detector.analyse_frame(frame)
+        try:
+            emotion = EmotionState(analysis.get("emotion", EmotionState.UNKNOWN.value))
+        except ValueError:
+            emotion = EmotionState.UNKNOWN
+        robot_state.set_emotion(
+            emotion,
+            source=f"vision:{detector.backend_name}",
+            confidence=float(analysis.get("confidence") or 0.0),
+        )
+        return {"analysis": analysis, "status": robot_state.snapshot(), "vision": _vision_status()}
 
     # Backwards compatibility for earlier dashboard builds. These now control
     # the emotion-recognition model, not the raw camera stream.

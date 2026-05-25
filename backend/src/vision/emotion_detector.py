@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import os
 import random
 from typing import Any, Optional, Tuple
 
 import numpy as np
 
+from src.core.config import settings
 from src.core.models import EmotionState
 from .emotion_fusion import EMAFusion, HysteresisStateMachine
+from .smolvlm_vision import SmolVLMVisionModel, VisionAnalysis
 
 # ── Mock predictor weights ────────────────────────────────────────────────────
 
@@ -51,10 +55,7 @@ def _remap(P_raw: np.ndarray) -> np.ndarray:
 
 
 def detect_face(frame: np.ndarray, net) -> Tuple[Optional[np.ndarray], float]:
-    """Returns (face_roi, confidence) or (None, 0.0).
-
-    Rejection: confidence < 0.70 or area < 1000 px² → reject frame.
-    """
+    """Returns (face_roi, confidence) or (None, 0.0)."""
     import cv2
     h, w = frame.shape[:2]
     blob = cv2.dnn.blobFromImage(frame, 1.0, (300, 300), (104, 177, 123))
@@ -87,30 +88,63 @@ def preprocess_face(face_roi: np.ndarray) -> np.ndarray:
     return np.expand_dims(np.expand_dims(face_norm, -1), 0)
 
 
-# ── EmotionDetector ───────────────────────────────────────────────────────────
-
 class EmotionDetector:
-    """Emotion detector: mock-first, upgradeable to real CNN.
+    """Core vision detector for JUNO Assist.
 
-    Phase 1 (default): weighted mock predictor → EMA + Hysteresis smoother.
-    Phase 2 (use_real=True): OpenCV DNN face detection + Mini-Xception CNN
-        → FER-7 to Juno-5 remapping → EMA + Hysteresis smoother.
+    Production path: HuggingFaceTB/SmolVLM-256M-Instruct analyses the camera
+    frame with a compact image-text prompt and returns a JUNO emotion label.
+    The text result is converted into a five-class probability vector, then the
+    existing EMA + hysteresis smoother prevents rapid emotion flicker.
 
-    Set use_real=True and provide model files to enable Phase 2.
-    Falls back to mock automatically if models are missing or fail to load.
-    Public interface unchanged — app.py requires no modification.
+    Fallbacks remain available:
+    - ``JUNO_VISION_BACKEND=mock`` for lightweight demos/tests.
+    - ``JUNO_VISION_BACKEND=legacy_cnn`` for the older OpenCV + CNN experiment.
     """
 
     def __init__(self, use_real: bool = False) -> None:
         self.ema = EMAFusion()
         self.hsm = HysteresisStateMachine()
         self.use_real = use_real
+        self.backend_name = settings.vision_backend if use_real else "mock"
+        self.last_analysis: Optional[VisionAnalysis] = None
+        self.last_confidence: float = 0.0
+        self.last_description: str = ""
+        self.last_raw_output: str = ""
+        self.last_error: Optional[str] = None
         self._face_net = None
         self._cnn_model = None
-        if use_real:
-            self._load_models()
+        self._smolvlm: Optional[SmolVLMVisionModel] = None
 
-    def _load_models(self) -> None:
+        if use_real and self.backend_name == "smolvlm":
+            self._smolvlm = SmolVLMVisionModel(
+                model_id=settings.vision_model_id,
+                device=settings.vision_device,
+                max_new_tokens=settings.vision_max_new_tokens,
+            )
+        elif use_real and self.backend_name in {"legacy_cnn", "cnn", "opencv"}:
+            self._load_legacy_cnn_models()
+        elif use_real and self.backend_name not in {"mock", "smolvlm", "legacy_cnn", "cnn", "opencv"}:
+            print(f"[EmotionDetector] Unknown JUNO_VISION_BACKEND={self.backend_name!r}; falling back to mock.")
+            self.backend_name = "mock"
+            self.use_real = False
+
+    @property
+    def model_loaded(self) -> bool:
+        if self.backend_name == "smolvlm" and self._smolvlm is not None:
+            return self._smolvlm.loaded
+        if self.backend_name in {"legacy_cnn", "cnn", "opencv"}:
+            return self._face_net is not None and self._cnn_model is not None
+        return False
+
+    @property
+    def model_id(self) -> str:
+        if self.backend_name == "smolvlm":
+            return settings.vision_model_id
+        if self.backend_name in {"legacy_cnn", "cnn", "opencv"}:
+            return os.getenv("EMOTION_MODEL_PATH", "models/emotion_model.h5")
+        return "mock"
+
+    def _load_legacy_cnn_models(self) -> None:
         try:
             import cv2
             from tensorflow.keras.models import load_model
@@ -124,27 +158,77 @@ class EmotionDetector:
                 self._cnn_model = load_model(model_path, compile=False)
                 print("[EmotionDetector] Emotion classification model loaded.")
         except Exception as exc:
-            print(f"[EmotionDetector] Model load failed: {exc}. Falling back to mock.")
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            print(f"[EmotionDetector] Legacy CNN load failed: {exc}. Falling back to mock.")
+            self.backend_name = "mock"
             self.use_real = False
 
+    def analyse_frame(self, frame: Any = None) -> dict:
+        emotion = self.predict_from_frame(frame)
+        return {
+            "emotion": emotion.value if isinstance(emotion, EmotionState) else str(emotion),
+            "confidence": self.last_confidence,
+            "description": self.last_description,
+            "raw_output": self.last_raw_output,
+            "backend": self.backend_name,
+            "model_id": self.model_id,
+            "model_loaded": self.model_loaded,
+            "error": self.last_error,
+        }
+
     def predict_from_frame(self, frame: Any = None) -> EmotionState:
+        if self.use_real and frame is not None and self.backend_name == "smolvlm" and self._smolvlm is not None:
+            return self._predict_with_smolvlm(frame)
+
         if (self.use_real
                 and frame is not None
+                and self.backend_name in {"legacy_cnn", "cnn", "opencv"}
                 and self._face_net is not None
                 and self._cnn_model is not None):
-            face_roi, _ = detect_face(frame, self._face_net)
-            if face_roi is not None:
-                tensor = preprocess_face(face_roi)
-                P_raw = self._cnn_model.predict(tensor, verbose=0)[0]
-                P_juno = _remap(P_raw)
-                print("[EmotionDetector] inference running")
-                print("[EmotionDetector] probs:", P_juno    )
-                P_t = self.ema.update(P_juno)
-            else:
-                P_t = self.ema.skip()
+            return self._predict_with_legacy_cnn(frame)
+
+        P_juno = self._mock_predict()
+        self.last_confidence = float(P_juno.max())
+        self.last_description = "Mock vision emotion used because the real vision model is unavailable or disabled."
+        self.last_raw_output = ""
+        self.last_error = None
+        P_t = self.ema.update(P_juno)
+        return self.hsm.update(P_t)
+
+    def _predict_with_smolvlm(self, frame: Any) -> EmotionState:
+        analysis = self._smolvlm.analyse(frame)
+        self.last_analysis = analysis
+        self.last_confidence = float(analysis.confidence)
+        self.last_description = analysis.description
+        self.last_raw_output = analysis.raw_output
+        self.last_error = analysis.error
+
+        if not analysis.available or analysis.emotion == EmotionState.UNKNOWN:
+            P_t = self.ema.skip()
         else:
-            P_juno = self._mock_predict()
+            P_juno = analysis.probabilities()
+            # If confidence is too low, bias toward the previous smoothed state.
+            if analysis.confidence < settings.vision_min_confidence:
+                P_t = self.ema.skip()
+            else:
+                P_t = self.ema.update(P_juno)
+        return self.hsm.update(P_t)
+
+    def _predict_with_legacy_cnn(self, frame: Any) -> EmotionState:
+        face_roi, _ = detect_face(frame, self._face_net)
+        if face_roi is not None:
+            tensor = preprocess_face(face_roi)
+            P_raw = self._cnn_model.predict(tensor, verbose=0)[0]
+            P_juno = _remap(P_raw)
+            self.last_confidence = float(P_juno.max())
+            self.last_description = "Legacy CNN emotion classification."
+            self.last_raw_output = str(P_juno.tolist())
+            self.last_error = None
             P_t = self.ema.update(P_juno)
+        else:
+            self.last_description = "No face was confidently detected by the legacy CNN path."
+            self.last_confidence = 0.0
+            P_t = self.ema.skip()
         return self.hsm.update(P_t)
 
     def _mock_predict(self) -> np.ndarray:
