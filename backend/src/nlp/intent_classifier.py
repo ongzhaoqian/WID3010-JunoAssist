@@ -36,8 +36,15 @@ class IntentClassifier:
         if "timer" in t or "pomodoro" in t:
             return Intent.SET_TIMER
 
-        if "remind" in t or "reminder" in t:
+        _check_reminder_phrases = ("what are my reminders", "show my reminders", "list reminders", "check reminders", "my reminders", "show reminders")
+        if any(p in t for p in _check_reminder_phrases):
+            return Intent.CHECK_REMINDERS
+
+        if "remind me" in t or self.looks_like_reminder_add(t):
             return Intent.ADD_REMINDER
+
+        if "remind" in t or "reminder" in t:
+            return Intent.CHECK_REMINDERS
 
         if any(word in t for word in ["music", "song", "songs", "sound", "relaxing", "calming"]):
             return Intent.PLAY_MUSIC
@@ -49,6 +56,15 @@ class IntentClassifier:
             return Intent.ASK_STATUS
 
         return Intent.UNKNOWN
+
+    def looks_like_reminder_add(self, text: str) -> bool:
+        t = text.lower().strip()
+        add_words = ("add", "create", "insert", "put", "set", "make")
+        if "remind me" in t or "reminder to" in t or "reminder for" in t:
+            return True
+        if any(word in t for word in add_words) and "reminder" in t:
+            return True
+        return "reminder" in t and any(field in t for field in ("date", "time", "purpose", "title", "task"))
 
     def looks_like_schedule_add(self, text: str) -> bool:
         t = text.lower().strip()
