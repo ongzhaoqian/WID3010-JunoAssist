@@ -14,6 +14,9 @@ class RobotState:
         self.active_timer_label = None
         self.awaiting_timer_duration = False
         self.timer_duration_attempts = 0
+        self.timer_completed_counter = 0
+        self.last_timer_completed_label = None
+        self.last_timer_completed_at = 0.0
         self.last_emotion_source = "none"
         self.last_speech_emotion_text = None
         self.last_speech_emotion_at = 0.0
@@ -44,6 +47,9 @@ class RobotState:
                 "active_timer_label": self.active_timer_label,
                 "awaiting_timer_duration": self.awaiting_timer_duration,
                 "timer_duration_attempts": self.timer_duration_attempts,
+                "timer_completed_counter": self.timer_completed_counter,
+                "last_timer_completed_label": self.last_timer_completed_label,
+                "last_timer_completed_at": self.last_timer_completed_at,
                 "emotion_source": self.last_emotion_source,
                 "emotion_confidence": self.emotion_confidence,
                 "last_speech_emotion_text": self.last_speech_emotion_text,
@@ -109,10 +115,7 @@ class RobotState:
     def set_awaiting_timer_duration(self, awaiting: bool) -> None:
         with self._lock:
             self.awaiting_timer_duration = bool(awaiting)
-            if awaiting:
-                self.timer_duration_attempts = 0
-            else:
-                self.timer_duration_attempts = 0
+            self.timer_duration_attempts = 0
 
     def increment_timer_duration_attempts(self) -> int:
         with self._lock:
@@ -129,12 +132,31 @@ class RobotState:
         with self._lock:
             self.music = {**self.music, **payload}
 
-    def decrement_timer(self) -> None:
+    def decrement_timer(self) -> dict | None:
+        """Tick the active timer once and return a completion payload exactly once.
+
+        Returning a payload lets the API loop trigger TTS and the dashboard bell
+        only when the countdown transitions from 1 second to 0 seconds, instead
+        of repeating the alert every loop while the timer remains at zero.
+        """
         with self._lock:
+            if self.timer_remaining_seconds <= 0:
+                return None
+
+            self.timer_remaining_seconds -= 1
             if self.timer_remaining_seconds > 0:
-                self.timer_remaining_seconds -= 1
-            if self.timer_remaining_seconds == 0:
-                self.active_timer_label = None
+                return None
+
+            completed_label = self.active_timer_label or "Study timer"
+            self.active_timer_label = None
+            self.timer_completed_counter += 1
+            self.last_timer_completed_label = completed_label
+            self.last_timer_completed_at = time.time()
+            return {
+                "label": completed_label,
+                "completed_counter": self.timer_completed_counter,
+                "completed_at": self.last_timer_completed_at,
+            }
 
 
 robot_state = RobotState()

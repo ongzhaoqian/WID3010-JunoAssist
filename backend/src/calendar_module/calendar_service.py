@@ -33,13 +33,43 @@ class CalendarService:
                 CREATE TABLE IF NOT EXISTS reminders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     title TEXT NOT NULL,
-                    due_date TEXT,
-                    due_time TEXT,
+                    date TEXT,
+                    time TEXT,
+                    type TEXT DEFAULT 'reminder',
                     priority TEXT,
                     completed INTEGER DEFAULT 0
                 )
                 """
             )
+            self._migrate_reminder_columns(conn)
+
+    def _migrate_reminder_columns(self, conn: sqlite3.Connection) -> None:
+        """Bring old reminder tables up to the schedule-like schema.
+
+        Earlier builds stored reminders as title/due_date/due_time/priority only.
+        The dashboard and speech layer now expect the same logical columns as
+        schedules: title, date, time, type, priority. Existing due_* values are
+        copied into the new fields when present so old reminders remain visible.
+        """
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(reminders)").fetchall()}
+        required = {
+            "date": "TEXT",
+            "time": "TEXT",
+            "type": "TEXT DEFAULT 'reminder'",
+            "priority": "TEXT",
+            "completed": "INTEGER DEFAULT 0",
+        }
+        for column, definition in required.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE reminders ADD COLUMN {column} {definition}")
+
+        refreshed_columns = {row[1] for row in conn.execute("PRAGMA table_info(reminders)").fetchall()}
+        if "due_date" in refreshed_columns:
+            conn.execute("UPDATE reminders SET date = COALESCE(date, due_date)")
+        if "due_time" in refreshed_columns:
+            conn.execute("UPDATE reminders SET time = COALESCE(time, due_time)")
+        conn.execute("UPDATE reminders SET type = COALESCE(NULLIF(type, ''), 'reminder')")
+        conn.execute("UPDATE reminders SET priority = COALESCE(NULLIF(priority, ''), 'medium')")
 
     def seed_from_json_if_empty(self, json_path: str) -> None:
         with self._connect() as conn:
@@ -58,14 +88,14 @@ class CalendarService:
                 INSERT INTO schedule_items (title, date, time, type, priority)
                 VALUES (:title, :date, :time, :type, :priority)
                 """,
-                items
+                items,
             )
 
     def get_today_schedule(self) -> list[dict[str, Any]]:
         # For demo purposes, return all seeded/user-added records.
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, title, date, time, type, priority FROM schedule_items ORDER BY date, time"
+                "SELECT id, title, date, time, type, priority FROM schedule_items ORDER BY COALESCE(date, ''), COALESCE(time, ''), id"
             ).fetchall()
 
         return [self._schedule_row_to_dict(row) for row in rows]
@@ -77,7 +107,7 @@ class CalendarService:
                 SELECT id, title, date, time, type, priority
                 FROM schedule_items
                 WHERE type IN ('assignment', 'test', 'quiz', 'study')
-                ORDER BY date, time
+                ORDER BY COALESCE(date, ''), COALESCE(time, ''), id
                 LIMIT 5
                 """
             ).fetchall()
@@ -92,13 +122,16 @@ class CalendarService:
         type: str = "study",
         priority: str = "medium",
     ) -> dict[str, Any]:
+        title = title.strip()
+        item_type = (type or "study").strip().lower()
+        priority = (priority or "medium").strip().lower()
         with self._connect() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO schedule_items (title, date, time, type, priority)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (title, date, time, type, priority),
+                (title, date, time, item_type, priority),
             )
             item_id = cursor.lastrowid
 
@@ -108,7 +141,7 @@ class CalendarService:
             "date": date,
             "formatted_date": self.format_display_date(date),
             "time": time,
-            "type": type,
+            "type": item_type,
             "priority": priority,
         }
 
@@ -117,47 +150,67 @@ class CalendarService:
             cursor = conn.execute("DELETE FROM schedule_items WHERE id = ?", (item_id,))
             return cursor.rowcount > 0
 
-    def add_reminder(self, title: str, due_date: str | None, due_time: str | None, priority: str) -> dict:
+    def add_reminder(
+        self,
+        title: str,
+        date: str | None = None,
+        time: str | None = None,
+        type: str = "reminder",
+        priority: str = "medium",
+    ) -> dict[str, Any]:
+        title = title.strip()
+        item_type = (type or "reminder").strip().lower()
+        priority = (priority or "medium").strip().lower()
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO reminders (title, due_date, due_time, priority)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO reminders (title, date, time, type, priority, completed)
+                VALUES (?, ?, ?, ?, ?, 0)
                 """,
-                (title, due_date, due_time, priority)
+                (title, date, time, item_type, priority),
             )
             reminder_id = cursor.lastrowid
 
         return {
             "id": reminder_id,
             "title": title,
-            "due_date": due_date,
-            "due_time": due_time,
+            "date": date,
+            "formatted_date": self.format_display_date(date),
+            "time": time,
+            "type": item_type,
             "priority": priority,
             "completed": False,
+            # Backwards-compatible aliases for older dashboard/test code.
+            "due_date": date,
+            "due_time": time,
         }
 
-    def list_reminders(self) -> list[dict[str, Any]]:
+    def list_reminders(self, include_completed: bool = True) -> list[dict[str, Any]]:
+        where = "" if include_completed else "WHERE completed = 0"
         with self._connect() as conn:
             rows = conn.execute(
-                """
-                SELECT id, title, due_date, due_time, priority, completed
+                f"""
+                SELECT id, title, date, time, type, priority, completed
                 FROM reminders
-                ORDER BY due_date, due_time
+                {where}
+                ORDER BY completed ASC, COALESCE(date, ''), COALESCE(time, ''), id
                 """
             ).fetchall()
 
-        return [
-            {
-                "id": row[0],
-                "title": row[1],
-                "due_date": row[2],
-                "due_time": row[3],
-                "priority": row[4],
-                "completed": bool(row[5]),
-            }
-            for row in rows
-        ]
+        return [self._reminder_row_to_dict(row) for row in rows]
+
+    def delete_reminder(self, item_id: int) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM reminders WHERE id = ?", (item_id,))
+            return cursor.rowcount > 0
+
+    def set_reminder_completed(self, item_id: int, completed: bool = True) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE reminders SET completed = ? WHERE id = ?",
+                (1 if completed else 0, item_id),
+            )
+            return cursor.rowcount > 0
 
     @staticmethod
     def format_display_date(value: str | None) -> str | None:
@@ -179,4 +232,22 @@ class CalendarService:
             "time": row[3],
             "type": row[4],
             "priority": row[5],
+        }
+
+    @classmethod
+    def _reminder_row_to_dict(cls, row) -> dict[str, Any]:
+        date = row[2]
+        time_value = row[3]
+        return {
+            "id": row[0],
+            "title": row[1],
+            "date": date,
+            "formatted_date": cls.format_display_date(date),
+            "time": time_value,
+            "type": row[4] or "reminder",
+            "priority": row[5] or "medium",
+            "completed": bool(row[6]),
+            # Backwards-compatible aliases for old frontend/API consumers.
+            "due_date": date,
+            "due_time": time_value,
         }

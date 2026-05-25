@@ -1,6 +1,6 @@
 from __future__ import annotations
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.core.models import Intent
 
 
@@ -8,6 +8,7 @@ class IntentClassifier:
     """Rule-based intent classifier for an undergraduate-scope prototype."""
 
     _PRIORITY_WORDS = {"low", "medium", "normal", "high", "urgent", "important"}
+    _TYPE_WORDS = {"class", "meeting", "study", "assignment", "test", "quiz", "personal", "reminder"}
 
     def classify(self, text: str) -> Intent:
         t = text.lower().strip()
@@ -24,20 +25,24 @@ class IntentClassifier:
         if "sleep" in t or "power off" in t or "shut down" in t:
             return Intent.SLEEP
 
+        # Add actions must be detected before generic check/list actions.
         if self.looks_like_schedule_add(t):
             return Intent.ADD_SCHEDULE
+
+        if self.looks_like_reminder_add(t):
+            return Intent.ADD_REMINDER
+
+        if any(word in t for word in ["reminder", "reminders", "remind"]):
+            return Intent.CHECK_REMINDERS
+
+        if self.looks_like_timer_start(t):
+            return Intent.SET_TIMER
 
         if any(word in t for word in ["schedule", "today", "class", "meeting"]):
             return Intent.CHECK_SCHEDULE
 
         if any(word in t for word in ["deadline", "due", "assignment", "test", "quiz"]):
             return Intent.CHECK_DEADLINE
-
-        if "timer" in t or "pomodoro" in t:
-            return Intent.SET_TIMER
-
-        if "remind" in t or "reminder" in t:
-            return Intent.ADD_REMINDER
 
         if any(word in t for word in ["music", "song", "songs", "sound", "relaxing", "calming"]):
             return Intent.PLAY_MUSIC
@@ -59,7 +64,26 @@ class IntentClassifier:
         # Structured speech from Whisper often arrives as a compact field list.
         # Example: "date 2026-05-20 time 15:30 purpose revision priority high".
         has_structured_fields = all(field in t for field in ("date", "time", "purpose"))
-        return has_structured_fields
+        return has_structured_fields and "reminder" not in t
+
+    def looks_like_reminder_add(self, text: str) -> bool:
+        t = text.lower().strip()
+        add_words = ("add", "create", "insert", "put", "set", "make")
+        if "remind me" in t or "reminder to" in t or "reminder for" in t:
+            return True
+        if any(word in t for word in add_words) and "reminder" in t:
+            return True
+        # Structured reminder speech: "add reminder date ... time ... title ...".
+        return "reminder" in t and any(field in t for field in ("date", "time", "purpose", "title", "task"))
+
+    def looks_like_timer_start(self, text: str) -> bool:
+        t = text.lower().strip()
+        if "timer" in t or "pomodoro" in t or "focus session" in t:
+            return True
+        start_words = ("start", "set", "begin", "run", "make")
+        # Accept natural speech like "start twenty five minutes" or
+        # "set 1 minute 30 seconds" even when ASR drops the word "timer".
+        return any(word in t for word in start_words) and self.extract_timer_duration_seconds(t) is not None
 
     def extract_timer_minutes(self, text: str, default: int = 25) -> int:
         duration = self.extract_timer_duration_seconds(text)
@@ -75,7 +99,7 @@ class IntentClassifier:
         - "2:30", "1h 30m", "1 hr and 15 min"
         - "half an hour", "quarter of an hour", "one and a half hours"
         - "twenty five minutes", "one minute thirty seconds"
-        - bare answers such as "25" or "twenty five" after JUNO asks.
+        - ASR-style answers such as "one thirty", "1 30", or bare "twenty five".
         """
         t = self._normalise_duration_text(text)
         if not t:
@@ -87,6 +111,20 @@ class IntentClassifier:
             minutes = int(clock_match.group(1))
             seconds = int(clock_match.group(2))
             return self._clamp_duration(minutes * 60 + seconds, max_minutes)
+
+        # Handle idiomatic hour fractions before generic unit parsing so
+        # "half an hour" is not also interpreted as "an hour".
+        if re.search(r"\bone\s+and\s+a\s+half\s+hours?\b|\ban?\s+and\s+a\s+half\s+hours?\b", t):
+            return self._clamp_duration(90 * 60, max_minutes)
+        if re.search(r"\bhalf\s+(?:an?\s+)?hour\b|\bhalf\s+hour\b", t):
+            return self._clamp_duration(30 * 60, max_minutes)
+        if re.search(r"\b(?:a\s+)?quarter\s+(?:of\s+an?\s+)?hour\b|\bquarter\s+hour\b", t):
+            return self._clamp_duration(15 * 60, max_minutes)
+
+        # ASR often transcribes "one thirty" as "1 30" or "one thirty".
+        spoken_mm_ss = self._parse_spoken_minute_second_pair(t)
+        if spoken_mm_ss is not None:
+            return self._clamp_duration(spoken_mm_ss, max_minutes)
 
         total_seconds = 0
 
@@ -102,14 +140,11 @@ class IntentClassifier:
         # accidentally reading unrelated command text as duration.
         total_seconds += self._sum_word_unit_durations(t)
 
-        if re.search(r"\bhalf\s+(?:an?\s+)?hour\b|\bhalf\s+hour\b", t):
-            total_seconds += 30 * 60
-        if re.search(r"\b(?:a\s+)?quarter\s+(?:of\s+an?\s+)?hour\b|\bquarter\s+hour\b", t):
-            total_seconds += 15 * 60
-        if re.search(r"\bone\s+and\s+a\s+half\s+hours?\b|\ban?\s+and\s+a\s+half\s+hours?\b", t):
-            # The one-hour part may not be captured by word-unit parsing because
-            # of the phrase "and a half". Add the intended 90 minutes once.
-            total_seconds += 90 * 60
+        # Handle "one minute thirty" / "2 minutes 5" where the seconds unit is omitted.
+        trailing_seconds = self._parse_trailing_seconds_after_minutes(t)
+        if trailing_seconds is not None:
+            total_seconds += trailing_seconds
+
 
         if total_seconds:
             return self._clamp_duration(total_seconds, max_minutes)
@@ -144,29 +179,36 @@ class IntentClassifier:
         intent = self.classify(text)
         return intent not in {Intent.UNKNOWN, Intent.SET_TIMER}
 
-
     @staticmethod
     def _normalise_duration_text(text: str) -> str:
         text = text.lower().strip()
         replacements = {
-            "hours": "hours", "hrs": "hrs", "mins": "mins", "secs": "secs",
-            "colour": "color", "an hour": "an hour", "a hour": "an hour",
+            "colour": "color",
+            "a hour": "an hour",
+            "one-half": "one half",
+            "half-hour": "half hour",
+            "mins": "minutes",
+            "secs": "seconds",
         }
         for old, new in replacements.items():
             text = text.replace(old, new)
-        text = text.replace("one-half", "one half").replace("half-hour", "half hour")
         text = re.sub(r"[^a-z0-9:.\s'-]", " ", text)
         return re.sub(r"\s+", " ", text).strip()
 
     def _sum_word_unit_durations(self, text: str) -> int:
         total = 0
+        number_words = (
+            "zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+            "thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+            "thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a|an"
+        )
         unit_pattern = re.compile(
-            r"\b([a-z\s-]+?)\s*(hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec)\b"
+            rf"\b((?:(?:{number_words})(?:\s+|-)?)+)\s*(hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec)\b"
         )
         for match in unit_pattern.finditer(text):
             phrase = match.group(1).strip(" -")
             unit = match.group(2)
-            if not phrase or re.search(r"\d", phrase):
+            if not phrase:
                 continue
             value = self._words_to_number(phrase)
             if value is None:
@@ -178,6 +220,44 @@ class IntentClassifier:
             elif unit.startswith(("second", "sec")):
                 total += value
         return total
+
+    def _parse_trailing_seconds_after_minutes(self, text: str) -> int | None:
+        digit_match = re.search(r"\b\d+(?:\.\d+)?\s*(?:minutes?|mins?|min|m)\s+(?:and\s+)?(\d{1,2})\b(?!\s*(?:seconds?|secs?|sec|s))", text)
+        if digit_match:
+            seconds = int(digit_match.group(1))
+            return seconds if 0 <= seconds <= 59 else None
+
+        number_words = (
+            "zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+            "thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+            "thirty|forty|fifty"
+        )
+        word_match = re.search(
+            rf"\b(?:{number_words})(?:\s+|-)?(?:{number_words})?\s*(?:minutes?|mins?|min)\s+(?:and\s+)?((?:(?:{number_words})(?:\s+|-)?)+)\b(?!\s*(?:seconds?|secs?|sec))",
+            text,
+        )
+        if word_match:
+            seconds = self._words_to_number(word_match.group(1))
+            if seconds is not None and 0 <= seconds <= 59:
+                return seconds
+        return None
+
+    def _parse_spoken_minute_second_pair(self, text: str) -> int | None:
+        # "1 30" -> 1 minute 30 seconds, but avoid treating "25 30" as mm:ss.
+        digit_pair = re.fullmatch(r"\s*(\d{1,2})\s+(\d{1,2})\s*", text)
+        if digit_pair:
+            minutes = int(digit_pair.group(1))
+            seconds = int(digit_pair.group(2))
+            if 0 <= minutes <= 9 and 0 <= seconds <= 59:
+                return minutes * 60 + seconds
+
+        tokens = text.split()
+        if len(tokens) == 2:
+            first = self._words_to_number(tokens[0])
+            second = self._words_to_number(tokens[1])
+            if first is not None and second is not None and 0 <= first <= 9 and 10 <= second <= 59:
+                return first * 60 + second
+        return None
 
     @classmethod
     def _words_to_number(cls, text: str) -> int | None:
@@ -217,26 +297,42 @@ class IntentClassifier:
         return total if total >= 0 else None
 
     def extract_schedule_item(self, text: str) -> dict[str, str | None]:
-        """Extract structured schedule details from a transcribed command.
-
-        Expected fields may be spoken in either labelled or natural form:
-        - "date 2026-05-20 time 15:30 purpose revision priority high"
-        - "add schedule on 2026-05-20 at 3:30 pm purpose revision priority high"
-        """
+        """Extract structured schedule details from a transcribed command."""
         original = text.strip()
         lower = original.lower()
 
         date = self._extract_date(lower)
         time_value = self._extract_time(lower)
         priority = self._extract_priority(lower)
-        purpose = self._extract_purpose(original)
+        purpose = self._extract_purpose(original, remove_words=("schedule", "calendar", "plan", "agenda", "timetable", "item"))
+        item_type = self._extract_type(lower) or "study"
 
         return {
             "title": purpose,
             "date": date,
             "formatted_date": self.format_display_date(date) if date else None,
             "time": time_value,
-            "type": "study",
+            "type": item_type,
+            "priority": priority or "medium",
+        }
+
+    def extract_reminder_item(self, text: str) -> dict[str, str | None]:
+        """Extract structured reminder details using the same columns as schedules."""
+        original = text.strip()
+        lower = original.lower()
+
+        date = self._extract_date(lower)
+        time_value = self._extract_time(lower)
+        priority = self._extract_priority(lower)
+        purpose = self._extract_purpose(original, remove_words=("remind", "reminder", "reminders", "me", "to", "for"))
+        item_type = self._extract_type(lower) or "reminder"
+
+        return {
+            "title": purpose,
+            "date": date,
+            "formatted_date": self.format_display_date(date) if date else None,
+            "time": time_value,
+            "type": item_type,
             "priority": priority or "medium",
         }
 
@@ -252,14 +348,19 @@ class IntentClassifier:
 
     def _extract_date(self, text: str) -> str | None:
         match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", text)
-        if not match:
-            return None
-        # Validate before accepting.
-        try:
-            datetime.strptime(match.group(1), "%Y-%m-%d")
-        except ValueError:
-            return None
-        return match.group(1)
+        if match:
+            try:
+                datetime.strptime(match.group(1), "%Y-%m-%d")
+            except ValueError:
+                return None
+            return match.group(1)
+
+        today = datetime.now().date()
+        if re.search(r"\btoday\b", text):
+            return today.isoformat()
+        if re.search(r"\btomorrow\b", text):
+            return (today + timedelta(days=1)).isoformat()
+        return None
 
     def _extract_time(self, text: str) -> str | None:
         labelled = re.search(r"\b(?:time|at)\s*(?:is|:)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", text)
@@ -298,10 +399,19 @@ class IntentClassifier:
             return "medium"
         return match_value
 
-    def _extract_purpose(self, text: str) -> str | None:
+    def _extract_type(self, text: str) -> str | None:
+        match = re.search(r"\btype\s*(?:is|:)?\s*(class|meeting|study|assignment|test|quiz|personal|reminder)\b", text)
+        if match:
+            return match.group(1)
+        for word in self._TYPE_WORDS:
+            if re.search(rf"\b{re.escape(word)}\b", text):
+                return word
+        return None
+
+    def _extract_purpose(self, text: str, remove_words: tuple[str, ...]) -> str | None:
         # Prefer explicit labelled purpose/title/task/event content.
         label_match = re.search(
-            r"\b(?:purpose|title|task|event)\s*(?:is|:|for|to)?\s+(.+?)(?=\s+\b(?:date|on|time|at|priority)\b|$)",
+            r"\b(?:purpose|title|task|event)\s*(?:is|:|for|to)?\s+(.+?)(?=\s+\b(?:date|on|time|at|priority|type)\b|$)",
             text,
             flags=re.IGNORECASE,
         )
@@ -310,12 +420,24 @@ class IntentClassifier:
             if cleaned:
                 return cleaned
 
-        # Fallback: remove structured fields and command words, then use what remains.
+        # Natural reminder style: "remind me to submit report ...".
+        remind_match = re.search(
+            r"\bremind\s+me\s+(?:to|about|for)?\s*(.+?)(?=\s+\b(?:date|on|time|at|priority|type)\b|$)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if remind_match:
+            cleaned = self._clean_purpose(remind_match.group(1))
+            if cleaned:
+                return cleaned
+
         cleaned_text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", text)
         cleaned_text = re.sub(r"\b(?:date|on)\s*(?:is|:)?\s*", " ", cleaned_text, flags=re.IGNORECASE)
         cleaned_text = re.sub(r"\b(?:time|at)\s*(?:is|:)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b", " ", cleaned_text, flags=re.IGNORECASE)
         cleaned_text = re.sub(r"\bpriority\s*(?:is|:)?\s*(low|medium|normal|high|urgent|important)\b", " ", cleaned_text, flags=re.IGNORECASE)
-        cleaned_text = re.sub(r"\b(add|create|insert|book|put|set|schedule|calendar|plan|agenda|timetable|item)\b", " ", cleaned_text, flags=re.IGNORECASE)
+        cleaned_text = re.sub(r"\btype\s*(?:is|:)?\s*(class|meeting|study|assignment|test|quiz|personal|reminder)\b", " ", cleaned_text, flags=re.IGNORECASE)
+        command_words = "|".join(re.escape(word) for word in ("add", "create", "insert", "book", "put", "set", "make", *remove_words))
+        cleaned_text = re.sub(rf"\b({command_words})\b", " ", cleaned_text, flags=re.IGNORECASE)
         return self._clean_purpose(cleaned_text)
 
     @staticmethod

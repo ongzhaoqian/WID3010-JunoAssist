@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 import asyncio
+import os
 import re
 import json
 import time
@@ -49,7 +50,7 @@ def create_app() -> FastAPI:
     wake_detector = WakeWordDetector()
     confirmation_handler = ConfirmationHandler()
     intent_classifier = IntentClassifier()
-    calendar_service = CalendarService(settings.database_path)
+    calendar_service = CalendarService(os.getenv("JUNO_DATABASE_PATH", settings.database_path))
     llm_client = MalaysianLlamaClient()
     input_normalizer = MalaysianInputNormalizer(llm_client)
     phrase_bank = PhraseBank()
@@ -199,6 +200,37 @@ def create_app() -> FastAPI:
             "status": robot_state.snapshot(),
         }
 
+    def _add_reminder_from_transcript(command_text: str) -> dict:
+        parsed = intent_classifier.extract_reminder_item(command_text)
+        if not parsed.get("title"):
+            response = phrase_bank.say("reminder_missing")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.ADD_REMINDER, "response": response, "status": robot_state.snapshot()}
+
+        item = calendar_service.add_reminder(
+            title=str(parsed["title"]).strip(),
+            date=parsed.get("date"),
+            time=parsed.get("time"),
+            type=parsed.get("type") or "reminder",
+            priority=parsed.get("priority") or "medium",
+        )
+        response = phrase_bank.say(
+            "reminder_added",
+            title=item["title"],
+            date=item.get("formatted_date") or item.get("date") or "not specified",
+            time=item.get("time") or "not specified",
+            priority=item.get("priority") or "medium",
+        )
+        robot_state.set_response(response)
+        tts.speak(response)
+        return {
+            "intent": Intent.ADD_REMINDER,
+            "response": response,
+            "reminder": item,
+            "status": robot_state.snapshot(),
+        }
+
     def process_command_text(text: str) -> dict:
         """Shared command pipeline for dashboard text and ROS speech input.
 
@@ -294,6 +326,17 @@ def create_app() -> FastAPI:
                 return _ask_for_timer_duration()
             elif intent == Intent.ADD_SCHEDULE:
                 return _add_schedule_from_transcript(text)
+            elif intent == Intent.ADD_REMINDER:
+                return _add_reminder_from_transcript(text)
+            elif intent == Intent.CHECK_REMINDERS:
+                response = response_generator.generate(
+                    intent=intent,
+                    emotion=snapshot["current_emotion"],
+                    user_text=raw_text,
+                )
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": intent, "response": response, "reminders": calendar_service.list_reminders(include_completed=False), "status": robot_state.snapshot()}
             elif intent == Intent.PLAY_MUSIC:
                 music_result = music_service.play_for_emotion(snapshot.get("current_emotion", EmotionState.UNKNOWN))
                 response = music_result["message"]
@@ -337,7 +380,12 @@ def create_app() -> FastAPI:
 
     async def _timer_loop():
         while True:
-            robot_state.decrement_timer()
+            completed = robot_state.decrement_timer()
+            if completed:
+                response = phrase_bank.say("timer_finished", label=completed.get("label") or "study timer")
+                robot_state.set_response(response)
+                robot.set_led_state("timer_complete")
+                tts.speak(response)
             await asyncio.sleep(1)
 
     async def _ros_speech_command_loop():
@@ -497,13 +545,30 @@ def create_app() -> FastAPI:
     @app.post("/api/reminders")
     def add_reminder(request: ReminderRequest):
         reminder = calendar_service.add_reminder(
-            title=request.title,
-            due_date=request.due_date,
-            due_time=request.due_time,
-            priority=request.priority,
+            title=request.title.strip(),
+            date=request.date,
+            time=request.time,
+            type=request.type or "reminder",
+            priority=request.priority or "medium",
         )
-        robot_state.set_response(phrase_bank.say("reminder_added", title=request.title))
+        robot_state.set_response(
+            phrase_bank.say(
+                "reminder_added",
+                title=reminder["title"],
+                date=reminder.get("formatted_date") or reminder.get("date") or "not specified",
+                time=reminder.get("time") or "not specified",
+                priority=reminder.get("priority") or "medium",
+            )
+        )
         return reminder
+
+    @app.delete("/api/reminders/{item_id}")
+    def delete_reminder(item_id: int):
+        deleted = calendar_service.delete_reminder(item_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        robot_state.set_response(phrase_bank.say("reminder_removed"))
+        return {"deleted": True, "id": item_id}
 
     @app.post("/api/timer/start")
     def start_timer(request: TimerRequest):

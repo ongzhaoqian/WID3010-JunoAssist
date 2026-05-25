@@ -23,7 +23,7 @@ class ResponseGenerator:
             items = self.calendar_service.get_today_schedule()
             if not items:
                 return self.phrases.say("schedule_empty")
-            first_items = "; ".join(self._describe_schedule_item(item) for item in items[:3])
+            first_items = "; ".join(self._describe_schedule_item(item) for item in items)
             return self.phrases.say("schedule_summary", items=first_items)
 
         if intent == Intent.CHECK_DEADLINE:
@@ -38,11 +38,18 @@ class ResponseGenerator:
                 time=nearest.get("time") or "not specified",
             )
 
+        if intent == Intent.CHECK_REMINDERS:
+            reminders = self.calendar_service.list_reminders(include_completed=False)
+            if not reminders:
+                return self.phrases.say("reminder_empty")
+            first_items = "; ".join(self._describe_reminder_item(item) for item in reminders)
+            return self.phrases.say("reminder_summary", items=first_items)
+
         if intent == Intent.SET_TIMER:
             return self.phrases.say("timer_ask")
 
         if intent == Intent.ADD_REMINDER:
-            return self.phrases.say("reminder_prompt")
+            return self.phrases.say("reminder_missing")
 
         if intent == Intent.PLAY_MUSIC:
             return self.phrases.say("music_requested")
@@ -53,15 +60,23 @@ class ResponseGenerator:
         if intent == Intent.ASK_STATUS:
             suggestion = self.break_recommender.recommend(emotion)
             deadlines = self.calendar_service.get_upcoming_deadlines()
+            reminders = self.calendar_service.list_reminders(include_completed=False)
+            fragments = [self.phrases.say("status_prefix", suggestion=suggestion)]
             if deadlines:
                 nearest = deadlines[0]
-                return (
-                    f"{self.phrases.say('status_prefix', suggestion=suggestion)} "
+                fragments.append(
                     f"Your nearest task is {nearest['title']} on "
                     f"{nearest.get('formatted_date') or nearest.get('date') or 'not specified'} "
                     f"at {nearest.get('time') or 'not specified'}."
                 )
-            return self.phrases.say("status_prefix", suggestion=suggestion)
+            if reminders:
+                nearest_reminder = reminders[0]
+                fragments.append(
+                    f"Your nearest reminder is {nearest_reminder['title']} on "
+                    f"{nearest_reminder.get('formatted_date') or nearest_reminder.get('date') or 'not specified'} "
+                    f"at {nearest_reminder.get('time') or 'not specified'}."
+                )
+            return " ".join(fragments)
 
         if intent == Intent.SLEEP:
             return self.phrases.say("sleep")
@@ -93,14 +108,20 @@ class ResponseGenerator:
     def _schedule_summary(self) -> str:
         items = self.calendar_service.get_today_schedule()[:3]
         deadlines = self.calendar_service.get_upcoming_deadlines()[:2]
+        reminders = self.calendar_service.list_reminders(include_completed=False)[:3]
 
         fragments: list[str] = []
         if items:
-            fragments.append("Today: " + "; ".join(self._describe_schedule_item(item) for item in items))
+            fragments.append("Schedule: " + "; ".join(self._describe_schedule_item(item) for item in items))
         if deadlines:
             fragments.append(
                 "Upcoming deadlines: "
                 + "; ".join(self._describe_schedule_item(item) for item in deadlines)
+            )
+        if reminders:
+            fragments.append(
+                "Reminders: "
+                + "; ".join(self._describe_reminder_item(item) for item in reminders)
             )
         return " | ".join(fragments)
 
@@ -108,4 +129,14 @@ class ResponseGenerator:
     def _describe_schedule_item(item: dict) -> str:
         date = item.get("formatted_date") or item.get("date") or "no date"
         time = item.get("time") or "no time"
-        return f"{item['title']} on {date} at {time}"
+        item_type = item.get("type") or "schedule"
+        priority = item.get("priority") or "medium"
+        return f"{item['title']} ({item_type}, {priority} priority) on {date} at {time}"
+
+    @staticmethod
+    def _describe_reminder_item(item: dict) -> str:
+        date = item.get("formatted_date") or item.get("date") or "no date"
+        time = item.get("time") or "no time"
+        item_type = item.get("type") or "reminder"
+        priority = item.get("priority") or "medium"
+        return f"{item['title']} ({item_type}, {priority} priority) on {date} at {time}"

@@ -15,7 +15,7 @@ Group 5
 
 # JUNO Assist: Personal Daily Assistant Robot
 
-JUNO Assist is a prototype for a **Jupiter Robot-based personal daily assistant**. It supports wake-word activation, voice-confirmed start-up, a web dashboard, facial-emotion monitoring, schedule reminders, study timers, break recommendations, and simple natural-language commands.
+JUNO Assist is a prototype for a **Jupiter Robot-based personal daily assistant**. It supports wake-word activation, voice-confirmed start-up, a web dashboard, facial-emotion monitoring, live schedule and reminder management, voice-driven study timers with flexible duration parsing, timer-completion bell alerts, break recommendations, and simple natural-language commands.
 
 The system is designed to run in two modes:
 
@@ -51,17 +51,19 @@ Students often face many assignments, tests, classes, and deadlines during the s
 
 ## Main Features
 
-- Wake command: `Hey, John`
+- Wake command: `Hey, Juno` or `Hey, John`
 - Voice confirmation before activation
 - Web dashboard after activation
 - Embedded dashboard camera window for the Jupiter webcam feed
 - Facial emotion monitoring using a mockable vision module
 - Rule-based intent detection for course-level feasibility
 - Lightweight Whisper Tiny speech recognition for robot microphone input
-- Calendar and reminder storage using SQLite
-- Study timer and productivity recommendations, including minute-and-second input
+- SQLite-backed schedule and reminder storage
+- Editable dashboard schedule items with live speech retrieval of newly added items
+- Editable dashboard reminders using the same main fields as schedule items: `title`, `date`, `time`, `type`, and `priority`
+- Voice commands for checking schedules, adding schedules, checking reminders, and adding reminders
+- Study timer with minute-and-second input, flexible speech duration parsing, cancellation support, and bell sound on completion
 - Emotion-aware Spotify dashboard music window
-- Editable dashboard schedule items
 - REST API and WebSocket updates using FastAPI
 - React dashboard using Vite and Tailwind CSS
 - Jupiter-ready hardware abstraction layer
@@ -259,7 +261,7 @@ rosrun perception_pkg camera_listener_node.py _display_window:=true
 ```
 
 
-## Dashboard Music, Schedule, and Study Timer Updates
+## Dashboard Music, Schedule, Reminder, and Study Timer Updates
 
 ### Emotion-aware music window
 
@@ -285,9 +287,25 @@ POST http://localhost:8000/api/music/stop
 POST http://localhost:8000/api/music/refresh
 ```
 
-### Editable schedule panel
+### Editable schedule panel and live schedule retrieval
 
-The **Upcoming Schedule** panel now lets the user add and remove schedule items from the dashboard. Added items are stored in the same SQLite `schedule_items` table used by the schedule and deadline response logic.
+The **Upcoming Schedule** panel lets the user add and remove schedule items from the dashboard. Added items are stored in the SQLite `schedule_items` table and are read directly by the schedule and deadline response logic. This means a schedule item added on the dashboard can be retrieved later through speech commands such as:
+
+```text
+What do I have today?
+Show my schedule.
+List my meetings.
+```
+
+Schedule items use the following fields:
+
+| Field | Purpose |
+|---|---|
+| `title` | Main schedule item name, such as `Deep Learning revision` |
+| `date` | Optional ISO date, such as `2026-05-20` |
+| `time` | Optional 24-hour time, such as `15:30` |
+| `type` | Category, such as `class`, `meeting`, `study`, `assignment`, `test`, or `quiz` |
+| `priority` | Priority label, such as `low`, `medium`, `high`, or `urgent` |
 
 Useful endpoints:
 
@@ -295,6 +313,50 @@ Useful endpoints:
 GET    http://localhost:8000/api/schedule/today
 POST   http://localhost:8000/api/schedule
 DELETE http://localhost:8000/api/schedule/{item_id}
+```
+
+Example schedule body:
+
+```json
+{
+  "title": "Deep Learning revision",
+  "date": "2026-05-20",
+  "time": "15:30",
+  "type": "study",
+  "priority": "high"
+}
+```
+
+### Editable reminder panel and live reminder retrieval
+
+The **Reminders** panel now uses the same main columns as schedule items: `title`, `date`, `time`, `type`, and `priority`. Reminders also store a `completed` flag internally so completed reminders can be filtered later. Older `due_date` and `due_time` values are still accepted and are automatically mapped to `date` and `time` for backwards compatibility.
+
+Reminder records added through the dashboard are stored in the SQLite `reminders` table and are read directly when the user asks about reminders through speech. Supported reminder-checking commands include:
+
+```text
+What are my reminders?
+List my reminders.
+Do I have any reminders?
+```
+
+Useful endpoints:
+
+```text
+GET    http://localhost:8000/api/reminders
+POST   http://localhost:8000/api/reminders
+DELETE http://localhost:8000/api/reminders/{item_id}
+```
+
+Example reminder body:
+
+```json
+{
+  "title": "Submit robotics report",
+  "date": "2026-05-22",
+  "time": "21:00",
+  "type": "reminder",
+  "priority": "high"
+}
 ```
 
 ### Voice-driven study timer flow
@@ -305,9 +367,25 @@ When the user says a generic timer request, such as `start study timer`, JUNO no
 How long do you want to have the study timer for? Answer in minutes and seconds.
 ```
 
-The next user response can be a duration such as `25 minutes`, `twenty five minutes`, `1 minute 30 seconds`, `one minute thirty seconds`, `90 seconds`, `half an hour`, `one and a half hours`, `1h 30m`, or `2:30`. The dashboard timer also has separate minute and second fields.
+The next user response can be a flexible duration such as:
 
-If the user does not want to continue setting the timer, they can say `cancel`, `not now`, `no timer`, `skip`, or `never mind`. If JUNO receives repeated unclear duration answers, it exits timer setup instead of asking forever.
+```text
+25 minutes
+start twenty five minutes
+one minute thirty seconds
+one minute thirty
+1 30
+2:30
+90 seconds
+half an hour
+quarter of an hour
+one and a half hours
+1h 30m
+```
+
+The robot no longer requires the user to repeat the word `timer` after it has already asked for the duration. If the user does not want to continue setting the timer, they can say `cancel`, `not now`, `no timer`, `skip`, `never mind`, or another active command such as `play music`. If JUNO receives repeated unclear duration answers, it exits timer setup instead of asking forever.
+
+When the countdown reaches zero seconds, the backend emits a one-time timer-completion state update. The dashboard listens for `timer_completed_counter` changes through the WebSocket status stream and plays a short bell sound using the browser Web Audio API. The backend also updates the robot response, speaks a completion message, and sets the LED state to `timer_complete` when available.
 
 Useful endpoint:
 
@@ -345,14 +423,26 @@ The dashboard is styled with a gradient background, glass-morphism cards, soft n
 
 Robot responses are now centralised through `backend/src/nlp/phrase_bank.py`. Instead of hard-coding a single sentence in every invocation path, intent handlers now request phrasing from the phrase bank, which gives JUNO more natural response variation while keeping the behaviour deterministic enough for a course prototype.
 
-## Voice Schedule Capture
+## Voice Schedule and Reminder Capture
 
-JUNO can now add schedule items from a transcribed command that includes `date`, `time`, `purpose`, and `priority`.
+JUNO can add schedule items and reminders from transcribed commands that include fields such as `date`, `time`, `purpose` or `title`, and `priority`.
 
-Example voice/text command:
+Example schedule command:
 
 ```text
 add schedule date 2026-05-20 time 15:30 purpose deep learning revision priority high
+```
+
+Example reminder command:
+
+```text
+add reminder date 2026-05-22 time 21:00 title submit robotics report priority high
+```
+
+Natural reminder phrasing is also supported:
+
+```text
+Remind me to submit the robotics report date 2026-05-22 time 21:00 priority high.
 ```
 
 The backend stores the original ISO-style date for consistency, but also returns a display date for the dashboard and speech response:
@@ -364,11 +454,24 @@ The backend stores the original ISO-style date for consistency, but also returns
 The relevant implementation is in:
 
 ```text
-backend/src/nlp/intent_classifier.py      # ADD_SCHEDULE intent + structured field parsing
-backend/src/calendar_module/calendar_service.py  # formatted_date generation
-backend/src/api/app.py                    # voice command handling and schedule creation
-dashboard/src/components/SchedulePanel.jsx # displays formatted_date when available
+backend/src/nlp/intent_classifier.py           # ADD_SCHEDULE, CHECK_SCHEDULE, ADD_REMINDER, CHECK_REMINDERS, and flexible timer parsing
+backend/src/calendar_module/calendar_service.py # SQLite schema, reminder migration, formatted_date generation, schedule/reminder listing
+backend/src/core/models.py                     # ScheduleItemRequest, ReminderRequest, TimerRequest, RobotStatus
+backend/src/core/state.py                      # timer duration state and one-time timer completion counter
+backend/src/api/app.py                         # voice command handling, live schedule/reminder retrieval, timer completion loop
+dashboard/src/components/SchedulePanel.jsx     # displays newly added schedule items
+dashboard/src/components/ReminderPanel.jsx     # displays newly added reminders using schedule-like fields
+dashboard/src/components/TimerPanel.jsx        # minute/second input and completion bell sound
 ```
+
+
+## Implementation Notes for Recent Productivity Fixes
+
+- Dashboard schedules and reminders are no longer treated as separate demo-only lists. Both are stored in SQLite and fetched live whenever the user asks through speech or the dashboard refreshes.
+- Reminder migration is automatic. Existing reminder rows that used `due_date` and `due_time` are mapped into the newer `date` and `time` fields.
+- `CHECK_REMINDERS` and `ADD_REMINDER` are separate intents so asking about reminders no longer accidentally behaves like adding a reminder.
+- While JUNO is waiting for a timer duration, the next speech input is interpreted as a duration first. The user does not need to say `timer` repeatedly.
+- The timer completion bell is generated in the dashboard with Web Audio API, so no external audio file is required.
 
 
 ## Troubleshooting Guide
@@ -412,10 +515,14 @@ Yes
 
 ```text
 What do I have today?
+Add schedule date 2026-05-20 time 15:30 purpose deep learning revision priority high.
+What are my reminders?
+Add reminder date 2026-05-22 time 21:00 title submit robotics report priority high.
 Set a 25 minute timer.
+Start one minute thirty.
+Cancel.
 What should I do now?
 Play relaxing music.
-Add reminder revise robotics at 8 pm.
 Juno, go to sleep.
 ```
 
