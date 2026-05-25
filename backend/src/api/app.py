@@ -534,7 +534,7 @@ def create_app() -> FastAPI:
                 duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
                 if duration_seconds:
                     return _start_study_timer_from_seconds(duration_seconds)
-                return _ask_for_timer_duration()
+                return _ask_for_timer_minutes()
             elif intent == Intent.ADD_SCHEDULE:
                 return _add_schedule_from_transcript(text)
             elif intent == Intent.ADD_REMINDER:

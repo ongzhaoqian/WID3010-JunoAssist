@@ -1,4 +1,5 @@
 from __future__ import annotations
+import difflib
 import re
 from datetime import datetime, timedelta
 from src.core.models import Intent
@@ -46,17 +47,26 @@ class IntentClassifier:
         if any(word in t for word in ["deadline", "due", "assignment", "test", "quiz"]):
             return Intent.CHECK_DEADLINE
 
-        if "timer" in t or "pomodoro" in t:
+        _TIMER_EXACT = {"timer", "pomodoro", "timmer", "tym", "tymer", "timed"}
+        # "time" alone (Whisper mishearing "timer") is a timer trigger, but NOT
+        # when used as a schedule/reminder field label followed by a clock value.
+        _time_as_field = bool(re.search(r"\btime\s+\d{1,2}[:.]\d{2}\b", t))
+        _has_timer_word = (
+            any(w in t for w in ("timer", "pomodoro"))
+            or any(w in t.split() for w in _TIMER_EXACT)
+            or ("time" in t.split() and not _time_as_field)
+        )
+        if _has_timer_word:
             return Intent.SET_TIMER
 
         _check_reminder_phrases = ("what are my reminders", "show my reminders", "list reminders", "check reminders", "my reminders", "show reminders")
         if any(p in t for p in _check_reminder_phrases):
             return Intent.CHECK_REMINDERS
 
-        if "remind me" in t or self.looks_like_reminder_add(t):
+        if self._looks_like_remind_me(t) or self.looks_like_reminder_add(t):
             return Intent.ADD_REMINDER
 
-        if "remind" in t or "reminder" in t:
+        if self._has_remind_word(t):
             return Intent.CHECK_REMINDERS
 
         if any(word in t for word in ["music", "song", "songs", "sound", "relaxing", "calming"]):
@@ -96,11 +106,46 @@ class IntentClassifier:
     def looks_like_reminder_add(self, text: str) -> bool:
         t = text.lower().strip()
         add_words = ("add", "create", "insert", "put", "set", "make")
-        if "remind me" in t or "reminder to" in t or "reminder for" in t:
+        if self._looks_like_remind_me(t) or "reminder to" in t or "reminder for" in t:
             return True
         if any(word in t for word in add_words) and "reminder" in t:
             return True
         return "reminder" in t and any(field in t for field in ("date", "time", "purpose", "title", "task"))
+
+    @staticmethod
+    def _looks_like_remind_me(text: str) -> bool:
+        """Fuzzy match for 'remind me' — accepts Whisper pronoun mishearings.
+
+        Whisper Tiny frequently transcribes 'remind me' as 'remind us',
+        'remind my', 'reminded me', etc. This checks both an explicit pronoun
+        list and a SequenceMatcher ratio so novel variants are caught too.
+        """
+        _FIRST_PERSON = {"me", "my", "us", "i", "we", "myself", "our"}
+        if re.search(r"\bremind\s+(?:me|my|us|i|we|myself|our)\b", text):
+            return True
+        words = text.split()
+        for idx, word in enumerate(words):
+            clean = re.sub(r"[^a-z]", "", word)
+            if not clean:
+                continue
+            if difflib.SequenceMatcher(None, clean, "remind").ratio() >= 0.80:
+                next_word = re.sub(r"[^a-z]", "", words[idx + 1]) if idx + 1 < len(words) else ""
+                if next_word in _FIRST_PERSON or difflib.SequenceMatcher(None, next_word, "me").ratio() >= 0.65:
+                    return True
+        return False
+
+    @staticmethod
+    def _has_remind_word(text: str) -> bool:
+        """Fuzzy detect any 'remind'/'reminder' word for CHECK_REMINDERS fallback."""
+        for word in text.split():
+            clean = re.sub(r"[^a-z]", "", word)
+            if not clean:
+                continue
+            if clean in ("remind", "reminder", "reminders"):
+                return True
+            if len(clean) >= 5 and difflib.SequenceMatcher(None, clean, "remind").ratio() >= 0.80:
+                return True
+        return False
 
     def looks_like_schedule_add(self, text: str) -> bool:
         t = text.lower().strip()
