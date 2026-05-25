@@ -195,9 +195,36 @@ def create_app() -> FastAPI:
             return 0
         return None
 
+    def _fuzzy_matches(word: str, targets: list, threshold: float = 0.8) -> bool:
+        import difflib
+        return any(
+            difflib.SequenceMatcher(None, word, t).ratio() >= threshold
+            for t in targets
+        )
+
     def _handle_timer_pause_resume_delete(text: str) -> dict | None:
-        t = text.lower()
-        if any(w in t for w in ("pause", "hold", "wait", "stop timer")):
+        _PAUSE_WORDS  = ["pause", "hold", "wait", "paus", "pauz", "halted", "freeze"]
+        _RESUME_WORDS = ["resume", "continue", "unpause", "resoom", "rezume", "contin"]
+        _DELETE_WORDS = ["delete", "reset", "cancel", "remove", "clear", "delet", "cancell", "cancle", "erase"]
+
+        words = re.sub(r"[^a-z0-9 ]", "", text.lower()).split()
+        snapshot = robot_state.snapshot()
+        timer_active = snapshot.get("timer_remaining_seconds", 0) > 0 or snapshot.get("timer_paused")
+
+        if not timer_active:
+            return None
+
+        is_pause  = any(_fuzzy_matches(w, _PAUSE_WORDS)  for w in words)
+        is_resume = any(_fuzzy_matches(w, _RESUME_WORDS) for w in words)
+        is_delete = any(_fuzzy_matches(w, _DELETE_WORDS) for w in words)
+
+        # "stop" alone is ambiguous (also means sleep/cancel); only treat as pause
+        # if the timer is currently running and no other intent matches.
+        if not is_pause and not is_resume and not is_delete:
+            if "stop" in words and timer_active:
+                is_pause = True
+
+        if is_pause and not is_resume:
             if timer_service.pause_timer()["paused"]:
                 response = phrase_bank.say("timer_paused")
             else:
@@ -205,7 +232,8 @@ def create_app() -> FastAPI:
             robot_state.set_response(response)
             tts.speak(response)
             return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-        if any(w in t for w in ("resume", "continue", "unpause", "go")):
+
+        if is_resume and not is_pause:
             if timer_service.resume_timer()["resumed"]:
                 response = phrase_bank.say("timer_resumed")
             else:
@@ -213,12 +241,14 @@ def create_app() -> FastAPI:
             robot_state.set_response(response)
             tts.speak(response)
             return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-        if any(w in t for w in ("delete", "reset", "cancel timer", "remove timer", "clear timer")):
+
+        if is_delete:
             timer_service.delete_timer()
             response = phrase_bank.say("timer_deleted")
             robot_state.set_response(response)
             tts.speak(response)
             return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
         return None
 
     def _handle_stop_command() -> dict:
@@ -412,11 +442,6 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
-            # --- pause / resume / delete while timer is running or paused ---
-            timer_action = _handle_timer_pause_resume_delete(text)
-            if timer_action:
-                return timer_action
-
             if intent == Intent.SLEEP:
                 robot_state.set_mode(RobotMode.IDLE)
                 response = phrase_bank.say("sleep")
@@ -446,6 +471,10 @@ def create_app() -> FastAPI:
                 music_result = music_service.play_for_emotion(snapshot.get("current_emotion", EmotionState.UNKNOWN))
                 response = music_result["message"]
             else:
+                # pause / resume / delete timer — checked after all intents
+                timer_action = _handle_timer_pause_resume_delete(text)
+                if timer_action:
+                    return timer_action
                 response = response_generator.generate(
                     intent=intent,
                     emotion=snapshot["current_emotion"],
