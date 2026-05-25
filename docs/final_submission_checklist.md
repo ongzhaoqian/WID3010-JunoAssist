@@ -6,14 +6,14 @@ Use this file as the practical checklist for completing the WID3010 submission w
 
 Use the same naming as the question paper in the report so the mapping is clear.
 
-| Item | Marks | Question-paper wording / required output |
-|---|---:|---|
-| Q1 | 10 | Explain the robotics application, objectives and scope; describe the technique/algorithm/model used for computer vision, speech processing and reasoning tasks; include a sketch/diagram/visual aid of the experimental setup; list testing scenarios. |
-| Q2 | 5 | Develop a ROS workspace: boot Ubuntu, create the ROS workspace folder, turn it into a catkin workspace, and load the workspace when opening a new terminal using `~/.bashrc`. |
-| Q3 | 20 | Develop the robotics application on the ROS workspace; identify appropriate packages; design ROS APIs such as topics, publishers and subscribers; connect sensor input to processing and robot/backend decision-making; run/unit-test each ROS API; explain purpose and example input/output. |
-| Q4 | 5 | Visualise the ROS graph using `rqt_graph`; show nodes and publishers/subscribers; explain node-topic relationships in the report. |
-| Q5 | 5 | Develop a step-by-step manual on how to run/launch the robot application, preferably with screenshots and specific scripts/commands. |
-| Q6 | 5 | Develop a max 5-minute robot demo video showing the experimental setup and testing scenarios, preferably with text labels describing the video flow. |
+| Item | Marks | Question-paper wording / required output | Responsible Member(s) |
+|---|---:|---|---|
+| Q1 | 10 | Explain the robotics application, objectives and scope; describe the technique/algorithm/model used for computer vision, speech processing and reasoning tasks; include a sketch/diagram/visual aid of the experimental setup; list testing scenarios. | Vanness |
+| Q2 | 5 | Develop a ROS workspace: boot Ubuntu, create the ROS workspace folder, turn it into a catkin workspace, and load the workspace when opening a new terminal using `~/.bashrc`. | Yoong Yee, Jonathan, Anas |
+| Q3 | 20 | Develop the robotics application on the ROS workspace; identify appropriate packages; design ROS APIs such as topics, publishers and subscribers; connect sensor input to processing and robot/backend decision-making; run/unit-test each ROS API; explain purpose and example input/output. | Yoong Yee, Jonathan, Vanness, Anas |
+| Q4 | 5 | Visualise the ROS graph using `rqt_graph`; show nodes and publishers/subscribers; explain node-topic relationships in the report. | Zhao Qian |
+| Q5 | 5 | Develop a step-by-step manual on how to run/launch the robot application, preferably with screenshots and specific scripts/commands. | Yoong Yee, Anas |
+| Q6 | 5 | Develop a max 5-minute robot demo video showing the experimental setup and testing scenarios, preferably with text labels describing the video flow. | Zhao Qian |
 
 Final Spectrum submission:
 
