@@ -307,3 +307,76 @@ def test_voice_schedule_add_accepts_natural_date_and_time(tmp_path, monkeypatch)
     assert payload["intent"] == "add_schedule"
     assert payload["schedule_item"]["time"] == "21:00"
     assert payload["schedule_item"]["title"] == "Project discussion"
+
+
+def test_dashboard_timer_pause_resume_and_stop_endpoints():
+    client = TestClient(create_app())
+
+    start = client.post("/api/timer/start", json={"minutes": 0, "seconds": 45})
+    assert start.status_code == 200
+    assert start.json()["status"]["timer_remaining_seconds"] == 45
+
+    pause = client.post("/api/timer/pause")
+    assert pause.status_code == 200
+    pause_payload = pause.json()
+    assert pause_payload["paused"] is True
+    assert pause_payload["status"]["timer_paused"] is True
+    assert pause_payload["status"]["timer_paused_remaining"] == 45
+
+    resume = client.post("/api/timer/resume")
+    assert resume.status_code == 200
+    resume_payload = resume.json()
+    assert resume_payload["resumed"] is True
+    assert resume_payload["status"]["timer_paused"] is False
+    assert resume_payload["status"]["timer_remaining_seconds"] == 45
+
+    stop = client.post("/api/timer/stop")
+    assert stop.status_code == 200
+    stop_payload = stop.json()
+    assert stop_payload["stopped"] is True
+    assert stop_payload["status"]["timer_remaining_seconds"] == 0
+    assert stop_payload["status"]["timer_paused"] is False
+
+
+def test_voice_stop_timer_uses_fuzzy_stop_commands():
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_timer(120, "Study timer")
+
+    response = client.post("/api/command", json={"text": "end the countdown now"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"]["timer_remaining_seconds"] == 0
+    assert payload["status"]["timer_paused"] is False
+    assert payload.get("timer_action") == "stopped"
+
+
+def test_voice_pause_and_resume_timer_commands():
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_timer(90, "Study timer")
+
+    pause = client.post("/api/command", json={"text": "pause timer"})
+    assert pause.status_code == 200
+    pause_payload = pause.json()
+    assert pause_payload["status"]["timer_paused"] is True
+    assert pause_payload.get("timer_action") == "paused"
+
+    resume = client.post("/api/command", json={"text": "resume timer"})
+    assert resume.status_code == 200
+    resume_payload = resume.json()
+    assert resume_payload["status"]["timer_paused"] is False
+    assert resume_payload["status"]["timer_remaining_seconds"] == 90
+    assert resume_payload.get("timer_action") == "resumed"
+
+
+def test_stop_speaking_does_not_delete_running_timer():
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_timer(60, "Study timer")
+
+    response = client.post("/api/command", json={"text": "stop speaking"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"] == "stop"
+    assert payload["status"]["timer_remaining_seconds"] == 60

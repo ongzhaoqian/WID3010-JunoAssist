@@ -2104,6 +2104,6 @@ curl -s -X POST http://localhost:8000/api/command \
 
 ### Timer cancellation and speech-prioritised emotion update
 
-The timer duration prompt now accepts flexible formats such as `twenty five minutes`, `1h 30m`, `half an hour`, and `2:30`. The user may exit the timer flow by saying `cancel`, `not now`, `skip`, or `never mind`; repeated unclear responses also cancel the pending timer setup.
+The timer duration prompt now accepts flexible formats such as `twenty five minutes`, `1h 30m`, `half an hour`, and `2:30`. The user may exit the timer flow by saying `cancel`, `not now`, `skip`, or `never mind`; repeated unclear responses also cancel the pending timer setup. The dashboard Study Timer card provides Pause/Resume and Stop controls, and the active speech flow understands fuzzy timer-control commands such as `pause timer`, `resume timer`, `stop timer`, `end the countdown`, and `cancel the focus session`.
 
 When the user's transcript explicitly states an emotion, such as `I am stressed` or `I feel tired`, the backend treats the speech cue as higher priority than the visual emotion estimate for a short configurable window (`JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`).

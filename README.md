@@ -438,12 +438,18 @@ The robot no longer requires the user to repeat the word `timer` after it has al
 
 When the countdown reaches zero seconds, the backend emits a one-time timer-completion state update. The dashboard listens for `timer_completed_counter` changes through the WebSocket status stream and plays a short bell sound using the browser Web Audio API. The backend also updates the robot response, speaks a completion message, and sets the LED state to `timer_complete` when available.
 
-Useful endpoint:
+Useful timer endpoints:
 
 ```text
 POST http://localhost:8000/api/timer/start
 Body: { "minutes": 1, "seconds": 30 }
+
+POST http://localhost:8000/api/timer/pause
+POST http://localhost:8000/api/timer/resume
+POST http://localhost:8000/api/timer/stop
 ```
+
+The dashboard Study Timer card now includes explicit **Pause Timer** and **Stop Timer** buttons. While the countdown is running, JUNO also accepts fuzzy spoken timer-control commands such as `pause timer`, `resume timer`, `stop timer`, `end the countdown`, `cancel the focus session`, or a short bare `stop` command. Speech-only commands such as `stop speaking` still interrupt speech/audio without deleting the timer.
 
 
 ### Speech-prioritised emotion handling

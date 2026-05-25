@@ -41,17 +41,42 @@ function playBellSound() {
 export default function TimerPanel({ status }) {
   const [minutes, setMinutes] = useState(25);
   const [seconds, setSeconds] = useState(0);
+  const [isWorking, setIsWorking] = useState(false);
   const previousCompletionCounter = useRef(null);
 
+  const awaitingDuration = Boolean(status?.awaiting_timer_duration);
+  const isPaused = Boolean(status?.timer_paused);
+  const pausedRemaining = status?.timer_paused_remaining ?? 0;
+  const runningRemaining = status?.timer_remaining_seconds ?? 0;
+  const displayRemaining = isPaused ? pausedRemaining : runningRemaining;
+  const hasTimer = runningRemaining > 0 || isPaused;
+  const completedCounter = status?.timer_completed_counter ?? 0;
+
+  async function runTimerAction(path, payload = {}) {
+    try {
+      setIsWorking(true);
+      await postJson(path, payload);
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function startTimer() {
-    await postJson("/api/timer/start", {
+    await runTimerAction("/api/timer/start", {
       minutes: Number(minutes) || 0,
       seconds: Number(seconds) || 0
     });
   }
 
-  const awaitingDuration = Boolean(status?.awaiting_timer_duration);
-  const completedCounter = status?.timer_completed_counter ?? 0;
+  async function pauseOrResumeTimer() {
+    if (!hasTimer) return;
+    await runTimerAction(isPaused ? "/api/timer/resume" : "/api/timer/pause");
+  }
+
+  async function stopTimer() {
+    if (!hasTimer && !awaitingDuration) return;
+    await runTimerAction("/api/timer/stop");
+  }
 
   useEffect(() => {
     if (previousCompletionCounter.current === null) {
@@ -68,10 +93,19 @@ export default function TimerPanel({ status }) {
   return (
     <Card title="Study Timer">
       <div className="rounded-[1.75rem] border border-white/20 bg-slate-950/60 p-5 text-white shadow-inner">
-        <p className="section-kicker text-xs font-semibold">Focus countdown</p>
-        <p className="mt-2 text-5xl font-black tabular-nums">
-          {formatSeconds(status?.timer_remaining_seconds ?? 0)}
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="section-kicker text-xs font-semibold">Focus countdown</p>
+            <p className="mt-2 text-5xl font-black tabular-nums">
+              {formatSeconds(displayRemaining)}
+            </p>
+          </div>
+          {isPaused && (
+            <span className="rounded-full border border-amber-200/40 bg-amber-300/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">
+              Paused
+            </span>
+          )}
+        </div>
         <p className="mt-2 text-sm text-slate-300/80">
           {status?.active_timer_label ?? (awaitingDuration ? "Waiting for voice duration" : "No active timer")}
         </p>
@@ -113,11 +147,35 @@ export default function TimerPanel({ status }) {
         </label>
         <button
           onClick={startTimer}
-          className="btn-primary self-end px-5 py-2.5 text-sm font-semibold"
+          disabled={isWorking}
+          className="btn-primary self-end px-5 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
         >
           Start
         </button>
       </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <button
+          onClick={pauseOrResumeTimer}
+          disabled={!hasTimer || isWorking}
+          className="btn-secondary px-5 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isPaused ? "Resume Timer" : "Pause Timer"}
+        </button>
+        <button
+          onClick={stopTimer}
+          disabled={(!hasTimer && !awaitingDuration) || isWorking}
+          className="rounded-2xl border border-rose-300/30 bg-rose-500/15 px-5 py-2.5 text-sm font-semibold text-rose-50 shadow-lg shadow-rose-950/20 transition hover:-translate-y-0.5 hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+        >
+          Stop Timer
+        </button>
+      </div>
+
+      {hasTimer && (
+        <p className="mt-3 text-xs leading-5 text-slate-300/75">
+          Voice control is enabled. You can say “pause timer”, “resume timer”, “stop timer”, “end the countdown”, or “cancel the focus session”.
+        </p>
+      )}
     </Card>
   );
 }

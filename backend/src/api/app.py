@@ -5,6 +5,7 @@ import os
 import re
 import json
 import time
+import difflib
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
@@ -28,6 +29,22 @@ from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
 from src.vision.emotion_detector import EmotionDetector
 from src.vision.speech_emotion import SpeechEmotionDetector
+
+
+def _fuzzy_matches(word: str, candidates: list[str] | tuple[str, ...], threshold: float = 0.78) -> bool:
+    """Return True when an ASR token is close enough to an expected command word."""
+    clean = re.sub(r"[^a-z0-9]", "", word.lower())
+    if not clean:
+        return False
+    for candidate in candidates:
+        target = re.sub(r"[^a-z0-9]", "", candidate.lower())
+        if not target:
+            continue
+        if clean == target or clean.startswith(target) or target.startswith(clean):
+            return True
+        if difflib.SequenceMatcher(None, clean, target).ratio() >= threshold:
+            return True
+    return False
 
 
 def create_app() -> FastAPI:
@@ -202,64 +219,113 @@ def create_app() -> FastAPI:
         # "zero seconds" are understood.
         return intent_classifier.extract_spoken_number(text)
 
-    def _handle_timer_pause_resume_delete(text: str) -> dict | None:
-        # "unpause" removed — it fuzzy-matches "pause" at 0.83, causing both
-        # is_pause and is_resume to fire simultaneously and cancel each other out.
-        _PAUSE_WORDS  = ["pause", "hold", "paus", "pauz", "halted", "freeze"]
-        _RESUME_WORDS = ["resume", "continue", "resoom", "rezume", "contin"]
-        _DELETE_WORDS = ["delete", "reset", "cancel", "remove", "clear", "delet", "cancell", "cancle", "erase"]
+    def _timer_is_active_or_paused() -> bool:
+        snap = robot_state.snapshot()
+        return snap.get("timer_remaining_seconds", 0) > 0 or bool(snap.get("timer_paused"))
 
-        words = re.sub(r"[^a-z0-9 ]", "", text.lower()).split()
+    def _handle_timer_pause_resume_delete(text: str) -> dict | None:
+        """Handle spoken timer control while the timer is running or paused.
+
+        The robot's ASR can produce noisy variants such as "stap timer",
+        "end the countdown", or "cancel focus session". This handler favours
+        explicit stop/end/cancel wording as a request to stop/delete the timer,
+        while pause/resume remain available as separate controls.
+        """
+        _PAUSE_WORDS = ("pause", "hold", "freeze", "wait", "suspend")
+        _RESUME_WORDS = ("resume", "continue", "proceed", "restart", "carry", "carryon")
+        _STOP_WORDS = (
+            "stop", "stopped", "stap", "end", "finish", "cancel", "delete",
+            "reset", "remove", "clear", "terminate", "quit", "abort",
+            "kill", "drop", "dismiss", "erase", "cancell", "cancle",
+        )
+        _TIMER_CONTEXT_WORDS = (
+            "timer", "countdown", "clock", "pomodoro", "focus", "session",
+            "study", "time", "alarm",
+        )
+
+        cleaned = re.sub(r"[^a-z0-9 ]", " ", text.lower())
+        words = cleaned.split()
+        joined = " ".join(words)
         snap = robot_state.snapshot()
         is_running = snap.get("timer_remaining_seconds", 0) > 0
-        is_paused  = bool(snap.get("timer_paused"))
+        is_paused = bool(snap.get("timer_paused"))
 
         if not is_running and not is_paused:
             return None
 
-        is_pause  = any(_fuzzy_matches(w, _PAUSE_WORDS)  for w in words)
-        is_resume = any(_fuzzy_matches(w, _RESUME_WORDS) for w in words)
-        is_delete = any(_fuzzy_matches(w, _DELETE_WORDS) for w in words)
+        _OUTPUT_CONTEXT_WORDS = ("music", "song", "songs", "audio", "speech", "voice", "talking", "speaking", "tts")
+        has_timer_context = any(_fuzzy_matches(w, _TIMER_CONTEXT_WORDS, threshold=0.74) for w in words)
+        has_output_context = any(_fuzzy_matches(w, _OUTPUT_CONTEXT_WORDS, threshold=0.74) for w in words)
+        has_stop = any(_fuzzy_matches(w, _STOP_WORDS, threshold=0.73) for w in words)
+        has_pause = any(_fuzzy_matches(w, _PAUSE_WORDS, threshold=0.76) for w in words)
+        has_resume = any(_fuzzy_matches(w, _RESUME_WORDS, threshold=0.76) for w in words)
 
-        # "stop" alone — treat as pause only when timer is actively running
-        if not is_pause and not is_resume and not is_delete and "stop" in words and is_running:
-            is_pause = True
+        stop_phrases = (
+            "stop timer", "stop the timer", "stop my timer", "end timer",
+            "end the timer", "cancel timer", "cancel the timer", "delete timer",
+            "reset timer", "clear timer", "stop countdown", "end countdown",
+            "cancel countdown", "stop study timer", "stop focus session",
+            "finish timer", "terminate timer", "turn off timer",
+        )
+        pause_phrases = ("pause timer", "pause the timer", "hold timer", "freeze timer")
+        resume_phrases = ("resume timer", "resume the timer", "continue timer", "continue the timer")
 
-        if is_delete:
+        explicit_stop_phrase = any(phrase in joined for phrase in stop_phrases)
+        explicit_pause_phrase = any(phrase in joined for phrase in pause_phrases)
+        explicit_resume_phrase = any(phrase in joined for phrase in resume_phrases)
+
+        # Stop/delete takes priority when the user explicitly mentions a timer
+        # context, or when the command is a short bare stop-like command while
+        # a timer is the only active countdown on the dashboard.
+        short_bare_stop = has_stop and len(words) <= 3 and not has_pause and not has_resume and not has_output_context
+        if explicit_stop_phrase or (has_stop and has_timer_context) or short_bare_stop:
             timer_service.delete_timer()
             response = phrase_bank.say("timer_deleted")
             robot_state.set_response(response)
             tts.speak(response)
-            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+            return {"intent": Intent.SET_TIMER, "response": response, "timer_action": "stopped", "status": robot_state.snapshot()}
 
-        if is_pause and is_running:
-            timer_service.pause_timer()
-            response = phrase_bank.say("timer_paused")
-            robot_state.set_response(response)
-            tts.speak(response)
-            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-
-        if is_pause and is_paused:
-            response = phrase_bank.say("timer_already_paused")
-            robot_state.set_response(response)
-            tts.speak(response)
-            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-
-        if is_resume and is_paused:
+        if explicit_resume_phrase or (has_resume and is_paused):
             timer_service.resume_timer()
             response = phrase_bank.say("timer_resumed")
             robot_state.set_response(response)
             tts.speak(response)
-            return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+            return {"intent": Intent.SET_TIMER, "response": response, "timer_action": "resumed", "status": robot_state.snapshot()}
+
+        if explicit_pause_phrase or (has_pause and is_running):
+            timer_service.pause_timer()
+            response = phrase_bank.say("timer_paused")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.SET_TIMER, "response": response, "timer_action": "paused", "status": robot_state.snapshot()}
+
+        if has_pause and is_paused:
+            response = phrase_bank.say("timer_already_paused")
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.SET_TIMER, "response": response, "timer_action": "already_paused", "status": robot_state.snapshot()}
 
         return None
 
-    def _handle_stop_command() -> dict:
-        """Immediately interrupt speech and music without speaking another reply."""
+    def _handle_stop_command(text: str = "") -> dict:
+        """Immediately interrupt speech/music; stop the timer when the command targets it."""
         robot_state.set_awaiting_timer_duration(False)
         tts.stop()
         music_result = music_service.stop()
-        response = phrase_bank.say("stop_acknowledged")
+
+        # If a timer is currently visible and the spoken command is stop-like,
+        # honour it as a timer stop as well. This makes bare "stop" useful while
+        # the countdown is running, while still supporting explicit "stop music"
+        # / "stop speaking" through the same endpoint.
+        lowered = text.lower().strip()
+        music_or_speech_only = bool(re.search(r"\b(music|song|songs|audio|speech|voice|talking|speaking|tts)\b", lowered))
+        timer_related = bool(re.search(r"\b(timer|countdown|pomodoro|focus|study|session|clock)\b", lowered))
+        if _timer_is_active_or_paused() and (timer_related or not music_or_speech_only):
+            timer_service.delete_timer()
+            response = phrase_bank.say("timer_deleted")
+        else:
+            response = phrase_bank.say("stop_acknowledged")
+
         robot_state.set_response(response)
         return {
             "intent": Intent.STOP,
@@ -346,7 +412,14 @@ def create_app() -> FastAPI:
         snapshot = robot_state.snapshot()
 
         if intent == Intent.STOP:
-            return _handle_stop_command()
+            # Check timer control before the global stop branch so spoken
+            # commands like "stop timer" or a bare "stop" during a running
+            # countdown can stop the study timer instead of only interrupting
+            # speech/music.
+            timer_action = _handle_timer_pause_resume_delete(text)
+            if timer_action:
+                return timer_action
+            return _handle_stop_command(text)
 
         if snapshot["mode"] == RobotMode.IDLE:
             if wake_detector.is_wake_command(text):
@@ -741,7 +814,36 @@ def create_app() -> FastAPI:
         )
         response = phrase_bank.say("timer_started", duration=_format_timer_duration(result["minutes"], result["seconds"]))
         robot_state.set_response(response)
-        return {**result, "message": response}
+        return {**result, "message": response, "status": robot_state.snapshot()}
+
+    @app.post("/api/timer/pause")
+    def pause_timer():
+        result = timer_service.pause_timer()
+        response = phrase_bank.say("timer_paused" if result["paused"] else "timer_not_running")
+        robot_state.set_response(response)
+        return {**result, "message": response, "status": robot_state.snapshot()}
+
+    @app.post("/api/timer/resume")
+    def resume_timer():
+        result = timer_service.resume_timer()
+        response = phrase_bank.say("timer_resumed" if result["resumed"] else "timer_not_running")
+        robot_state.set_response(response)
+        return {**result, "message": response, "status": robot_state.snapshot()}
+
+    @app.post("/api/timer/stop")
+    def stop_timer():
+        timer_service.delete_timer()
+        response = phrase_bank.say("timer_deleted")
+        robot_state.set_response(response)
+        return {"stopped": True, "message": response, "status": robot_state.snapshot()}
+
+    @app.post("/api/timer/delete")
+    def delete_timer():
+        # Alias kept for dashboard/legacy wording.
+        timer_service.delete_timer()
+        response = phrase_bank.say("timer_deleted")
+        robot_state.set_response(response)
+        return {"deleted": True, "message": response, "status": robot_state.snapshot()}
 
     @app.get("/api/music/status")
     def get_music_status():
@@ -764,7 +866,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/robot/stop")
     def stop_robot_outputs():
-        return _handle_stop_command()
+        return _handle_stop_command("stop")
 
     @app.post("/api/music/refresh")
     def refresh_music():
