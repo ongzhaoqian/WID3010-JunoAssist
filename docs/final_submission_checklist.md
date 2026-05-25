@@ -31,7 +31,7 @@ Final Spectrum submission:
 | Question | Codebase status | Still required for submission |
 |---|---|---|
 | Q1 | Code/docs ready; no more code changes needed unless a feature is broken | polished report text, setup diagram, testing scenario table |
-| Q2 | Code/docs ready; ROS workspace structure is ready | physical robot/Ubuntu screenshots proving workspace setup and sourcing |
+| Q2 | **EVIDENCE COLLECTED** — workspace setup, catkin build, package discovery, and `.bashrc` auto-source all verified and screenshot on physical machine | nothing — Q2 complete |
 | Q3 | Code/docs ready; software/ROS structure is ready; CI covers non-hardware unit/API checks | physical robot screenshots proving ROS APIs run successfully, including unit testing each ROS API with `rostopic`/`rosnode` evidence |
 | Q4 | Code/docs ready; no code changes needed | `rqt_graph` screenshot and explanation |
 | Q5 | Code/docs ready; launch commands and manual structure documented | final step-by-step manual with screenshots |
