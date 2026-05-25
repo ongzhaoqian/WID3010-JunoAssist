@@ -1,8 +1,10 @@
-export default function Card({ title, children }) {
+export default function Card({ title, children, className = "" }) {
   return (
-    <section className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200">
-      <h2 className="text-lg font-semibold text-slate-900 mb-3">{title}</h2>
-      {children}
+    <section className={`glass-card overflow-hidden rounded-[2rem] p-5 text-slate-100 ${className}`}>
+      <div className="relative z-10">
+        <h2 className="mb-3 text-lg font-semibold text-white">{title}</h2>
+        {children}
+      </div>
     </section>
   );
 }

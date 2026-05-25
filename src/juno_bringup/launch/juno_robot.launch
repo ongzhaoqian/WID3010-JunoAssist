@@ -1,7 +1,13 @@
 <launch>
-  <!-- Camera and microphone publishers from the attached Jupiter Robot code. -->
+  <!-- Camera publisher. Frames are consumed by the backend and displayed inside
+       the web dashboard camera window. Do not launch camera_listener_node.py
+       unless you explicitly want the old OpenCV diagnostic pop-up. -->
   <node pkg="perception_pkg" type="camera_node.py" name="camera_node" output="screen">
+    <param name="camera_topic" value="/camera/image_raw" />
     <param name="camera_device" value="/dev/video2" />
+    <param name="width" value="640" />
+    <param name="height" value="480" />
+    <param name="fps" value="30" />
   </node>
 
   <!-- Audio input. Device resolved by name via JUNO_MIC_DEVICE_NAME; falls back to JUNO_MIC_DEVICE_INDEX if name is unset. -->
@@ -29,6 +35,7 @@
   <node pkg="language_pkg" type="tts_node.py" name="juno_tts_node" output="screen">
     <param name="tts_topic" value="/juno/tts" />
     <param name="tts_done_topic" value="/juno/tts_done" />
+    <param name="tts_stop_topic" value="/juno/tts_stop" />
     <param name="voice_locale" value="en_GB" />
     <param name="rate" value="165" />
     <param name="backend" value="espeak" />

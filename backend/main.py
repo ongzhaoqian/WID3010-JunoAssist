@@ -1,6 +1,14 @@
+from __future__ import annotations
+import logging
+
 from src.api.app import create_app
 from src.core.config import settings
 import uvicorn
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 app = create_app()
 

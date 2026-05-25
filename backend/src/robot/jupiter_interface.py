@@ -32,6 +32,10 @@ class JupiterInterface(ABC):
     def set_led_state(self, state: str) -> None:
         pass
 
+    @abstractmethod
+    def stop_speaking(self) -> None:
+        pass
+
 
 class MockJupiterInterface(JupiterInterface):
     """Laptop-friendly implementation for demonstration without hardware."""
@@ -54,6 +58,9 @@ class MockJupiterInterface(JupiterInterface):
 
     def set_led_state(self, state: str) -> None:
         print(f"[JUNO LED] {state}")
+
+    def stop_speaking(self) -> None:
+        print("[JUNO] Speech stop requested")
 
 
 def get_robot_interface() -> JupiterInterface:

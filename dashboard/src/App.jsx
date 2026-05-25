@@ -5,28 +5,32 @@ import CommandPanel from "./components/CommandPanel";
 import SchedulePanel from "./components/SchedulePanel";
 import TimerPanel from "./components/TimerPanel";
 import ReminderPanel from "./components/ReminderPanel";
+import CameraPanel from "./components/CameraPanel";
+import MusicPanel from "./components/MusicPanel";
 import Card from "./components/Card";
 
 export default function App() {
   const [status, setStatus] = useState(null);
   const [schedule, setSchedule] = useState([]);
-  const [features, setFeatures] = useState([]);
   const [lastCommand, setLastCommand] = useState(null);
 
+  async function loadSchedule() {
+    const scheduleData = await getJson("/api/schedule/today");
+    setSchedule(scheduleData);
+  }
+
   async function loadInitialData() {
-    const [statusData, scheduleData, featureData] = await Promise.all([
+    const [statusData, scheduleData] = await Promise.all([
       getJson("/api/status"),
-      getJson("/api/schedule/today"),
-      getJson("/api/features")
+      getJson("/api/schedule/today")
     ]);
 
     setStatus(statusData);
     setSchedule(scheduleData);
-    setFeatures(featureData);
   }
 
   async function playMusic() {
-    await postJson("/api/music/play");
+    await postJson("/api/music/play", { emotion: status?.current_emotion ?? "unknown" });
   }
 
   async function sleepJuno() {
@@ -41,32 +45,54 @@ export default function App() {
       setStatus(JSON.parse(event.data));
     };
 
+    // Voice-created schedule items arrive through the backend/ROS loop, not
+    // through this component, so poll lightly to keep the dashboard current.
+    const scheduleInterval = window.setInterval(loadSchedule, 4000);
+
     return () => {
       ws.close();
+      window.clearInterval(scheduleInterval);
     };
   }, []);
 
   return (
-    <main className="mx-auto max-w-7xl p-6">
-      <header className="mb-8 rounded-3xl bg-slate-900 p-8 text-white shadow-sm">
-        <p className="text-sm uppercase tracking-[0.25em] text-slate-300">Personal Daily Assistant Robot</p>
-        <h1 className="mt-2 text-4xl font-bold">JUNO Assist Dashboard</h1>
-        <p className="mt-3 max-w-3xl text-slate-300">
-          Wake JUNO with “Hey, John”, confirm with “Yes”, then use the assistant to manage study schedules, reminders, timers, and emotion-aware break suggestions.
-        </p>
+    <main className="relative mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
+      <header className="hero-shell mb-8 overflow-hidden rounded-[2.25rem] p-8 text-white">
+        <div className="relative z-10 grid gap-6 lg:grid-cols-[1.4fr_0.6fr] lg:items-end">
+          <div>
+            <p className="section-kicker text-sm font-semibold">Personal Daily Assistant Robot</p>
+            <h1 className="mt-3 max-w-3xl text-4xl font-black tracking-tight sm:text-5xl lg:text-6xl">
+              JUNO Assist Dashboard
+            </h1>
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-200/85">
+              Wake JUNO with “Hey, John”, confirm with “Yes”, then manage study schedules, reminders, timers, camera view, emotion-aware music, and break suggestions from one elegant control centre.
+            </p>
+          </div>
+          <div className="glass-inner rounded-[2rem] p-4">
+            <p className="text-sm font-medium text-slate-300">Current mode</p>
+            <p className="mt-1 text-3xl font-bold capitalize text-white">{status?.mode ?? "loading"}</p>
+            <p className="mt-3 text-sm text-slate-300">
+              Emotion estimate: <span className="font-semibold capitalize text-white">{status?.current_emotion ?? "unknown"}</span>
+            </p>
+          </div>
+        </div>
       </header>
 
       <section className="grid gap-5 lg:grid-cols-3">
         <StatusPanel status={status} />
         <TimerPanel status={status} />
         <Card title="Last Response">
-          <p className="text-slate-700">{status?.last_response ?? "Loading..."}</p>
+          <p className="text-slate-200/85">{status?.last_response ?? "Loading..."}</p>
           {lastCommand && (
-            <p className="mt-3 text-sm text-slate-500">
+            <p className="mt-3 text-sm text-slate-300/75">
               Last intent: {lastCommand.intent}
             </p>
           )}
         </Card>
+      </section>
+
+      <section className="mt-5">
+        <CameraPanel status={status} />
       </section>
 
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
@@ -75,37 +101,32 @@ export default function App() {
           <div className="flex flex-wrap gap-3">
             <button
               onClick={playMusic}
-              className="rounded-xl bg-slate-900 px-4 py-2 font-medium text-white"
+              className="btn-primary px-5 py-2.5 text-sm font-semibold"
             >
-              Play Soothing Music
+              Play Music by Emotion
             </button>
             <button
               onClick={sleepJuno}
-              className="rounded-xl border border-slate-300 px-4 py-2 font-medium text-slate-800"
+              className="btn-secondary px-5 py-2.5 text-sm font-semibold"
             >
               Put JUNO to Sleep
             </button>
           </div>
+          <p className="mt-3 text-sm text-slate-300/75">
+            Music selection follows the latest emotion estimate when the Vision Module is on; otherwise it falls back to a neutral study playlist.
+          </p>
         </Card>
-      </section>
-
-      <section className="mt-5 grid gap-5 lg:grid-cols-2">
-        <SchedulePanel schedule={schedule} />
-        <ReminderPanel />
       </section>
 
       <section className="mt-5">
-        <Card title="Available Features">
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature) => (
-              <div key={feature.name} className="rounded-xl border border-slate-200 p-4">
-                <p className="font-semibold text-slate-900">{feature.name}</p>
-                <p className="mt-1 text-sm text-slate-500">{feature.description}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
+        <MusicPanel status={status} />
       </section>
+
+      <section className="mt-5 grid gap-5 lg:grid-cols-2">
+        <SchedulePanel schedule={schedule} onScheduleChanged={loadSchedule} />
+        <ReminderPanel />
+      </section>
+
     </main>
   );
 }
