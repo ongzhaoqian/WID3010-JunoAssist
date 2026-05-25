@@ -26,6 +26,11 @@ export default function CameraPanel({ status }) {
   const cameraOn = Boolean(vision.camera_enabled);
   const visionModelOn = Boolean(vision.vision_model_enabled);
   const frameAvailable = Boolean(vision.frame_available);
+  const emotionLabel = visionModelOn ? (vision.emotion ?? status?.current_emotion ?? "unknown") : "Not running";
+  const emotionConfidence = Number(vision.emotion_confidence ?? status?.emotion_confidence ?? 0);
+  const emotionSource = vision.emotion_source ?? status?.emotion_source ?? "none";
+  const analysisDescription = vision.analysis_description ?? "";
+  const analysisError = vision.analysis_error ?? null;
   const streamSrc = useMemo(
     () => `${cameraStreamUrl()}?session=${streamKey}`,
     [streamKey]
@@ -216,16 +221,35 @@ export default function CameraPanel({ status }) {
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
                 <dt className="text-slate-300/70">Emotion estimate</dt>
                 <dd className="font-medium capitalize text-white">
-                  {visionModelOn ? status?.current_emotion ?? vision.emotion ?? "unknown" : "Not running"}
+                  {emotionLabel}
                 </dd>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                <dt className="text-slate-300/70">Confidence</dt>
+                <dd className="font-medium text-white">
+                  {visionModelOn && emotionConfidence > 0 ? `${Math.round(emotionConfidence * 100)}%` : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                <dt className="text-slate-300/70">Emotion source</dt>
+                <dd className="font-medium text-white">{visionModelOn ? emotionSource : "—"}</dd>
               </div>
             </dl>
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 text-sm text-slate-300/80">
+            <p className="font-medium text-white">SmolVLM reading</p>
+            <p className="mt-1">
+              {analysisError
+                ? `Vision model issue: ${analysisError}`
+                : analysisDescription || "Switch on the Vision Module to show the model's latest visual reasoning here."}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 text-sm text-slate-300/80">
             <p className="font-medium text-white">Operator note</p>
             <p className="mt-1">
-              Use <span className="font-medium text-white">Camera On</span> for normal monitoring. Enable the <span className="font-medium text-white">Vision Module</span> only when you want JUNO to run emotion recognition on the camera frames.
+              Use <span className="font-medium text-white">Camera On</span> for normal monitoring. Enable the <span className="font-medium text-white">Vision Module</span> only when you want JUNO to run SmolVLM emotion recognition on the camera frames. Speech emotion cues still take priority when the user explicitly says how they feel.
             </p>
           </div>
         </div>

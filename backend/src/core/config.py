@@ -53,8 +53,14 @@ class Settings:
     vision_backend: str = os.getenv("JUNO_VISION_BACKEND", "smolvlm").strip().lower()
     vision_model_id: str = os.getenv("JUNO_VISION_MODEL_ID", "HuggingFaceTB/SmolVLM-256M-Instruct")
     vision_device: str = os.getenv("JUNO_VISION_DEVICE", "auto")
-    vision_max_new_tokens: int = int(os.getenv("JUNO_VISION_MAX_NEW_TOKENS", "64"))
-    vision_min_confidence: float = float(os.getenv("JUNO_VISION_MIN_CONFIDENCE", "0.35"))
+    vision_max_new_tokens: int = int(os.getenv("JUNO_VISION_MAX_NEW_TOKENS", "96"))
+    vision_min_confidence: float = float(os.getenv("JUNO_VISION_MIN_CONFIDENCE", "0.30"))
+    # Prevent a vague SmolVLM answer such as "neutral, 40%" from being shown as
+    # a confident robot emotion. Non-neutral labels above the fast-switch threshold
+    # are allowed to update the dashboard immediately instead of being diluted by
+    # the previous neutral EMA state.
+    vision_neutral_uncertain_confidence: float = float(os.getenv("JUNO_VISION_NEUTRAL_UNCERTAIN_CONFIDENCE", "0.45"))
+    vision_fast_switch_confidence: float = float(os.getenv("JUNO_VISION_FAST_SWITCH_CONFIDENCE", "0.52"))
 
     # Emotion-aware music. The dashboard uses Spotify embeds by default because
     # they do not require storing API secrets in this student prototype. Direct

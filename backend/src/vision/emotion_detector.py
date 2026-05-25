@@ -114,6 +114,7 @@ class EmotionDetector:
         self._face_net = None
         self._cnn_model = None
         self._smolvlm: Optional[SmolVLMVisionModel] = None
+        self._smolvlm_has_valid_signal = False
 
         if use_real and self.backend_name == "smolvlm":
             self._smolvlm = SmolVLMVisionModel(
@@ -203,15 +204,40 @@ class EmotionDetector:
         self.last_raw_output = analysis.raw_output
         self.last_error = analysis.error
 
+        # Previously, unavailable/unclear SmolVLM output was passed through the
+        # neutral-initialised EMA/HSM pipeline, so the dashboard often showed
+        # ``neutral`` at around 40% even when the model had not really made a
+        # usable prediction. Surface uncertainty explicitly instead.
         if not analysis.available or analysis.emotion == EmotionState.UNKNOWN:
-            P_t = self.ema.skip()
-        else:
-            P_juno = analysis.probabilities()
-            # If confidence is too low, bias toward the previous smoothed state.
-            if analysis.confidence < settings.vision_min_confidence:
-                P_t = self.ema.skip()
-            else:
-                P_t = self.ema.update(P_juno)
+            return EmotionState.UNKNOWN
+
+        if analysis.confidence < settings.vision_min_confidence:
+            self.last_description = (
+                self.last_description or
+                "SmolVLM prediction was below the minimum confidence threshold."
+            )
+            return EmotionState.UNKNOWN
+
+        P_juno = analysis.probabilities()
+
+        # SmolVLM is a VLM producing text, not calibrated logits. A clear first
+        # non-neutral answer should not be diluted by the initial neutral EMA
+        # state. This makes expressions such as tired/stressed/frustrated appear
+        # immediately while still smoothing later frames.
+        fast_switch = (
+            analysis.emotion != EmotionState.NEUTRAL
+            and analysis.confidence >= settings.vision_fast_switch_confidence
+        )
+        if not self._smolvlm_has_valid_signal or fast_switch:
+            self.ema.P_t = P_juno.copy()
+            self.hsm.candidate = analysis.emotion
+            self.hsm.current_state = analysis.emotion
+            self.hsm.dwell_count = 0
+            self._smolvlm_has_valid_signal = True
+            return analysis.emotion
+
+        self._smolvlm_has_valid_signal = True
+        P_t = self.ema.update(P_juno)
         return self.hsm.update(P_t)
 
     def _predict_with_legacy_cnn(self, frame: Any) -> EmotionState:

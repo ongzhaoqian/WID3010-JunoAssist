@@ -177,7 +177,7 @@ pip install -r requirements-asr.txt
 
 ### Optional: Enable SmolVLM Vision Module
 
-The core vision model is now `HuggingFaceTB/SmolVLM-256M-Instruct`. It is a compact image-text-to-text model that analyses the latest camera frame with a prompt and returns a JUNO emotion label (`happy`, `neutral`, `tired`, `stressed`, `frustrated`, or `unknown`). The backend then smooths the result with the existing EMA and hysteresis logic so the dashboard emotion does not flicker.
+The core vision model is now `HuggingFaceTB/SmolVLM-256M-Instruct`. It is a compact image-text-to-text model that analyses the latest camera frame with a structured prompt and returns a JUNO emotion label (`happy`, `neutral`, `tired`, `stressed`, `frustrated`, or `unknown`) together with confidence, scores, visual cues, and a short reason. The backend now avoids the previous unhelpful `neutral, 40%` fallback: unclear or low-confidence neutral answers are shown as `unknown`, while clear non-neutral cues can update the dashboard immediately instead of being diluted by the previous neutral state.
 
 Install the optional vision dependencies before switching on the dashboard Vision Module:
 
@@ -192,8 +192,10 @@ Recommended settings:
 export JUNO_VISION_BACKEND=smolvlm
 export JUNO_VISION_MODEL_ID=HuggingFaceTB/SmolVLM-256M-Instruct
 export JUNO_VISION_DEVICE=auto          # CUDA → Apple MPS → CPU
-export JUNO_VISION_MAX_NEW_TOKENS=64
-export JUNO_VISION_MIN_CONFIDENCE=0.35
+export JUNO_VISION_MAX_NEW_TOKENS=96
+export JUNO_VISION_MIN_CONFIDENCE=0.30
+export JUNO_VISION_NEUTRAL_UNCERTAIN_CONFIDENCE=0.45
+export JUNO_VISION_FAST_SWITCH_CONFIDENCE=0.52
 ```
 
 Use this lightweight fallback when the demo machine should not load the Hugging Face vision model:
@@ -201,6 +203,17 @@ Use this lightweight fallback when the demo machine should not load the Hugging 
 ```bash
 export JUNO_VISION_BACKEND=mock
 ```
+
+#### Vision emotion troubleshooting
+
+If the dashboard used to show `neutral` at about `40%` confidence for most frames, that usually means the VLM output was unclear, the JSON response was incomplete, or the previous neutral EMA state was overpowering a subtle non-neutral prediction. The current backend changes that behaviour as follows:
+
+- Low-confidence neutral predictions are shown as `unknown` unless the model gives clear calm/relaxed cues.
+- The parser now accepts nested `scores` JSON, prose answers, and visual cue text.
+- Clear non-neutral states such as `tired`, `stressed`, or `frustrated` can update the dashboard immediately.
+- The dashboard now displays the emotion confidence, source, SmolVLM reading, and model error message when available.
+- Explicit spoken emotion still has priority. For example, if the transcript says `I am stressed`, speech emotion remains trusted over the webcam estimate for the configured override window.
+
 
 For ROS usage, the language package also includes the same dependency list:
 
