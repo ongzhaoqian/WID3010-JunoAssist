@@ -240,6 +240,25 @@ class IntentClassifier:
             "priority": priority or "medium",
         }
 
+    def extract_reminder_item(self, text: str) -> dict[str, str | None]:
+        """Extract structured reminder details from a transcribed command."""
+        original = text.strip()
+        lower = original.lower()
+
+        date = self._extract_date(lower)
+        time_value = self._extract_time(lower)
+        priority = self._extract_priority(lower)
+        purpose = self._extract_purpose(original, remove_words=("remind", "reminder", "reminders", "me", "to", "for"))
+
+        return {
+            "title": purpose,
+            "date": date,
+            "formatted_date": self.format_display_date(date) if date else None,
+            "time": time_value,
+            "type": "reminder",
+            "priority": priority or "medium",
+        }
+
     @staticmethod
     def format_display_date(value: str | None) -> str | None:
         if not value:
@@ -298,7 +317,7 @@ class IntentClassifier:
             return "medium"
         return match_value
 
-    def _extract_purpose(self, text: str) -> str | None:
+    def _extract_purpose(self, text: str, remove_words: tuple = ()) -> str | None:
         # Prefer explicit labelled purpose/title/task/event content.
         label_match = re.search(
             r"\b(?:purpose|title|task|event)\s*(?:is|:|for|to)?\s+(.+?)(?=\s+\b(?:date|on|time|at|priority)\b|$)",
@@ -311,7 +330,10 @@ class IntentClassifier:
                 return cleaned
 
         # Fallback: remove structured fields and command words, then use what remains.
-        cleaned_text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", text)
+        cleaned_text = text
+        for word in remove_words:
+            cleaned_text = re.sub(rf"\b{re.escape(word)}\b", " ", cleaned_text, flags=re.IGNORECASE)
+        cleaned_text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", cleaned_text)
         cleaned_text = re.sub(r"\b(?:date|on)\s*(?:is|:)?\s*", " ", cleaned_text, flags=re.IGNORECASE)
         cleaned_text = re.sub(r"\b(?:time|at)\s*(?:is|:)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b", " ", cleaned_text, flags=re.IGNORECASE)
         cleaned_text = re.sub(r"\bpriority\s*(?:is|:)?\s*(low|medium|normal|high|urgent|important)\b", " ", cleaned_text, flags=re.IGNORECASE)
