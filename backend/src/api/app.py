@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Optional
 import asyncio
 import json
 import time
@@ -55,9 +56,9 @@ def create_app() -> FastAPI:
     music_service = MusicService()
     # The emotion model is created only when the operator explicitly enables
     # the Vision Module. This keeps the dashboard camera lightweight by default.
-    emotion_detector: EmotionDetector | None = None
+    emotion_detector: Optional[EmotionDetector] = None
 
-    def _latest_camera_jpeg() -> bytes | None:
+    def _latest_camera_jpeg() -> Optional[bytes]:
         """Return the latest ROS camera frame encoded as JPEG for the dashboard."""
         frame = robot.get_camera_frame()
         if frame is None:
@@ -478,7 +479,7 @@ def create_app() -> FastAPI:
         return music_service.status()
 
     @app.post("/api/music/play")
-    def play_music(request: MusicPlayRequest | None = None):
+    def play_music(request: Optional[MusicPlayRequest] = None):
         snapshot = robot_state.snapshot()
         selected_emotion = request.emotion if request and request.emotion else snapshot.get("current_emotion")
         result = music_service.play_for_emotion(selected_emotion)
