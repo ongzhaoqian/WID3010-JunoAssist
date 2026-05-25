@@ -1282,3 +1282,9 @@ This upgrade path is fully designed and documented. It was not implemented in th
 | Break recommendation working | Command panel response screenshot `[Screenshot]` |
 | Unit tests passing | `pytest tests/ -v` output `[Screenshot]` |
 
+
+### Timer cancellation and speech-prioritised emotion update
+
+The timer duration prompt now accepts flexible formats such as `twenty five minutes`, `1h 30m`, `half an hour`, and `2:30`. The user may exit the timer flow by saying `cancel`, `not now`, `skip`, or `never mind`; repeated unclear responses also cancel the pending timer setup.
+
+When the user's transcript explicitly states an emotion, such as `I am stressed` or `I feel tired`, the backend treats the speech cue as higher priority than the visual emotion estimate for a short configurable window (`JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`).

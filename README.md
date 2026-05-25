@@ -305,7 +305,9 @@ When the user says a generic timer request, such as `start study timer`, JUNO no
 How long do you want to have the study timer for? Answer in minutes and seconds.
 ```
 
-The next user response can be a duration such as `25 minutes`, `1 minute 30 seconds`, `90 seconds`, or `2:30`. The dashboard timer also has separate minute and second fields.
+The next user response can be a duration such as `25 minutes`, `twenty five minutes`, `1 minute 30 seconds`, `one minute thirty seconds`, `90 seconds`, `half an hour`, `one and a half hours`, `1h 30m`, or `2:30`. The dashboard timer also has separate minute and second fields.
+
+If the user does not want to continue setting the timer, they can say `cancel`, `not now`, `no timer`, `skip`, or `never mind`. If JUNO receives repeated unclear duration answers, it exits timer setup instead of asking forever.
 
 Useful endpoint:
 
@@ -313,6 +315,13 @@ Useful endpoint:
 POST http://localhost:8000/api/timer/start
 Body: { "minutes": 1, "seconds": 30 }
 ```
+
+
+### Speech-prioritised emotion handling
+
+The dashboard Vision Module still estimates emotion from the camera, but speech now has priority when the user explicitly states how they feel. For example, if the camera reads the user as neutral but the transcript says `I am stressed`, JUNO records the current emotion as `stressed` with source `speech` and temporarily prevents visual inference from overriding it. The override window is configured with `JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`.
+
+This keeps break recommendations and emotion-aware music aligned with the user's stated feelings rather than relying only on visible facial expression.
 
 ## Quick Start: Dashboard
 

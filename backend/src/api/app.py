@@ -25,6 +25,7 @@ from src.productivity.timer_service import TimerService
 from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
 from src.vision.emotion_detector import EmotionDetector
+from src.vision.speech_emotion import SpeechEmotionDetector
 
 
 def create_app() -> FastAPI:
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     response_generator = ResponseGenerator(calendar_service, llm_client=llm_client, phrase_bank=phrase_bank)
     timer_service = TimerService()
     music_service = MusicService()
+    speech_emotion_detector = SpeechEmotionDetector()
     # The emotion model is created only when the operator explicitly enables
     # the Vision Module. This keeps the dashboard camera lightweight by default.
     emotion_detector: Optional[EmotionDetector] = None
@@ -123,6 +125,17 @@ def create_app() -> FastAPI:
             emotion_detector = EmotionDetector(use_real=True)
         return emotion_detector
 
+    def _apply_speech_emotion_from_text(text: str) -> None:
+        """Prioritise explicit speech emotion cues over webcam-only inference."""
+        result = speech_emotion_detector.infer(text)
+        if result and result.confidence >= 0.70:
+            robot_state.set_emotion(
+                result.emotion,
+                source="speech",
+                confidence=result.confidence,
+                speech_text=text,
+            )
+
     def _format_timer_duration(minutes: int, seconds: int) -> str:
         parts: list[str] = []
         if minutes:
@@ -143,6 +156,13 @@ def create_app() -> FastAPI:
     def _ask_for_timer_duration() -> dict:
         response = phrase_bank.say("timer_ask")
         robot_state.set_awaiting_timer_duration(True)
+        robot_state.set_response(response)
+        tts.speak(response)
+        return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+    def _cancel_timer_setup(reason_key: str = "timer_cancelled") -> dict:
+        robot_state.set_awaiting_timer_duration(False)
+        response = phrase_bank.say(reason_key)
         robot_state.set_response(response)
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
@@ -190,6 +210,7 @@ def create_app() -> FastAPI:
         raw_text = text.strip()
         text = input_normalizer.normalise(raw_text)
         intent = intent_classifier.classify(text)
+        _apply_speech_emotion_from_text(text)
         snapshot = robot_state.snapshot()
 
         if snapshot["mode"] == RobotMode.IDLE:
@@ -231,9 +252,23 @@ def create_app() -> FastAPI:
 
         if snapshot["mode"] == RobotMode.ACTIVE:
             if snapshot.get("awaiting_timer_duration"):
+                if intent_classifier.is_timer_duration_cancel(text):
+                    return _cancel_timer_setup("timer_cancelled")
+
                 duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
                 if duration_seconds:
                     return _start_study_timer_from_seconds(duration_seconds)
+
+                # Let the user move on naturally. If they answer with another
+                # valid command such as "play music instead", cancel timer setup
+                # and process that command rather than asking forever.
+                if intent_classifier.is_likely_different_active_intent(text):
+                    robot_state.set_awaiting_timer_duration(False)
+                    return process_command_text(raw_text)
+
+                attempts = robot_state.increment_timer_duration_attempts()
+                if attempts >= 2:
+                    return _cancel_timer_setup("timer_cancelled_after_unclear")
 
                 response = phrase_bank.say("timer_unclear")
                 robot_state.set_response(response)
@@ -290,8 +325,9 @@ def create_app() -> FastAPI:
             if snapshot.get("camera_enabled") and snapshot.get("vision_model_enabled"):
                 frame = robot.get_camera_frame()
                 if frame is not None:
-                    emotion = _ensure_emotion_detector().predict_from_frame(frame)
-                    robot_state.set_emotion(emotion)
+                    if not robot_state.speech_emotion_override_active(settings.speech_emotion_override_seconds):
+                        emotion = _ensure_emotion_detector().predict_from_frame(frame)
+                        robot_state.set_emotion(emotion, source="vision", confidence=0.60)
             await asyncio.sleep(settings.emotion_update_seconds)
 
     async def _timer_loop():

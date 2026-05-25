@@ -12,7 +12,6 @@ import Card from "./components/Card";
 export default function App() {
   const [status, setStatus] = useState(null);
   const [schedule, setSchedule] = useState([]);
-  const [features, setFeatures] = useState([]);
   const [lastCommand, setLastCommand] = useState(null);
 
   async function loadSchedule() {
@@ -21,15 +20,13 @@ export default function App() {
   }
 
   async function loadInitialData() {
-    const [statusData, scheduleData, featureData] = await Promise.all([
+    const [statusData, scheduleData] = await Promise.all([
       getJson("/api/status"),
-      getJson("/api/schedule/today"),
-      getJson("/api/features")
+      getJson("/api/schedule/today")
     ]);
 
     setStatus(statusData);
     setSchedule(scheduleData);
-    setFeatures(featureData);
   }
 
   async function playMusic() {
@@ -130,18 +127,6 @@ export default function App() {
         <ReminderPanel />
       </section>
 
-      <section className="mt-5">
-        <Card title="Available Features">
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature) => (
-              <div key={feature.name} className="soft-panel rounded-2xl p-4">
-                <p className="font-semibold text-white">{feature.name}</p>
-                <p className="mt-1 text-sm text-slate-300/75">{feature.description}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </section>
     </main>
   );
 }

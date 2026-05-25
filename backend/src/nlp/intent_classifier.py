@@ -68,44 +68,153 @@ class IntentClassifier:
         return max(1, min(duration // 60, 180))
 
     def extract_timer_duration_seconds(self, text: str, max_minutes: int = 180) -> int | None:
-        """Extract a study timer duration from natural speech.
+        """Extract a study timer duration from flexible speech.
 
-        Supports examples such as:
-        - "25 minutes"
-        - "1 minute 30 seconds"
-        - "90 seconds"
-        - "2:30"
-        - "25" after JUNO has asked for the timer duration, interpreted as minutes.
+        Supports digit and word formats, including:
+        - "25 minutes", "1 minute 30 seconds", "90 seconds"
+        - "2:30", "1h 30m", "1 hr and 15 min"
+        - "half an hour", "quarter of an hour", "one and a half hours"
+        - "twenty five minutes", "one minute thirty seconds"
+        - bare answers such as "25" or "twenty five" after JUNO asks.
         """
-        t = text.lower().strip()
+        t = self._normalise_duration_text(text)
         if not t:
             return None
 
+        # 2:30 or 2.30 means 2 minutes 30 seconds in the timer-answer context.
         clock_match = re.search(r"\b(\d{1,3})\s*[:.]\s*(\d{1,2})\b", t)
         if clock_match:
             minutes = int(clock_match.group(1))
             seconds = int(clock_match.group(2))
             return self._clamp_duration(minutes * 60 + seconds, max_minutes)
 
-        minutes = 0
-        seconds = 0
-        min_match = re.search(r"(\d+)\s*(minutes?|mins?|m)\b", t)
-        sec_match = re.search(r"(\d+)\s*(seconds?|secs?|s)\b", t)
-        if min_match:
-            minutes = int(min_match.group(1))
-        if sec_match:
-            seconds = int(sec_match.group(1))
+        total_seconds = 0
 
-        if min_match or sec_match:
-            return self._clamp_duration(minutes * 60 + seconds, max_minutes)
+        # Compact forms: 1h 30m, 1 hr, 45s.
+        for match in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h)\b", t):
+            total_seconds += int(float(match.group(1)) * 3600)
+        for match in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(minutes?|mins?|min|m)\b", t):
+            total_seconds += int(float(match.group(1)) * 60)
+        for match in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(seconds?|secs?|sec|s)\b", t):
+            total_seconds += int(float(match.group(1)))
 
-        # When JUNO asks "How long...?", users often answer simply "25".
-        # Treat a bare number as minutes for this prototype.
-        bare_number = re.fullmatch(r"\s*(\d{1,3})\s*", t)
-        if bare_number:
-            return self._clamp_duration(int(bare_number.group(1)) * 60, max_minutes)
+        # Word-number forms. Convert only unit-attached phrases to avoid
+        # accidentally reading unrelated command text as duration.
+        total_seconds += self._sum_word_unit_durations(t)
+
+        if re.search(r"\bhalf\s+(?:an?\s+)?hour\b|\bhalf\s+hour\b", t):
+            total_seconds += 30 * 60
+        if re.search(r"\b(?:a\s+)?quarter\s+(?:of\s+an?\s+)?hour\b|\bquarter\s+hour\b", t):
+            total_seconds += 15 * 60
+        if re.search(r"\bone\s+and\s+a\s+half\s+hours?\b|\ban?\s+and\s+a\s+half\s+hours?\b", t):
+            # The one-hour part may not be captured by word-unit parsing because
+            # of the phrase "and a half". Add the intended 90 minutes once.
+            total_seconds += 90 * 60
+
+        if total_seconds:
+            return self._clamp_duration(total_seconds, max_minutes)
+
+        # A bare digit or bare number phrase is interpreted as minutes after the
+        # robot has asked for the timer duration.
+        bare_digit = re.fullmatch(r"\s*(\d{1,3})\s*", t)
+        if bare_digit:
+            return self._clamp_duration(int(bare_digit.group(1)) * 60, max_minutes)
+
+        bare_word_number = self._words_to_number(t)
+        if bare_word_number is not None:
+            return self._clamp_duration(bare_word_number * 60, max_minutes)
 
         return None
+
+    def is_timer_duration_cancel(self, text: str) -> bool:
+        """Return True when the user wants to leave timer setup."""
+        t = self._normalise_duration_text(text)
+        if not t:
+            return False
+        cancel_phrases = (
+            "cancel", "stop", "exit", "quit", "never mind", "nevermind",
+            "not now", "later", "skip", "forget it", "no timer",
+            "dont start", "do not start", "don't start", "leave it",
+            "no need", "i dont know", "i don't know", "nothing", "none",
+        )
+        return any(phrase in t for phrase in cancel_phrases) or t in {"no", "nah", "nope"}
+
+    def is_likely_different_active_intent(self, text: str) -> bool:
+        """Used while waiting for a timer duration to let the user move on."""
+        intent = self.classify(text)
+        return intent not in {Intent.UNKNOWN, Intent.SET_TIMER}
+
+
+    @staticmethod
+    def _normalise_duration_text(text: str) -> str:
+        text = text.lower().strip()
+        replacements = {
+            "hours": "hours", "hrs": "hrs", "mins": "mins", "secs": "secs",
+            "colour": "color", "an hour": "an hour", "a hour": "an hour",
+        }
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+        text = text.replace("one-half", "one half").replace("half-hour", "half hour")
+        text = re.sub(r"[^a-z0-9:.\s'-]", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _sum_word_unit_durations(self, text: str) -> int:
+        total = 0
+        unit_pattern = re.compile(
+            r"\b([a-z\s-]+?)\s*(hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec)\b"
+        )
+        for match in unit_pattern.finditer(text):
+            phrase = match.group(1).strip(" -")
+            unit = match.group(2)
+            if not phrase or re.search(r"\d", phrase):
+                continue
+            value = self._words_to_number(phrase)
+            if value is None:
+                continue
+            if unit.startswith(("hour", "hr")):
+                total += value * 3600
+            elif unit.startswith(("minute", "min")):
+                total += value * 60
+            elif unit.startswith(("second", "sec")):
+                total += value
+        return total
+
+    @classmethod
+    def _words_to_number(cls, text: str) -> int | None:
+        text = text.lower().strip()
+        text = re.sub(r"\band\b", " ", text)
+        text = re.sub(r"[-]", " ", text)
+        text = re.sub(r"\b(a|an)\b", "one", text)
+        tokens = [tok for tok in text.split() if tok]
+        if not tokens:
+            return None
+
+        units = {
+            "zero": 0, "oh": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+            "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+            "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+            "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+            "eighteen": 18, "nineteen": 19,
+        }
+        tens = {
+            "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+            "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+        }
+        allowed = set(units) | set(tens) | {"hundred"}
+        if any(tok not in allowed for tok in tokens):
+            return None
+
+        total = 0
+        current = 0
+        for tok in tokens:
+            if tok in units:
+                current += units[tok]
+            elif tok in tens:
+                current += tens[tok]
+            elif tok == "hundred":
+                current = max(1, current) * 100
+        total += current
+        return total if total >= 0 else None
 
     def extract_schedule_item(self, text: str) -> dict[str, str | None]:
         """Extract structured schedule details from a transcribed command.

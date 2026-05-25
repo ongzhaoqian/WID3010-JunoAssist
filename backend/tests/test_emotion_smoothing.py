@@ -119,6 +119,15 @@ def test_hysteresis_resets_dwell_on_candidate_change():
     P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
     P_neutral = np.array([0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
+    if DWELL_FRAMES <= 1:
+        # Fast-response configuration: one clear Tired frame is enough to commit.
+        hsm.update(P_tired)
+        assert hsm.current_state == EmotionState.TIRED
+        hsm.update(P_neutral)
+        assert hsm.candidate == EmotionState.NEUTRAL
+        assert hsm.current_state == EmotionState.NEUTRAL
+        return
+
     for _ in range(DWELL_FRAMES - 1):
         hsm.update(P_tired)
     assert hsm.dwell_count == DWELL_FRAMES - 1

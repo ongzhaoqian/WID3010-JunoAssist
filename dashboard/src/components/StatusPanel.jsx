@@ -3,6 +3,8 @@ import Card from "./Card";
 export default function StatusPanel({ status }) {
   const mode = status?.mode ?? "loading";
   const emotion = status?.current_emotion ?? "unknown";
+  const emotionSource = status?.emotion_source ?? "none";
+  const confidence = Number(status?.emotion_confidence ?? 0);
 
   return (
     <Card title="Robot Status">
@@ -15,10 +17,13 @@ export default function StatusPanel({ status }) {
         <div className="soft-panel rounded-2xl p-4">
           <p className="text-sm text-slate-300/75">Current Emotion Estimate</p>
           <p className="mt-1 text-3xl font-bold capitalize text-white">{emotion}</p>
+          <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-300/70">
+            Source: {emotionSource}{confidence > 0 ? ` · ${Math.round(confidence * 100)}% confidence` : ""}
+          </p>
         </div>
 
         <p className="text-sm leading-6 text-slate-300/75">
-          Emotion is an estimate based on visible expression, not a diagnosis.
+          Emotion is an estimate, not a diagnosis. When you state how you feel, JUNO prioritises your speech over the camera estimate.
         </p>
       </div>
     </Card>

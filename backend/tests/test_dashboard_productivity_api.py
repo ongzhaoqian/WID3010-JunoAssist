@@ -103,3 +103,56 @@ def test_voice_schedule_add_accepts_structured_transcription(tmp_path, monkeypat
     assert payload["schedule_item"]["time"] == "15:30"
     assert payload["schedule_item"]["priority"] == "high"
     assert "20 May, 2026" in payload["response"]
+
+
+def test_voice_timer_flow_can_be_cancelled():
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_awaiting_timer_duration(False)
+
+    ask = client.post("/api/command", json={"text": "start study timer"})
+    assert ask.status_code == 200
+    assert ask.json()["status"]["awaiting_timer_duration"] is True
+
+    cancel = client.post("/api/command", json={"text": "cancel"})
+    assert cancel.status_code == 200
+    payload = cancel.json()
+    assert payload["status"]["awaiting_timer_duration"] is False
+    assert "timer" in payload["response"].lower()
+
+
+def test_voice_timer_flow_cancels_after_repeated_unclear_answers():
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_awaiting_timer_duration(True)
+
+    first = client.post("/api/command", json={"text": "umm maybe"})
+    assert first.status_code == 200
+    assert first.json()["status"]["awaiting_timer_duration"] is True
+
+    second = client.post("/api/command", json={"text": "still not sure"})
+    assert second.status_code == 200
+    assert second.json()["status"]["awaiting_timer_duration"] is False
+
+
+def test_timer_duration_parser_supports_flexible_spoken_formats():
+    classifier = IntentClassifier()
+    assert classifier.extract_timer_duration_seconds("twenty five minutes") == 1500
+    assert classifier.extract_timer_duration_seconds("one minute thirty seconds") == 90
+    assert classifier.extract_timer_duration_seconds("1h 30m") == 5400
+    assert classifier.extract_timer_duration_seconds("half an hour") == 1800
+    assert classifier.extract_timer_duration_seconds("quarter of an hour") == 900
+    assert classifier.extract_timer_duration_seconds("one and a half hours") == 5400
+
+
+def test_speech_emotion_overrides_visual_emotion_for_break_request():
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_emotion(EmotionState.HAPPY, source="vision", confidence=0.60)
+
+    response = client.post("/api/command", json={"text": "I am stressed"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"]["current_emotion"] == "stressed"
+    assert payload["status"]["emotion_source"] == "speech"
+    assert "stressed" in payload["response"].lower()

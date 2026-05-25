@@ -2101,3 +2101,9 @@ curl -s -X POST http://localhost:8000/api/command \
 | `JUNO_DASHBOARD_URL` | `http://localhost:5173` | Dashboard URL opened by JUNO on activation |
 | `JUNO_WAKE_PHRASE` | `hey john` | Wake phrase that activates JUNO |
 
+
+### Timer cancellation and speech-prioritised emotion update
+
+The timer duration prompt now accepts flexible formats such as `twenty five minutes`, `1h 30m`, `half an hour`, and `2:30`. The user may exit the timer flow by saying `cancel`, `not now`, `skip`, or `never mind`; repeated unclear responses also cancel the pending timer setup.
+
+When the user's transcript explicitly states an emotion, such as `I am stressed` or `I feel tired`, the backend treats the speech cue as higher priority than the visual emotion estimate for a short configurable window (`JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`).

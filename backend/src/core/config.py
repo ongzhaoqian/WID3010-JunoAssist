@@ -17,6 +17,9 @@ class Settings:
     wake_phrase: str = os.getenv("JUNO_WAKE_PHRASE", "hey john")
     confirmation_phrase: str = os.getenv("JUNO_CONFIRMATION_PHRASE", "yes")
     emotion_update_seconds: float = float(os.getenv("JUNO_EMOTION_UPDATE_SECONDS", "3.0"))
+    # When the user explicitly states an emotion in speech, keep that as the
+    # trusted emotion for this many seconds before visual inference may override it.
+    speech_emotion_override_seconds: float = float(os.getenv("JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS", "45.0"))
 
     # Set JUNO_ROBOT_INTERFACE=ros when running on the Jupiter/ROS machine.
     robot_interface: str = os.getenv("JUNO_ROBOT_INTERFACE", "mock").lower()

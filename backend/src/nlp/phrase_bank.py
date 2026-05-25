@@ -61,8 +61,17 @@ class PhraseBank:
             "Your focus session is ready. The timer is set for {duration}.",
         ],
         "timer_unclear": [
-            "I could not understand the duration. Please answer with minutes and seconds, for example, 25 minutes or 1 minute 30 seconds.",
-            "I did not catch the timer duration clearly. Please say it in minutes and seconds, such as 20 minutes or 90 seconds.",
+            "I could not understand the duration clearly. Please answer with a time such as 25 minutes, 1 minute 30 seconds, half an hour, or say cancel to exit timer setup.",
+            "I did not catch the timer duration. You can say 20 minutes, 90 seconds, 2:30, one hour, or say cancel if you do not want to set it now.",
+        ],
+        "timer_cancelled": [
+            "No problem. I will cancel the timer setup for now.",
+            "Understood. I will leave the study timer unset for now.",
+            "All right, I have exited timer setup.",
+        ],
+        "timer_cancelled_after_unclear": [
+            "I still could not identify a duration, so I will cancel the timer setup for now. You can ask me to start a study timer again whenever you are ready.",
+            "I did not receive a clear duration, so I will exit timer setup for now.",
         ],
         "schedule_empty": [
             "You do not have any scheduled items in the current list.",

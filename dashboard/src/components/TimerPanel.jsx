@@ -35,7 +35,7 @@ export default function TimerPanel({ status }) {
 
       {awaitingDuration && (
         <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">
-          JUNO is waiting for your answer. Say a duration such as “25 minutes” or “1 minute 30 seconds”.
+          JUNO is waiting for your answer. Say “25 minutes”, “1 minute 30 seconds”, “half an hour”, “2:30”, or “cancel” to exit timer setup.
         </div>
       )}
 

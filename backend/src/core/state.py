@@ -1,5 +1,6 @@
 from __future__ import annotations
 from threading import Lock
+import time
 from .models import RobotMode, EmotionState
 
 
@@ -12,6 +13,11 @@ class RobotState:
         self.timer_remaining_seconds = 0
         self.active_timer_label = None
         self.awaiting_timer_duration = False
+        self.timer_duration_attempts = 0
+        self.last_emotion_source = "none"
+        self.last_speech_emotion_text = None
+        self.last_speech_emotion_at = 0.0
+        self.emotion_confidence = 0.0
         # Camera stream and vision/emotion recognition are deliberately
         # controlled separately. This lets operators view the webcam without
         # loading or running the emotion-recognition model.
@@ -37,6 +43,11 @@ class RobotState:
                 "timer_remaining_seconds": self.timer_remaining_seconds,
                 "active_timer_label": self.active_timer_label,
                 "awaiting_timer_duration": self.awaiting_timer_duration,
+                "timer_duration_attempts": self.timer_duration_attempts,
+                "emotion_source": self.last_emotion_source,
+                "emotion_confidence": self.emotion_confidence,
+                "last_speech_emotion_text": self.last_speech_emotion_text,
+                "last_speech_emotion_at": self.last_speech_emotion_at,
                 "camera_enabled": self.camera_enabled,
                 "vision_model_enabled": self.vision_model_enabled,
                 # Backwards-compatible alias for older dashboard code/tests.
@@ -48,9 +59,20 @@ class RobotState:
         with self._lock:
             self.mode = mode
 
-    def set_emotion(self, emotion: EmotionState) -> None:
+    def set_emotion(
+        self,
+        emotion: EmotionState,
+        source: str = "vision",
+        confidence: float = 0.0,
+        speech_text: str | None = None,
+    ) -> None:
         with self._lock:
             self.current_emotion = emotion
+            self.last_emotion_source = source
+            self.emotion_confidence = float(confidence or 0.0)
+            if source == "speech":
+                self.last_speech_emotion_text = speech_text
+                self.last_speech_emotion_at = time.monotonic()
 
     def set_response(self, response: str) -> None:
         with self._lock:
@@ -65,6 +87,8 @@ class RobotState:
             self.vision_model_enabled = bool(enabled)
             if not self.vision_model_enabled:
                 self.current_emotion = EmotionState.UNKNOWN
+                self.last_emotion_source = "none"
+                self.emotion_confidence = 0.0
 
     def set_vision_enabled(self, enabled: bool) -> None:
         """Backwards-compatible helper for older routes.
@@ -80,10 +104,26 @@ class RobotState:
             self.timer_remaining_seconds = max(0, seconds)
             self.active_timer_label = label
             self.awaiting_timer_duration = False
+            self.timer_duration_attempts = 0
 
     def set_awaiting_timer_duration(self, awaiting: bool) -> None:
         with self._lock:
             self.awaiting_timer_duration = bool(awaiting)
+            if awaiting:
+                self.timer_duration_attempts = 0
+            else:
+                self.timer_duration_attempts = 0
+
+    def increment_timer_duration_attempts(self) -> int:
+        with self._lock:
+            self.timer_duration_attempts += 1
+            return self.timer_duration_attempts
+
+    def speech_emotion_override_active(self, override_seconds: float) -> bool:
+        with self._lock:
+            if self.last_emotion_source != "speech" or self.last_speech_emotion_at <= 0:
+                return False
+            return (time.monotonic() - self.last_speech_emotion_at) <= override_seconds
 
     def set_music(self, payload: dict) -> None:
         with self._lock:
