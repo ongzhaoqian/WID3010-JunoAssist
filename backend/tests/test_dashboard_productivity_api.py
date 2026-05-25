@@ -62,16 +62,13 @@ def test_voice_timer_flow_asks_then_starts_duration():
 
     ask = client.post("/api/command", json={"text": "start study timer"})
     assert ask.status_code == 200
-    assert ask.json()["status"]["awaiting_timer_minutes"] is True
+    assert ask.json()["status"]["awaiting_timer_duration"] is True
 
-    minutes_reply = client.post("/api/command", json={"text": "1"})
-    assert minutes_reply.status_code == 200
-    assert minutes_reply.json()["status"]["awaiting_timer_seconds"] is True
-
-    seconds_reply = client.post("/api/command", json={"text": "15"})
-    assert seconds_reply.status_code == 200
-    payload = seconds_reply.json()
+    duration_reply = client.post("/api/command", json={"text": "1 minute and 15 seconds"})
+    assert duration_reply.status_code == 200
+    payload = duration_reply.json()
     assert payload["timer"]["remaining_seconds"] == 75
+    assert payload["status"]["awaiting_timer_duration"] is False
     assert payload["status"]["awaiting_timer_minutes"] is False
     assert payload["status"]["awaiting_timer_seconds"] is False
 
@@ -130,7 +127,7 @@ def test_voice_timer_flow_can_be_cancelled():
 
     ask = client.post("/api/command", json={"text": "start study timer"})
     assert ask.status_code == 200
-    assert ask.json()["status"]["awaiting_timer_minutes"] is True
+    assert ask.json()["status"]["awaiting_timer_duration"] is True
 
     cancel = client.post("/api/command", json={"text": "cancel"})
     assert cancel.status_code == 200
@@ -162,6 +159,19 @@ def test_timer_duration_parser_supports_flexible_spoken_formats():
     assert classifier.extract_timer_duration_seconds("half an hour") == 1800
     assert classifier.extract_timer_duration_seconds("quarter of an hour") == 900
     assert classifier.extract_timer_duration_seconds("one and a half hours") == 5400
+
+
+def test_timer_duration_parser_handles_noisy_asr_number_phrases():
+    classifier = IntentClassifier()
+    assert classifier.extract_timer_duration_seconds("for twenty five minutes") == 1500
+    assert classifier.extract_timer_duration_seconds("i want five minutes") == 300
+    assert classifier.extract_timer_duration_seconds("five minutes and thirty seconds") == 330
+    assert classifier.extract_timer_duration_seconds("one minute and five") == 65
+    assert classifier.extract_timer_duration_seconds("two minutes five") == 125
+    assert classifier.extract_timer_duration_seconds("5 and 30") == 330
+    assert classifier.extract_timer_duration_seconds("twenty five") == 1500
+    assert classifier.extract_spoken_number("zero seconds") == 0
+    assert classifier.extract_spoken_number("make it thirty") == 30
 
 
 def test_speech_emotion_overrides_visual_emotion_for_break_request():

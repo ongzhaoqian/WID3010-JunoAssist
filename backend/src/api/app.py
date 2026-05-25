@@ -177,7 +177,14 @@ def create_app() -> FastAPI:
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
     def _ask_for_timer_duration() -> dict:
-        return _ask_for_timer_minutes()
+        # Ask once for the complete duration instead of splitting minutes and
+        # seconds into two fragile speech turns. The parser accepts both full
+        # answers ("five minutes thirty seconds") and bare minutes ("25").
+        response = phrase_bank.say("timer_ask")
+        robot_state.set_awaiting_timer_duration(True)
+        robot_state.set_response(response)
+        tts.speak(response)
+        return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
     def _cancel_timer_setup(reason_key: str = "timer_cancelled") -> dict:
         robot_state.set_awaiting_timer_duration(False)
@@ -189,18 +196,11 @@ def create_app() -> FastAPI:
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
     def _extract_bare_number(text: str) -> int | None:
-        t = text.lower().strip()
-        t = re.sub(r"[^a-z0-9\s]", " ", t).strip()
-        digit_match = re.search(r"\b(\d{1,3})\b", t)
-        if digit_match:
-            return int(digit_match.group(1))
-        word_val = intent_classifier._words_to_number(t)
-        if word_val is not None:
-            return word_val
-        # "none" / "no" / "nothing" → 0 seconds
-        if t in {"none", "no", "nothing", "nope", "zero", "nil"}:
-            return 0
-        return None
+        # Legacy helper for the older two-step minute/second flow. It now uses
+        # the same tolerant spoken-number parser as the single-shot duration
+        # flow, so replies such as "five minutes", "make it thirty", or
+        # "zero seconds" are understood.
+        return intent_classifier.extract_spoken_number(text)
 
     def _handle_timer_pause_resume_delete(text: str) -> dict | None:
         # "unpause" removed — it fuzzy-matches "pause" at 0.83, causing both
@@ -516,8 +516,8 @@ def create_app() -> FastAPI:
                         emotion = detector.predict_from_frame(frame)
                         robot_state.set_emotion(
                             emotion,
-                            source=f"vision:{detector.backend_name}",
-                            confidence=detector.last_confidence or 0.60,
+                            source=f"vision",
+                            confidence=detector.last_confidence,
                         )
             await asyncio.sleep(settings.emotion_update_seconds)
 
@@ -639,7 +639,7 @@ def create_app() -> FastAPI:
             emotion = EmotionState.UNKNOWN
         robot_state.set_emotion(
             emotion,
-            source=f"vision:{detector.backend_name}",
+            source=f"vision",
             confidence=float(analysis.get("confidence") or 0.0),
         )
         return {"analysis": analysis, "status": robot_state.snapshot(), "vision": _vision_status()}

@@ -122,11 +122,14 @@ class IntentClassifier:
     def extract_timer_duration_seconds(self, text: str, max_minutes: int = 180) -> int | None:
         """Extract a study timer duration from flexible speech.
 
-        Supports digit and word formats, including:
-        - "25 minutes", "1 minute 30 seconds", "90 seconds"
-        - "2:30", "1h 30m", "1 hr and 15 min"
+        This parser is intentionally tolerant because Whisper Tiny may return
+        numbers as digits, words, short units, or filler-heavy phrases. Supported
+        examples include:
+
+        - "25 minutes", "for twenty five minutes", "one minute thirty seconds"
+        - "1 minute 30", "two minutes five", "5 and 30"
+        - "90 seconds", "1h 30m", "2:30"
         - "half an hour", "quarter of an hour", "one and a half hours"
-        - "twenty five minutes", "one minute thirty seconds"
         - bare answers such as "25" or "twenty five" after JUNO asks.
         """
         t = self._normalise_duration_text(text)
@@ -142,26 +145,39 @@ class IntentClassifier:
 
         total_seconds = 0
 
-        # Compact forms: 1h 30m, 1 hr, 45s.
-        for match in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h)\b", t):
+        # Compact single-letter forms with no space, such as "1h 30m" or "45s".
+        # Spaced/full-unit forms are handled by _sum_word_unit_durations below.
+        for match in re.finditer(r"(?<![a-z0-9])(\d+(?:\.\d+)?)(h)\b", t):
             total_seconds += int(float(match.group(1)) * 3600)
-        for match in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(minutes?|mins?|min|m)\b", t):
+        for match in re.finditer(r"(?<![a-z0-9])(\d+(?:\.\d+)?)(m)\b", t):
             total_seconds += int(float(match.group(1)) * 60)
-        for match in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(seconds?|secs?|sec|s)\b", t):
+        for match in re.finditer(r"(?<![a-z0-9])(\d+(?:\.\d+)?)(s)\b", t):
             total_seconds += int(float(match.group(1)))
 
-        # Word-number forms. Convert only unit-attached phrases to avoid
-        # accidentally reading unrelated command text as duration.
+        # Unit-attached digit/word forms with filler tolerance. The previous implementation
+        # failed on phrases such as "for five minutes" because it tried to
+        # parse the whole prefix "for five" as a number.
         total_seconds += self._sum_word_unit_durations(t)
+
+        # Minute-plus-bare-second patterns commonly produced by speech input:
+        # "1 minute 30", "one minute thirty", "two minutes and five".
+        minute_trailer = self._extract_minute_then_bare_seconds(t)
+        if minute_trailer is not None:
+            total_seconds += minute_trailer
+
+        # Bare "5 and 30" / "five and thirty" after the timer prompt.
+        split_pair = self._extract_minute_second_pair_without_units(t)
+        if split_pair is not None:
+            total_seconds += split_pair
 
         if re.search(r"\bhalf\s+(?:an?\s+)?hour\b|\bhalf\s+hour\b", t):
             total_seconds += 30 * 60
         if re.search(r"\b(?:a\s+)?quarter\s+(?:of\s+an?\s+)?hour\b|\bquarter\s+hour\b", t):
             total_seconds += 15 * 60
         if re.search(r"\bone\s+and\s+a\s+half\s+hours?\b|\ban?\s+and\s+a\s+half\s+hours?\b", t):
-            # The one-hour part may not be captured by word-unit parsing because
-            # of the phrase "and a half". Add the intended 90 minutes once.
             total_seconds += 90 * 60
+        if re.search(r"\bhalf\s+(?:a\s+)?minute\b|\bhalf\s+min\b", t):
+            total_seconds += 30
 
         if total_seconds:
             return self._clamp_duration(total_seconds, max_minutes)
@@ -172,7 +188,7 @@ class IntentClassifier:
         if bare_digit:
             return self._clamp_duration(int(bare_digit.group(1)) * 60, max_minutes)
 
-        bare_word_number = self._words_to_number(t)
+        bare_word_number = self._words_to_number(self._extract_trailing_number_phrase(t) or t)
         if bare_word_number is not None:
             return self._clamp_duration(bare_word_number * 60, max_minutes)
 
@@ -201,35 +217,180 @@ class IntentClassifier:
     def _normalise_duration_text(text: str) -> str:
         text = text.lower().strip()
         replacements = {
-            "hours": "hours", "hrs": "hrs", "mins": "mins", "secs": "secs",
-            "colour": "color", "an hour": "an hour", "a hour": "an hour",
+            "colour": "color",
+            "one-half": "one half",
+            "half-hour": "half hour",
+            "mins.": "mins",
+            "secs.": "secs",
         }
         for old, new in replacements.items():
             text = text.replace(old, new)
-        text = text.replace("one-half", "one half").replace("half-hour", "half hour")
+        # Common lightweight ASR variants seen in duration answers. Keep this
+        # conservative so ordinary text is not over-corrected.
+        text = re.sub(r"\bo\b", "zero", text)
+        text = re.sub(r"\boh\b", "zero", text)
+        text = re.sub(r"\ba hour\b", "an hour", text)
         text = re.sub(r"[^a-z0-9:.\s'-]", " ", text)
         return re.sub(r"\s+", " ", text).strip()
 
     def _sum_word_unit_durations(self, text: str) -> int:
         total = 0
         unit_pattern = re.compile(
-            r"\b([a-z\s-]+?)\s*(hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec)\b"
+            r"\b(hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)\b"
         )
         for match in unit_pattern.finditer(text):
-            phrase = match.group(1).strip(" -")
-            unit = match.group(2)
-            if not phrase or re.search(r"\d", phrase):
+            unit = match.group(1)
+            prefix = text[: match.start()].strip()
+            # Do not let the article in "quarter of an hour" become one hour;
+            # that fraction is handled explicitly below.
+            if re.search(r"\bquarter\s+of\s+an?\s*$", prefix):
                 continue
-            value = self._words_to_number(phrase)
+            phrase = self._extract_trailing_number_phrase(prefix)
+            if not phrase:
+                continue
+            value = self._number_phrase_to_value(phrase)
             if value is None:
                 continue
-            if unit.startswith(("hour", "hr")):
-                total += value * 3600
-            elif unit.startswith(("minute", "min")):
-                total += value * 60
-            elif unit.startswith(("second", "sec")):
-                total += value
+            if unit.startswith(("hour", "hr")) or unit == "h":
+                total += int(value * 3600)
+            elif unit.startswith(("minute", "min")) or unit == "m":
+                total += int(value * 60)
+            elif unit.startswith(("second", "sec")) or unit == "s":
+                total += int(value)
         return total
+
+    def extract_spoken_number(self, text: str) -> int | None:
+        """Extract a small integer from a noisy speech answer.
+
+        Used by the legacy two-step timer flow where JUNO may ask for only the
+        minute or second amount. It accepts both digits and word numbers inside
+        short phrases such as "five minutes", "make it thirty", or
+        "zero seconds".
+        """
+        t = self._normalise_duration_text(text)
+        digit_match = re.search(r"\b(\d{1,3})\b", t)
+        if digit_match:
+            return int(digit_match.group(1))
+
+        # Explicit zero forms for the seconds step.
+        if re.search(r"\b(no|none|nothing|zero|nil)\b(?:\s+(?:extra\s+)?seconds?)?\b", t):
+            return 0
+
+        phrase = self._extract_trailing_number_phrase(t)
+        value = self._number_phrase_to_value(phrase) if phrase else None
+        return int(value) if value is not None else None
+
+    def _extract_minute_then_bare_seconds(self, text: str) -> int | None:
+        minute_unit = re.search(r"\b(minutes?|mins?|min)\b", text)
+        if not minute_unit:
+            return None
+
+        before = text[: minute_unit.start()]
+        after = text[minute_unit.end():]
+        minutes_phrase = self._extract_trailing_number_phrase(before)
+        minutes_value = self._number_phrase_to_value(minutes_phrase) if minutes_phrase else None
+        if minutes_value is None:
+            return None
+
+        # If the seconds part already has an explicit seconds unit, it is handled
+        # by _sum_word_unit_durations and should not be counted twice.
+        if re.search(r"\b(seconds?|secs?|sec)\b", after):
+            return None
+
+        after = re.sub(r"^\s*(and|plus|with|then|,|-)\s+", "", after.strip())
+        seconds_phrase = self._extract_leading_number_phrase(after)
+        seconds_value = self._number_phrase_to_value(seconds_phrase) if seconds_phrase else 0
+        # The minute part is already captured by _sum_word_unit_durations / digit
+        # unit parsing, so only return the extra bare seconds here.
+        return int(seconds_value or 0)
+
+    def _extract_minute_second_pair_without_units(self, text: str) -> int | None:
+        has_connector = bool(re.search(r"\b(and|plus|then|with)\b", text))
+        compact = re.sub(r"\b(and|plus|then|with)\b", " ", text)
+        compact = re.sub(r"\s+", " ", compact).strip()
+        tokens = compact.split()
+        if len(tokens) < 2 or len(tokens) > 8:
+            return None
+
+        # Numeric pair: "5 30". Limit the second part to 0..59 so "20 25"
+        # is not accidentally interpreted unless it looks like a timer pair.
+        digit_pair = re.fullmatch(r"(\d{1,3})\s+(\d{1,2})", compact)
+        if digit_pair:
+            minutes = int(digit_pair.group(1))
+            seconds = int(digit_pair.group(2))
+            if 0 <= seconds < 60:
+                return minutes * 60 + seconds
+            return None
+
+        if not has_connector:
+            return None
+
+        # Word pair: try every split and keep a valid minutes/seconds split.
+        for split_at in range(1, len(tokens)):
+            left = " ".join(tokens[:split_at])
+            right = " ".join(tokens[split_at:])
+            minutes = self._number_phrase_to_value(left)
+            seconds = self._number_phrase_to_value(right)
+            if minutes is not None and seconds is not None and 0 <= seconds < 60:
+                return int(minutes * 60 + seconds)
+        return None
+
+    @classmethod
+    def _number_phrase_to_value(cls, phrase: str | None) -> float | None:
+        if not phrase:
+            return None
+        phrase = phrase.strip()
+        digit = re.fullmatch(r"\d+(?:\.\d+)?", phrase)
+        if digit:
+            return float(phrase)
+        if phrase in {"half", "a half", "one half"}:
+            return 0.5
+        value = cls._words_to_number(phrase)
+        return float(value) if value is not None else None
+
+    @classmethod
+    def _number_tokens(cls) -> set[str]:
+        return {
+            "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+            "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+            "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty",
+            "sixty", "seventy", "eighty", "ninety", "hundred", "a", "an", "half",
+        }
+
+    @classmethod
+    def _extract_trailing_number_phrase(cls, text: str) -> str | None:
+        tokens = re.findall(r"\d+(?:\.\d+)?|[a-z]+", text.lower())
+        if not tokens:
+            return None
+        keep: list[str] = []
+        allowed = cls._number_tokens() | {"and"}
+        for token in reversed(tokens):
+            if token in allowed or re.fullmatch(r"\d+(?:\.\d+)?", token):
+                keep.append(token)
+                continue
+            if keep:
+                break
+        if not keep:
+            return None
+        phrase = " ".join(reversed(keep)).strip()
+        phrase = re.sub(r"^(and\s+)+", "", phrase).strip()
+        return phrase or None
+
+    @classmethod
+    def _extract_leading_number_phrase(cls, text: str) -> str | None:
+        tokens = re.findall(r"\d+(?:\.\d+)?|[a-z]+", text.lower())
+        if not tokens:
+            return None
+        keep: list[str] = []
+        allowed = cls._number_tokens() | {"and"}
+        for token in tokens:
+            if token in allowed or re.fullmatch(r"\d+(?:\.\d+)?", token):
+                keep.append(token)
+                continue
+            break
+        phrase = " ".join(keep).strip()
+        phrase = re.sub(r"^(and\s+)+", "", phrase).strip()
+        return phrase or None
 
     @classmethod
     def _words_to_number(cls, text: str) -> int | None:
