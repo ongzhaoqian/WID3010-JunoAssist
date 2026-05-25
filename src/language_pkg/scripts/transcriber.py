@@ -334,10 +334,21 @@ class WhisperTinyTranscriber:
             "sleep", "timer", "time", "schedule", "music", "break", "status",
             "confirm", "go", "start", "ready", "okay", "ok",
         }
+        _VALID_SINGLE_NUMBER_WORDS = {
+            "zero", "one", "two", "three", "four", "five", "six", "seven",
+            "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+            "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+            "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+            "hundred", "minute", "minutes", "second", "seconds",
+        }
         words = _re.sub(r"[^a-z0-9\s]", " ", lower).split()
         if len(words) <= 1:
             word = words[0] if words else ""
-            if word not in _VALID_SINGLE_WORDS:
+            if (word in _VALID_SINGLE_WORDS
+                    or word in _VALID_SINGLE_NUMBER_WORDS
+                    or _re.fullmatch(r"\d{1,3}", word)):
+                pass
+            else:
                 rospy.logwarn("Dropping single-word hallucination: %r", text)
                 return True
 

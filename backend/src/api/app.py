@@ -219,6 +219,21 @@ def create_app() -> FastAPI:
         # "zero seconds" are understood.
         return intent_classifier.extract_spoken_number(text)
 
+    _NUMBER_CONTENT_RE = re.compile(
+        r"\b(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|"
+        r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
+        r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|half|quarter)\b"
+    )
+
+    def _has_number_content(text: str) -> bool:
+        """Return True when text contains any digit or number word.
+
+        Used to distinguish a real-but-unclear answer ("twenty ish", "one")
+        from pure ASR noise ("what the hell is this") so that noise does not
+        burn the limited attempt counter and trigger premature cancellation.
+        """
+        return bool(_NUMBER_CONTENT_RE.search(text.lower()))
+
     def _timer_is_active_or_paused() -> bool:
         snap = robot_state.snapshot()
         return snap.get("timer_remaining_seconds", 0) > 0 or bool(snap.get("timer_paused"))
@@ -470,6 +485,8 @@ def create_app() -> FastAPI:
                 minutes = _extract_bare_number(text)
                 if minutes is not None:
                     return _ask_for_timer_seconds(minutes)
+                if not _has_number_content(text):
+                    return {"intent": Intent.SET_TIMER, "response": snapshot["last_response"], "status": robot_state.snapshot()}
                 attempts = robot_state.increment_timer_duration_attempts()
                 if attempts >= 2:
                     return _cancel_timer_setup("timer_cancelled_after_unclear")
@@ -492,6 +509,8 @@ def create_app() -> FastAPI:
                         tts.speak(response)
                         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
                     return _start_study_timer_from_seconds(total)
+                if not _has_number_content(text):
+                    return {"intent": Intent.SET_TIMER, "response": snapshot["last_response"], "status": robot_state.snapshot()}
                 attempts = robot_state.increment_timer_duration_attempts()
                 if attempts >= 2:
                     return _cancel_timer_setup("timer_cancelled_after_unclear")
@@ -510,6 +529,8 @@ def create_app() -> FastAPI:
                 if intent_classifier.is_likely_different_active_intent(text):
                     robot_state.set_awaiting_timer_duration(False)
                     return process_command_text(raw_text)
+                if not _has_number_content(text):
+                    return {"intent": Intent.SET_TIMER, "response": snapshot["last_response"], "status": robot_state.snapshot()}
                 attempts = robot_state.increment_timer_duration_attempts()
                 if attempts >= 2:
                     return _cancel_timer_setup("timer_cancelled_after_unclear")

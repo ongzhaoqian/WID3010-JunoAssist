@@ -146,11 +146,11 @@ def test_voice_timer_flow_cancels_after_repeated_unclear_answers():
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_awaiting_timer_duration(True)
 
-    first = client.post("/api/command", json={"text": "umm maybe"})
+    first = client.post("/api/command", json={"text": "zero minutes"})
     assert first.status_code == 200
     assert first.json()["status"]["awaiting_timer_duration"] is True
 
-    second = client.post("/api/command", json={"text": "still not sure"})
+    second = client.post("/api/command", json={"text": "zero seconds"})
     assert second.status_code == 200
     assert second.json()["status"]["awaiting_timer_duration"] is False
 
