@@ -101,7 +101,7 @@ class WhisperTinyTranscriber:
 
     def audio_callback(self, msg: Float32MultiArray) -> None:
         import time as _time
-        if self._muted or not msg.data:
+        if not msg.data:
             return
 
         chunk = np.asarray(msg.data, dtype=np.float32)
@@ -128,8 +128,7 @@ class WhisperTinyTranscriber:
         while not rospy.is_shutdown():
             # flush early if speech detected then silence for 0.4s (catches short words like "yes")
             silence_flush = (
-                not self._muted
-                and self.current_length > 0
+                self.current_length > 0
                 and self.current_length < self.buffer_size
                 and self._last_loud_time > 0
                 and (_time.monotonic() - self._last_loud_time) >= self._silence_flush_seconds
@@ -138,7 +137,8 @@ class WhisperTinyTranscriber:
                 rospy.logdebug("[DBG] waiting: samples=%d/%d last_loud=%.2fs ago",
                                self.current_length, self.buffer_size,
                                (_time.monotonic() - self._last_loud_time) if self._last_loud_time else -1)
-            if not self._muted and (self.current_length >= self.buffer_size or silence_flush):
+            can_process = self.current_length >= self.buffer_size or (not self._muted and silence_flush)
+            if can_process:
                 with self.audio_lock:
                     full_audio = np.concatenate(self.audio_buffer).astype(np.float32, copy=False)
                     audio_to_process = full_audio[: self.buffer_size]
@@ -166,8 +166,16 @@ class WhisperTinyTranscriber:
                     engine = "Moonshine" if self._using_moonshine else "Whisper"
                     print(f"[TRANSCRIBED SPEECH] ({engine}) {transcript}", flush=True)
                     rospy.loginfo("%s transcript: %s", engine, transcript)
-                    self.transcript_pub.publish(String(data=transcript))
-                    rospy.loginfo("Published transcript to %s: %s", self.output_topic, transcript)
+                    if self._muted:
+                        if self._is_stop_override(transcript):
+                            rospy.loginfo("Stop override detected while TTS muted; publishing stop transcript.")
+                            self.transcript_pub.publish(String(data="stop"))
+                            rospy.loginfo("Published interrupt transcript to %s: stop", self.output_topic)
+                        else:
+                            rospy.logdebug("TTS-muted transcript ignored: %s", transcript)
+                    else:
+                        self.transcript_pub.publish(String(data=transcript))
+                        rospy.loginfo("Published transcript to %s: %s", self.output_topic, transcript)
 
             rospy.sleep(0.05)
 
@@ -253,6 +261,16 @@ class WhisperTinyTranscriber:
             self._load_error = "Whisper: %s | Moonshine: %s" % (whisper_exc, moonshine_exc)
             rospy.logerr("Both ASR engines failed to load. %s", self._load_error)
             return False
+
+    @staticmethod
+    def _is_stop_override(text: str) -> bool:
+        import re as _re
+        lower = _re.sub(r"[^a-z0-9\s]", " ", text.lower())
+        lower = _re.sub(r"\s+", " ", lower).strip()
+        return lower in {
+            "stop", "please stop", "stop please", "stop speaking", "stop talking",
+            "stop music", "pause music", "be quiet", "quiet", "silence", "shush",
+        }
 
     @staticmethod
     def _is_hallucination(text: str) -> bool:

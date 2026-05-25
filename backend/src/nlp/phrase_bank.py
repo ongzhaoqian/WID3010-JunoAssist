@@ -119,6 +119,11 @@ class PhraseBank:
             "I will play music based on your current emotion estimate.",
             "Sure. I will choose a playlist that fits your latest emotion estimate.",
         ],
+        "stop_acknowledged": [
+            "Stopped.",
+            "Speech and music stopped.",
+            "Okay, I have stopped speaking and stopped the music.",
+        ],
         "status_prefix": [
             "Here is what I suggest: {suggestion}",
             "Based on the current state, {suggestion}",

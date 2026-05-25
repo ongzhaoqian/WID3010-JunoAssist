@@ -1,12 +1,22 @@
 from __future__ import annotations
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.core.models import Intent
 
 
 class IntentClassifier:
     """Rule-based intent classifier for an undergraduate-scope prototype."""
 
+    _MONTHS = {
+        "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+        "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+        "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9, "oct": 10,
+        "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
+    }
+    _WEEKDAYS = {
+        "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+        "friday": 4, "saturday": 5, "sunday": 6,
+    }
     _PRIORITY_WORDS = {"low", "medium", "normal", "high", "urgent", "important"}
 
     def classify(self, text: str) -> Intent:
@@ -14,6 +24,9 @@ class IntentClassifier:
 
         if not t:
             return Intent.UNKNOWN
+
+        if self.is_stop_command(t):
+            return Intent.STOP
 
         if "hey" in t and ("juno" in t or "john" in t):
             return Intent.WAKE
@@ -56,6 +69,29 @@ class IntentClassifier:
             return Intent.ASK_STATUS
 
         return Intent.UNKNOWN
+
+    def is_stop_command(self, text: str) -> bool:
+        """Detect immediate interruption commands for TTS and music.
+
+        This intentionally stays narrow so ordinary phrases like "stop by the
+        office" are not treated as robot-control commands.
+        """
+        t = text.lower().strip()
+        t = re.sub(r"[^a-z0-9\s']", " ", t)
+        t = re.sub(r"\s+", " ", t).strip()
+        exact_commands = {
+            "stop", "please stop", "stop please", "silent", "silence",
+            "be quiet", "quiet", "shush", "shut up", "pause", "pause it",
+        }
+        if t in exact_commands:
+            return True
+        stop_patterns = (
+            r"^stop\s+(speaking|talking|the speech|speech|tts|voice|music|song|songs|audio|it)\b",
+            r"^pause\s+(music|song|songs|audio|it)\b",
+            r"^turn\s+off\s+(music|song|songs|audio|voice|speech)\b",
+            r"^mute\s+(juno|john|music|audio|speech|voice)?$",
+        )
+        return any(re.search(pattern, t) for pattern in stop_patterns)
 
     def looks_like_reminder_add(self, text: str) -> bool:
         t = text.lower().strip()
@@ -286,31 +322,303 @@ class IntentClassifier:
         return f"{parsed.day} {parsed.strftime('%B')}, {parsed.year}"
 
     def _extract_date(self, text: str) -> str | None:
-        match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", text)
-        if not match:
-            return None
-        # Validate before accepting.
-        try:
-            datetime.strptime(match.group(1), "%Y-%m-%d")
-        except ValueError:
-            return None
-        return match.group(1)
+        """Extract dates from typed or spoken Malaysian/UK-friendly formats.
+
+        Supported examples:
+        - 2026-05-25
+        - 25/05/2026, 25-05-26, 25.05.2026
+        - 25 May, 25 May 2026, May 25, May twenty fifth
+        - twenty fifth of May
+        - today, tomorrow, day after tomorrow, next Monday
+        """
+        raw = text.lower().strip()
+        normalised = self._normalise_datetime_text(raw)
+        today = datetime.now().date()
+
+        relative_map = {
+            "today": 0,
+            "tonight": 0,
+            "tomorrow": 1,
+            "tmr": 1,
+            "day after tomorrow": 2,
+            "the day after tomorrow": 2,
+        }
+        for phrase, offset in relative_map.items():
+            if re.search(rf"\b{re.escape(phrase)}\b", normalised):
+                return (today + timedelta(days=offset)).strftime("%Y-%m-%d")
+
+        weekday_match = re.search(
+            r"\b(?:(next|this)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+            normalised,
+        )
+        if weekday_match:
+            modifier = weekday_match.group(1)
+            target = self._WEEKDAYS[weekday_match.group(2)]
+            delta = (target - today.weekday()) % 7
+            if modifier == "next" or delta == 0:
+                delta = delta or 7
+            return (today + timedelta(days=delta)).strftime("%Y-%m-%d")
+
+        # ISO date first.
+        match = re.search(r"\b(\d{4}-\d{1,2}-\d{1,2})\b", normalised)
+        if match:
+            return self._coerce_date_parts(match.group(1), "%Y-%m-%d")
+
+        # UK/Malaysia-style numeric dates: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY.
+        match = re.search(r"\b(\d{1,2})[/.\-](\d{1,2})(?:[/.\-](\d{2,4}))?\b", normalised)
+        if match:
+            day = int(match.group(1))
+            month = int(match.group(2))
+            year = self._normalise_year(match.group(3)) if match.group(3) else today.year
+            parsed = self._safe_date(year, month, day)
+            if parsed:
+                return parsed.strftime("%Y-%m-%d")
+
+        # 25 May 2026 / 25th of May / twenty fifth of May.
+        day_first_pattern = re.compile(
+            r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?"
+            r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+            r"aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+            r"(?:\s*,?\s*(\d{2,4}))?\b"
+        )
+        match = day_first_pattern.search(normalised)
+        if match:
+            day = int(match.group(1))
+            month = self._MONTHS[match.group(2)]
+            year = self._normalise_year(match.group(3)) if match.group(3) else today.year
+            parsed = self._safe_date(year, month, day)
+            if parsed:
+                return parsed.strftime("%Y-%m-%d")
+
+        # May 25 2026 / May twenty fifth.
+        month_first_pattern = re.compile(
+            r"\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+            r"aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+            r"\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{2,4}))?\b"
+        )
+        match = month_first_pattern.search(normalised)
+        if match:
+            month = self._MONTHS[match.group(1)]
+            day = int(match.group(2))
+            year = self._normalise_year(match.group(3)) if match.group(3) else today.year
+            parsed = self._safe_date(year, month, day)
+            if parsed:
+                return parsed.strftime("%Y-%m-%d")
+
+        return None
 
     def _extract_time(self, text: str) -> str | None:
-        labelled = re.search(r"\b(?:time|at)\s*(?:is|:)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", text)
-        generic = re.search(r"\b(\d{1,2}):(\d{2})\s*(am|pm)?\b", text)
+        """Extract clock time from typed or spoken forms.
+
+        Supported examples:
+        - 15:30, 1530, 3pm, 3:30 pm
+        - nine p m, nine thirty, twenty one thirty
+        - half past nine, quarter past five, quarter to six
+        - noon, midday, midnight, morning, afternoon, evening
+        """
+        normalised = self._normalise_datetime_text(text.lower().strip())
+
+        if re.search(r"\b(noon|midday)\b", normalised):
+            return "12:00"
+        if re.search(r"\bmidnight\b", normalised):
+            return "00:00"
+
+        # Natural approximations for cases where speech gets the exact time poorly.
+        approximate_times = {
+            "morning": "09:00",
+            "afternoon": "14:00",
+            "evening": "19:00",
+            "night": "20:00",
+            "tonight": "20:00",
+        }
+        for phrase, value in approximate_times.items():
+            if re.search(rf"\b{phrase}\b", normalised) and not re.search(r"\d", normalised):
+                return value
+
+        # half past nine, quarter past five, quarter to six.
+        relative_match = re.search(r"\b(half|quarter)\s+(past|to)\s+(\d{1,2}|[a-z\s-]{3,30}?)\s*(am|pm)?\b", normalised)
+        if relative_match:
+            kind, direction, hour_text, meridiem = relative_match.groups()
+            hour = int(hour_text) if hour_text.strip().isdigit() else self._words_to_number(hour_text.strip())
+            if hour is None:
+                return None
+            minute = 30 if kind == "half" else 15
+            if direction == "to":
+                hour -= 1
+                minute = 45
+            return self._format_time(hour, minute, meridiem)
+
+        # 15:30, 3.30 pm, at 9:05, time is 21:00.
+        labelled = re.search(r"\b(?:time|at|by|before|around|about)\s*(?:is|:)?\s*(\d{1,2})(?::|\.)(\d{2})\s*(am|pm)?\b", normalised)
+        generic = re.search(r"\b(\d{1,2})(?::|\.)(\d{2})\s*(am|pm)?\b", normalised)
         match = labelled or generic
-        if not match:
+        if match:
+            return self._format_time(int(match.group(1)), int(match.group(2)), match.group(3))
+
+        # 1530 / 2130, normally after labelled markers or four compact digits.
+        compact = re.search(r"\b(?:time|at|by|before|around|about)\s*(?:is|:)?\s*(\d{3,4})\s*(am|pm)?\b", normalised)
+        if compact:
+            digits = compact.group(1)
+            if len(digits) == 3:
+                hour, minute = int(digits[0]), int(digits[1:])
+            else:
+                hour, minute = int(digits[:2]), int(digits[2:])
+            formatted = self._format_time(hour, minute, compact.group(2))
+            if formatted:
+                return formatted
+
+        # 9 pm / nine pm / at nine / nine thirty / twenty one thirty.
+        words_or_number = re.search(
+            r"\b(?:time|at|by|before|around|about)?\s*"
+            r"(\d{1,2}|[a-z\s-]{3,40}?)"
+            r"(?:\s+(\d{1,2}|[a-z\s-]{3,30}))?\s*(am|pm)?\b",
+            normalised,
+        )
+        candidates = self._time_candidates_from_text(normalised)
+        if candidates:
+            return candidates[0]
+
+        # Fall back to rough time-of-day if mentioned alongside a date command.
+        for phrase, value in approximate_times.items():
+            if re.search(rf"\b{phrase}\b", normalised):
+                return value
+
+        return None
+
+    @classmethod
+    def _normalise_datetime_text(cls, text: str) -> str:
+        text = text.lower().strip()
+        text = re.sub(r"\b([ap])\s*\.?\s*m\.?\b", r"\1m", text)
+        text = text.replace("o'clock", " ").replace("oclock", " ")
+        text = text.replace("half-past", "half past").replace("quarter-past", "quarter past")
+        text = text.replace("quarter-to", "quarter to")
+        text = re.sub(r"[,]+", " ", text)
+        text = re.sub(r"\s+", " ", text)
+
+        ordinal_phrases = {
+            "thirty first": 31, "thirtieth": 30, "twenty ninth": 29,
+            "twenty eighth": 28, "twenty seventh": 27, "twenty sixth": 26,
+            "twenty fifth": 25, "twenty fourth": 24, "twenty third": 23,
+            "twenty second": 22, "twenty first": 21, "twentieth": 20,
+            "nineteenth": 19, "eighteenth": 18, "seventeenth": 17,
+            "sixteenth": 16, "fifteenth": 15, "fourteenth": 14,
+            "thirteenth": 13, "twelfth": 12, "eleventh": 11, "tenth": 10,
+            "ninth": 9, "eighth": 8, "seventh": 7, "sixth": 6,
+            "fifth": 5, "fourth": 4, "third": 3, "second": 2, "first": 1,
+        }
+        for phrase, value in sorted(ordinal_phrases.items(), key=lambda item: len(item[0]), reverse=True):
+            text = re.sub(rf"\b{re.escape(phrase)}\b", str(value), text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    @staticmethod
+    def _normalise_year(value: str | None) -> int:
+        if not value:
+            return datetime.now().year
+        year = int(value)
+        if year < 100:
+            return 2000 + year if year < 70 else 1900 + year
+        return year
+
+    @staticmethod
+    def _safe_date(year: int, month: int, day: int):
+        try:
+            return datetime(year, month, day).date()
+        except ValueError:
             return None
 
-        hour = int(match.group(1))
-        minute = int(match.group(2) or 0)
-        meridiem = match.group(3)
-        if meridiem == "pm" and hour < 12:
-            hour += 12
-        elif meridiem == "am" and hour == 12:
-            hour = 0
+    def _coerce_date_parts(self, value: str, fmt: str) -> str | None:
+        try:
+            return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            # Allow non-zero-padded ISO values like 2026-5-25.
+            if fmt == "%Y-%m-%d":
+                parts = value.split("-")
+                if len(parts) == 3:
+                    parsed = self._safe_date(int(parts[0]), int(parts[1]), int(parts[2]))
+                    return parsed.strftime("%Y-%m-%d") if parsed else None
+            return None
 
+    def _time_candidates_from_text(self, text: str) -> list[str]:
+        candidates: list[str] = []
+        implied_meridiem = None
+        if re.search(r"\b(afternoon|evening|night|tonight)\b", text):
+            implied_meridiem = "pm"
+        elif re.search(r"\bmorning\b", text):
+            implied_meridiem = "am"
+
+        # Context-labelled phrases: "at nine thirty", "time nine pm".
+        context_pattern = re.compile(
+            r"\b(?:time|at|by|before|around|about)\s+(?:is\s+)?"
+            r"([a-z0-9\s-]{1,45}?)(?=\s+\b(?:date|on|purpose|title|task|event|priority|for|to)\b|$)"
+        )
+        for match in context_pattern.finditer(text):
+            parsed = self._parse_time_phrase(match.group(1), implied_meridiem=implied_meridiem)
+            if parsed and parsed not in candidates:
+                candidates.append(parsed)
+
+        # Phrases with explicit meridiem can stand without context.
+        meridiem_pattern = re.compile(r"\b([a-z0-9\s-]{1,35}?)\s+(am|pm)\b")
+        for match in meridiem_pattern.finditer(text):
+            parsed = self._parse_time_phrase(match.group(1) + " " + match.group(2))
+            if parsed and parsed not in candidates:
+                candidates.append(parsed)
+
+        return candidates
+
+    def _parse_time_phrase(self, phrase: str, implied_meridiem: str | None = None) -> str | None:
+        phrase = phrase.lower().strip()
+        phrase = re.sub(r"\b(?:in the|this|tomorrow|today|tonight|morning|afternoon|evening|night)\b", " ", phrase)
+        phrase = re.sub(r"\b(?:sharp|exactly|please)\b", " ", phrase)
+        phrase = re.sub(r"\s+", " ", phrase).strip()
+        if not phrase:
+            return None
+
+        meridiem_match = re.search(r"\b(am|pm)\b", phrase)
+        meridiem = meridiem_match.group(1) if meridiem_match else implied_meridiem
+        phrase = re.sub(r"\b(am|pm)\b", " ", phrase)
+        phrase = re.sub(r"\s+", " ", phrase).strip()
+
+        # Direct number phrases, e.g. 9, 930, 21 30.
+        if re.fullmatch(r"\d{1,2}", phrase):
+            return self._format_time(int(phrase), 0, meridiem)
+        if re.fullmatch(r"\d{3,4}", phrase):
+            hour = int(phrase[:-2])
+            minute = int(phrase[-2:])
+            return self._format_time(hour, minute, meridiem)
+        digits = re.findall(r"\d{1,2}", phrase)
+        if digits:
+            hour = int(digits[0])
+            minute = int(digits[1]) if len(digits) >= 2 else 0
+            return self._format_time(hour, minute, meridiem)
+
+        tokens = [tok for tok in re.split(r"\s+", phrase) if tok]
+        if not tokens:
+            return None
+
+        # One number-word phrase: "nine".
+        full_value = self._words_to_number(" ".join(tokens))
+        if full_value is not None and 0 <= full_value <= 23:
+            return self._format_time(full_value, 0, meridiem)
+
+        # Two-part number-word phrase: "nine thirty", "twenty one thirty".
+        for split in range(1, len(tokens)):
+            hour = self._words_to_number(" ".join(tokens[:split]))
+            minute = self._words_to_number(" ".join(tokens[split:]))
+            if hour is None or minute is None:
+                continue
+            formatted = self._format_time(hour, minute, meridiem)
+            if formatted:
+                return formatted
+        return None
+
+    @staticmethod
+    def _format_time(hour: int, minute: int, meridiem: str | None = None) -> str | None:
+        if meridiem:
+            meridiem = meridiem.lower()
+            if hour == 12 and meridiem == "am":
+                hour = 0
+            elif meridiem == "pm" and hour < 12:
+                hour += 12
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
             return None
         return f"{hour:02d}:{minute:02d}"
@@ -349,12 +657,30 @@ class IntentClassifier:
         cleaned_text = text
         for word in remove_words:
             cleaned_text = re.sub(rf"\b{re.escape(word)}\b", " ", cleaned_text, flags=re.IGNORECASE)
-        cleaned_text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", cleaned_text)
-        cleaned_text = re.sub(r"\b(?:date|on)\s*(?:is|:)?\s*", " ", cleaned_text, flags=re.IGNORECASE)
-        cleaned_text = re.sub(r"\b(?:time|at)\s*(?:is|:)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b", " ", cleaned_text, flags=re.IGNORECASE)
+        cleaned_text = self._remove_datetime_phrases(cleaned_text)
         cleaned_text = re.sub(r"\bpriority\s*(?:is|:)?\s*(low|medium|normal|high|urgent|important)\b", " ", cleaned_text, flags=re.IGNORECASE)
         cleaned_text = re.sub(r"\b(add|create|insert|book|put|set|schedule|calendar|plan|agenda|timetable|item)\b", " ", cleaned_text, flags=re.IGNORECASE)
         return self._clean_purpose(cleaned_text)
+
+
+    def _remove_datetime_phrases(self, text: str) -> str:
+        month_names = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+        patterns = [
+            r"\b\d{4}-\d{1,2}-\d{1,2}\b",
+            r"\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b",
+            rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{month_names})(?:\s+\d{{2,4}})?\b",
+            rf"\b(?:{month_names})\s+\d{{1,2}}(?:st|nd|rd|th)?(?:\s+\d{{2,4}})?\b",
+            r"\b(today|tomorrow|tonight|tmr|day after tomorrow|the day after tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b",
+            r"\b(?:date|on)\s*(?:is|:)?\s*",
+            r"\b(?:time|at|by|before|around|about)\s*(?:is|:)?\s*\d{1,2}(?::|\.)?\d{0,2}\s*(?:a\s*m|p\s*m|am|pm)?\b",
+            r"\b(?:time|at|by|before|around|about)\s+(?:is\s+)?(?:half|quarter)\s+(?:past|to)\s+[a-z0-9\s-]+",
+            r"\b(?:time|at|by|before|around|about)\s+(?:is\s+)?[a-z0-9\s-]{1,35}?\s*(?:a\s*m|p\s*m|am|pm)\b",
+            r"\b(noon|midday|midnight|morning|afternoon|evening|night)\b",
+        ]
+        cleaned = self._normalise_datetime_text(text)
+        for pattern in patterns:
+            cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+        return re.sub(r"\s+", " ", cleaned).strip()
 
     @staticmethod
     def _clean_purpose(value: str | None) -> str | None:

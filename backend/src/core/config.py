@@ -62,6 +62,7 @@ class Settings:
     # to /juno/tts and waits briefly for the ROS TTS subscriber so speech messages
     # are not dropped during startup or after node restarts.
     tts_topic: str = os.getenv("JUNO_TTS_TOPIC", "/juno/tts")
+    tts_stop_topic: str = os.getenv("JUNO_TTS_STOP_TOPIC", "/juno/tts_stop")
     led_topic: str = os.getenv("JUNO_LED_TOPIC", "/juno/led_state")
     tts_publisher_wait_seconds: float = float(os.getenv("JUNO_TTS_PUBLISHER_WAIT_SECONDS", "2.0"))
     tts_publish_retries: int = int(os.getenv("JUNO_TTS_PUBLISH_RETRIES", "1"))

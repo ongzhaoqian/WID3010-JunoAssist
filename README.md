@@ -62,8 +62,10 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Editable dashboard schedule items with live speech retrieval of newly added items
 - Editable dashboard reminders using the same main fields as schedule items: `title`, `date`, `time`, `type`, and `priority`
 - Voice commands for checking schedules, adding schedules, checking reminders, and adding reminders
+- Speech-tolerant schedule/reminder date and time parsing, including `25 May`, `25/05/2026`, `tomorrow`, `next Monday`, `nine pm`, `nine thirty`, `half past nine`, and `quarter to six`
 - Study timer with minute-and-second input, flexible speech duration parsing, cancellation support, and bell sound on completion
-- Emotion-aware Spotify dashboard music window
+- Emotion-aware Spotify dashboard music window with voice-stop support
+- Immediate `stop` command to interrupt JUNO speech and stop dashboard music
 - REST API and WebSocket updates using FastAPI
 - React dashboard using Vite and Tailwind CSS
 - Jupiter-ready hardware abstraction layer
@@ -191,6 +193,8 @@ export JUNO_ASR_WINDOW_SECONDS=3.0
 export JUNO_ASR_MIN_RMS=0.03
 export JUNO_ASR_DEVICE=-1                 # CPU; use 0 for first CUDA GPU if available
 export JUNO_ASR_TTS_RESUME_DELAY=0.5
+export JUNO_TTS_TOPIC=/juno/tts
+export JUNO_TTS_STOP_TOPIC=/juno/tts_stop
 export JUNO_TTS_PUBLISHER_WAIT_SECONDS=2.0
 export JUNO_TTS_PUBLISH_RETRIES=1
 ```
@@ -215,6 +219,7 @@ If `/speech/transcript` works but the robot is silent, check that `/juno/tts` re
 
 ```bash
 rostopic echo /juno/tts
+rostopic echo /juno/tts_stop
 rostopic echo /juno/tts_done
 rosnode list | grep tts
 ```
@@ -285,7 +290,10 @@ GET  http://localhost:8000/api/music/status
 POST http://localhost:8000/api/music/play
 POST http://localhost:8000/api/music/stop
 POST http://localhost:8000/api/music/refresh
+POST http://localhost:8000/api/robot/stop
 ```
+
+If the user says `stop`, `stop speaking`, `stop talking`, `stop music`, `pause music`, `be quiet`, or `silence`, the backend now sends an interrupt request to the ROS TTS node through `/juno/tts_stop` and stops the dashboard music state. The command does not speak another acknowledgement, so it can be used while JUNO is already speaking.
 
 ### Editable schedule panel and live schedule retrieval
 
@@ -302,8 +310,8 @@ Schedule items use the following fields:
 | Field | Purpose |
 |---|---|
 | `title` | Main schedule item name, such as `Deep Learning revision` |
-| `date` | Optional ISO date, such as `2026-05-20` |
-| `time` | Optional 24-hour time, such as `15:30` |
+| `date` | Optional stored ISO date, such as `2026-05-20`. Voice input may also say `25 May`, `25/05/2026`, `tomorrow`, `day after tomorrow`, or `next Monday`. |
+| `time` | Optional stored 24-hour time, such as `15:30`. Voice input may also say `nine pm`, `nine thirty`, `half past nine`, `quarter to six`, `noon`, `midnight`, `morning`, `afternoon`, or `evening`. |
 | `type` | Category, such as `class`, `meeting`, `study`, `assignment`, `test`, or `quiz` |
 | `priority` | Priority label, such as `low`, `medium`, `high`, or `urgent` |
 
@@ -427,22 +435,21 @@ Robot responses are now centralised through `backend/src/nlp/phrase_bank.py`. In
 
 JUNO can add schedule items and reminders from transcribed commands that include fields such as `date`, `time`, `purpose` or `title`, and `priority`.
 
-Example schedule command:
+Example schedule commands:
 
 ```text
 add schedule date 2026-05-20 time 15:30 purpose deep learning revision priority high
+add schedule on 25 May at nine pm purpose project discussion priority high
+add schedule next Monday at half past nine purpose consultation
+add schedule tomorrow morning purpose study session
 ```
 
-Example reminder command:
+Example reminder commands:
 
 ```text
 add reminder date 2026-05-22 time 21:00 title submit robotics report priority high
-```
-
-Natural reminder phrasing is also supported:
-
-```text
-Remind me to submit the robotics report date 2026-05-22 time 21:00 priority high.
+Remind me to submit the robotics report on twenty fifth of May at nine pm priority high.
+Remind me tomorrow at nine thirty to submit the project report.
 ```
 
 The backend stores the original ISO-style date for consistency, but also returns a display date for the dashboard and speech response:
@@ -454,11 +461,15 @@ The backend stores the original ISO-style date for consistency, but also returns
 The relevant implementation is in:
 
 ```text
-backend/src/nlp/intent_classifier.py           # ADD_SCHEDULE, CHECK_SCHEDULE, ADD_REMINDER, CHECK_REMINDERS, and flexible timer parsing
+backend/src/nlp/intent_classifier.py           # ADD_SCHEDULE, CHECK_SCHEDULE, ADD_REMINDER, CHECK_REMINDERS, STOP, speech-tolerant date/time parsing, and flexible timer parsing
 backend/src/calendar_module/calendar_service.py # SQLite schema, reminder migration, formatted_date generation, schedule/reminder listing
-backend/src/core/models.py                     # ScheduleItemRequest, ReminderRequest, TimerRequest, RobotStatus
+backend/src/core/models.py                     # ScheduleItemRequest, ReminderRequest, TimerRequest, RobotStatus, STOP intent
+backend/src/core/config.py                     # ROS TTS and TTS-stop topic settings
 backend/src/core/state.py                      # timer duration state and one-time timer completion counter
-backend/src/api/app.py                         # voice command handling, live schedule/reminder retrieval, timer completion loop
+backend/src/api/app.py                         # voice command handling, live schedule/reminder retrieval, timer completion loop, output stop route
+backend/src/robot/ros_jupiter_interface.py     # publishes speech and speech-stop messages to ROS
+src/language_pkg/scripts/tts_node.py           # subscribes to /juno/tts and /juno/tts_stop, interrupts pyttsx3/espeak speech
+src/language_pkg/scripts/transcriber.py        # listens for a narrow stop override while TTS is muted
 dashboard/src/components/SchedulePanel.jsx     # displays newly added schedule items
 dashboard/src/components/ReminderPanel.jsx     # displays newly added reminders using schedule-like fields
 dashboard/src/components/TimerPanel.jsx        # minute/second input and completion bell sound
@@ -472,6 +483,8 @@ dashboard/src/components/TimerPanel.jsx        # minute/second input and complet
 - `CHECK_REMINDERS` and `ADD_REMINDER` are separate intents so asking about reminders no longer accidentally behaves like adding a reminder.
 - While JUNO is waiting for a timer duration, the next speech input is interpreted as a duration first. The user does not need to say `timer` repeatedly.
 - The timer completion bell is generated in the dashboard with Web Audio API, so no external audio file is required.
+- Schedule and reminder voice capture now accepts common Malaysian/UK-style date formats and spoken time formats, then normalises them to ISO date and 24-hour time for storage.
+- `stop` is a narrow interruption intent: it stops current TTS output, clears queued robot speech, and stops dashboard music, while avoiding false positives such as `stop by the office`.
 
 
 ## Troubleshooting Guide

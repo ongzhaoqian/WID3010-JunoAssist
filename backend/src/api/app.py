@@ -169,6 +169,20 @@ def create_app() -> FastAPI:
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
+    def _handle_stop_command() -> dict:
+        """Immediately interrupt speech and music without speaking another reply."""
+        robot_state.set_awaiting_timer_duration(False)
+        tts.stop()
+        music_result = music_service.stop()
+        response = phrase_bank.say("stop_acknowledged")
+        robot_state.set_response(response)
+        return {
+            "intent": Intent.STOP,
+            "response": response,
+            "music": music_result,
+            "status": robot_state.snapshot(),
+        }
+
     def _add_schedule_from_transcript(command_text: str) -> dict:
         parsed = intent_classifier.extract_schedule_item(command_text)
         if not parsed.get("title"):
@@ -245,6 +259,9 @@ def create_app() -> FastAPI:
         intent = intent_classifier.classify(text)
         _apply_speech_emotion_from_text(text)
         snapshot = robot_state.snapshot()
+
+        if intent == Intent.STOP:
+            return _handle_stop_command()
 
         if snapshot["mode"] == RobotMode.IDLE:
             if wake_detector.is_wake_command(text):
@@ -439,6 +456,7 @@ def create_app() -> FastAPI:
             "robot_interface": settings.robot_interface,
             "ros_enabled": settings.use_ros_robot,
             "tts_topic": settings.tts_topic,
+            "tts_stop_topic": settings.tts_stop_topic,
             "led_topic": settings.led_topic,
             "publisher_wait_seconds": settings.tts_publisher_wait_seconds,
             "publish_retries": settings.tts_publish_retries,
@@ -598,6 +616,10 @@ def create_app() -> FastAPI:
         result = music_service.stop()
         robot_state.set_response(result["message"])
         return result
+
+    @app.post("/api/robot/stop")
+    def stop_robot_outputs():
+        return _handle_stop_command()
 
     @app.post("/api/music/refresh")
     def refresh_music():

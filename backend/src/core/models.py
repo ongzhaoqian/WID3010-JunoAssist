@@ -29,6 +29,7 @@ class Intent(str, Enum):
     ADD_REMINDER = "add_reminder"
     SET_TIMER = "set_timer"
     PLAY_MUSIC = "play_music"
+    STOP = "stop"
     REQUEST_BREAK = "request_break"
     ASK_STATUS = "ask_status"
     SLEEP = "sleep"

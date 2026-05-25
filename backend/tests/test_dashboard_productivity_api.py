@@ -246,3 +246,35 @@ def test_timer_completion_payload_is_emitted_once():
     assert snapshot["last_timer_completed_label"] == "Study timer"
     assert snapshot["timer_completed_counter"] >= 1
     assert robot_state.decrement_timer() is None
+
+
+def test_voice_stop_command_stops_music_without_speaking_acknowledgement():
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_awaiting_timer_duration(True)
+
+    client.post("/api/music/play")
+    response = client.post("/api/command", json={"text": "stop"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"] == "stop"
+    assert payload["music"]["status"] == "stopped"
+    assert payload["status"]["awaiting_timer_duration"] is False
+
+
+def test_voice_schedule_add_accepts_natural_date_and_time(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+
+    response = client.post(
+        "/api/command",
+        json={"text": "add schedule on 25 May at nine pm purpose project discussion priority high"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"] == "add_schedule"
+    assert payload["schedule_item"]["time"] == "21:00"
+    assert payload["schedule_item"]["title"] == "Project discussion"

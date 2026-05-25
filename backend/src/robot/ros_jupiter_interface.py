@@ -21,6 +21,7 @@ class RosJupiterInterface(JupiterInterface):
 
     Topics published by this backend:
     - /juno/tts               std_msgs/String
+    - /juno/tts_stop          std_msgs/String
     - /juno/led_state         std_msgs/String
 
     The TTS publisher is latched and waits briefly for a subscriber before
@@ -52,6 +53,7 @@ class RosJupiterInterface(JupiterInterface):
 
         self.camera_topic = settings.camera_topic
         self.tts_topic = settings.tts_topic
+        self.tts_stop_topic = settings.tts_stop_topic
         self.led_topic = settings.led_topic
         self.tts_wait_seconds = max(0.0, settings.tts_publisher_wait_seconds)
         self.tts_publish_retries = max(1, settings.tts_publish_retries)
@@ -63,15 +65,17 @@ class RosJupiterInterface(JupiterInterface):
         # latch=True lets a restarted TTS subscriber receive the latest response,
         # and the explicit connection wait below protects normal startup.
         self.tts_pub = rospy.Publisher(self.tts_topic, String, queue_size=10, latch=True)
+        self.tts_stop_pub = rospy.Publisher(self.tts_stop_topic, String, queue_size=10, latch=True)
         self.led_pub = rospy.Publisher(self.led_topic, String, queue_size=10, latch=True)
 
         rospy.Subscriber("/speech/transcript", String, self._transcript_callback)
         rospy.Subscriber(self.camera_topic, Image, self._camera_callback)
 
         rospy.loginfo(
-            "JUNO backend ROS bridge is ready. Camera topic=%s, TTS topic=%s, LED topic=%s",
+            "JUNO backend ROS bridge is ready. Camera topic=%s, TTS topic=%s, TTS stop topic=%s, LED topic=%s",
             self.camera_topic,
             self.tts_topic,
+            self.tts_stop_topic,
             self.led_topic,
         )
 
@@ -159,3 +163,7 @@ class RosJupiterInterface(JupiterInterface):
             return
         self.led_pub.publish(self.String(data=state))
         self.rospy.loginfo("Published JUNO LED state to %s: %s", self.led_topic, state)
+
+    def stop_speaking(self) -> None:
+        self.tts_stop_pub.publish(self.String(data="stop"))
+        self.rospy.loginfo("Published JUNO TTS stop request to %s", self.tts_stop_topic)

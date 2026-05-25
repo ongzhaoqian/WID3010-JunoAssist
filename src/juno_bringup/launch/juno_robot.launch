@@ -35,6 +35,7 @@
   <node pkg="language_pkg" type="tts_node.py" name="juno_tts_node" output="screen">
     <param name="tts_topic" value="/juno/tts" />
     <param name="tts_done_topic" value="/juno/tts_done" />
+    <param name="tts_stop_topic" value="/juno/tts_stop" />
     <param name="voice_locale" value="en_GB" />
     <param name="rate" value="165" />
     <param name="backend" value="espeak" />
