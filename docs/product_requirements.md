@@ -180,7 +180,7 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 #### Requirements
 - Database file: `backend/juno_assist.db` (path configurable via `JUNO_DATABASE_PATH`).
 - The `CalendarService` (`calendar_module/calendar_service.py`) manages schedule and reminder storage.
-- On startup, `sample_schedule.json` (`backend/data/`) is seeded into the schedule table if it is empty.
+- On startup, the runtime SQLite tables are refreshed so schedule, reminder, profile, and fitness game data start empty. No hardcoded/sample schedule dataset is loaded.
 
 - REST endpoints exposed by Backend-API:
 
@@ -520,7 +520,7 @@ Located in `/backend`, this serves as the central brain of the system, handling 
     - **Music Service**: Plays calming/soothing background music to aid concentration.
 - **Calendar Module (`src/calendar_module/`)**:
     - **Calendar Service**: Manages daily schedules, academic deadlines, and reminders.
-    - **Database**: Uses SQLite (`juno_assist.db`) for persistent storage.
+    - **Database**: Uses SQLite (`juno_assist.db`) for runtime storage, refreshed on backend startup by default to avoid stale or dummy data.
 
 #### Testing
 - **Backend Tests (`tests/`)**: Includes unit tests for `emotion_smoothing` and `intent_classifier` to ensure logic correctness.

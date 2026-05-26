@@ -50,6 +50,13 @@ class FitnessService:
                 """
             )
 
+    def reset_runtime_data(self) -> None:
+        """Clear fitness profile and game sessions for a fresh backend run."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM fitness_profile")
+            conn.execute("DELETE FROM fitness_game_sessions")
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = 'fitness_game_sessions'")
+
     @staticmethod
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()

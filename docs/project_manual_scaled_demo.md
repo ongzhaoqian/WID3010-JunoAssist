@@ -605,7 +605,7 @@ This checklist tracks the actual software components that still need to be compl
 
 | Component | Current Status | What Still Needs To Be Done | Owner | Priority |
 |---|---|---|---|---|
-| SQLite calendar service | Implemented | Confirm database initializes and sample schedule loads. | Zhao Qian | Must |
+| SQLite calendar service | Implemented | Confirm database initializes cleanly and does not load hardcoded/sample schedule data. | Zhao Qian | Must |
 | Schedule endpoint | Implemented | Confirm dashboard displays schedule. | Zhao Qian, Mack | Must |
 | Deadline endpoint | Implemented | Confirm deadline command gives meaningful response. | Zhao Qian | Must |
 | Reminder endpoint | Implemented | Test adding/listing reminders from dashboard. | Zhao Qian, Mack | Should |

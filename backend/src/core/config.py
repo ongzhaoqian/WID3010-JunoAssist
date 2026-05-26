@@ -30,6 +30,9 @@ class Settings:
         r"roscore|rosmaster|rosout|backend/main\.py|uvicorn.*backend|pytest"
     )
     database_path: str = os.getenv("JUNO_DATABASE_PATH", "juno_assist.db")
+    # Reset runtime SQLite data every backend start so demos/tests begin from a
+    # clean state instead of loading old or seeded records.
+    database_refresh_on_start: bool = _env_bool("JUNO_DATABASE_REFRESH_ON_START", True)
     wake_phrase: str = os.getenv("JUNO_WAKE_PHRASE", "hey john")
     confirmation_phrase: str = os.getenv("JUNO_CONFIRMATION_PHRASE", "yes")
     emotion_update_seconds: float = float(os.getenv("JUNO_EMOTION_UPDATE_SECONDS", "3.0"))

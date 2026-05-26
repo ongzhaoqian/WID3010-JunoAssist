@@ -552,6 +552,17 @@ GET  /api/fitness/game
 
 Calories are estimates only, using the standard MET formula with a default MET value of 4.0 for a light fitness game movement estimate. The dashboard supports **One-off Stats** for the latest game and **Cumulative Stats** for all saved sessions.
 
+
+## Database Refresh on Startup
+
+The backend now starts with a clean runtime database by default. When `JUNO_DATABASE_REFRESH_ON_START=true`, the startup flow clears schedule items, reminders, fitness profile data, and fitness game sessions before the dashboard and ROS loops begin. No hardcoded/sample schedule dataset is loaded.
+
+Set this to `false` only if you intentionally want to persist runtime entries across backend restarts:
+
+```bash
+JUNO_DATABASE_REFRESH_ON_START=false
+```
+
 ## Quick Start: Dashboard
 
 Open a second terminal:
@@ -710,7 +721,7 @@ This project is intentionally scoped to be achievable:
 - Robot motion is optional.
 - Emotion detection can be demonstrated through a mock model first.
 - Speech can be tested using dashboard text commands.
-- Calendar data can use SQLite or sample JSON before API integration.
+- Runtime schedule, reminder, and fitness data uses SQLite and is refreshed on backend startup by default; no sample JSON dataset is loaded.
 - The system demonstrates robotics integration through perception, interaction, decision-making, and user-facing feedback.
 
 ## Ethical Note

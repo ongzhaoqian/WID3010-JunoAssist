@@ -457,3 +457,38 @@ def test_fitness_session_without_profile_marks_calories_pending(tmp_path, monkey
     stats = client.get("/api/fitness/stats?scope=latest").json()
     assert stats["needs_profile"] is True
     assert stats["calories_burned"] is None
+
+
+
+def test_database_refresh_on_start_clears_runtime_tables(tmp_path, monkeypatch):
+    db_path = tmp_path / "juno_test.db"
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(db_path))
+
+    client = TestClient(create_app())
+    created = client.post(
+        "/api/schedule",
+        json={"title": "Temporary row", "date": "2026-05-20", "time": "10:00", "type": "study", "priority": "medium"},
+    )
+    assert created.status_code == 200
+    assert client.get("/api/schedule/today").json()
+
+    # A fresh app startup should clear previous runtime rows by default.
+    refreshed_client = TestClient(create_app())
+    assert refreshed_client.get("/api/schedule/today").json() == []
+
+
+def test_startup_does_not_load_sample_schedule_dataset(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+
+    schedule = client.get("/api/schedule/today")
+    assert schedule.status_code == 200
+    assert schedule.json() == []
+
+    reminders = client.get("/api/reminders")
+    assert reminders.status_code == 200
+    assert reminders.json() == []
+
+    fitness_stats = client.get("/api/fitness/stats?scope=cumulative")
+    assert fitness_stats.status_code == 200
+    assert fitness_stats.json()["session_count"] == 0

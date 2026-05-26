@@ -7,7 +7,6 @@ import json
 import time
 import difflib
 import threading
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -78,6 +77,19 @@ def create_app() -> FastAPI:
     timer_service = TimerService()
     music_service = MusicService()
     fitness_service = FitnessService(os.getenv("JUNO_DATABASE_PATH", settings.database_path))
+
+    def _database_refresh_on_start_enabled() -> bool:
+        return os.getenv("JUNO_DATABASE_REFRESH_ON_START", "true").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    def _refresh_runtime_database() -> None:
+        calendar_service.reset_runtime_data()
+        fitness_service.reset_runtime_data()
+
+    # Refresh immediately when the backend app is constructed. This also makes
+    # test clients and non-lifespan launch paths start from a clean database.
+    if _database_refresh_on_start_enabled():
+        _refresh_runtime_database()
+
     speech_emotion_detector = SpeechEmotionDetector()
     # The emotion model is created only when the operator explicitly enables
     # the Vision Module. This keeps the dashboard camera lightweight by default.
@@ -644,7 +656,10 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup_event():
-        calendar_service.seed_from_json_if_empty(str(Path("data/sample_schedule.json")))
+        # Start each backend run from an empty operational database. This removes
+        # stale rows and avoids loading hardcoded/sample schedule data.
+        if _database_refresh_on_start_enabled():
+            _refresh_runtime_database()
         robot_state.set_camera_enabled(settings.camera_enabled_default)
         robot_state.set_vision_model_enabled(settings.vision_model_enabled_default)
         robot_state.set_vision_emotion_mode(settings.vision_emotion_mode_default)

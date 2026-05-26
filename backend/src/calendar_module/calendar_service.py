@@ -1,8 +1,6 @@
 from __future__ import annotations
-import json
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 
@@ -43,6 +41,17 @@ class CalendarService:
             )
             self._migrate_reminder_columns(conn)
 
+    def reset_runtime_data(self) -> None:
+        """Clear all schedule/reminder rows for a fresh backend session.
+
+        For robot testing, start clean so the dashboard only shows data entered
+        during the current run. No hardcoded/demo schedule rows are inserted.
+        """
+        with self._connect() as conn:
+            conn.execute("DELETE FROM schedule_items")
+            conn.execute("DELETE FROM reminders")
+            conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('schedule_items', 'reminders')")
+
     def _migrate_reminder_columns(self, conn: sqlite3.Connection) -> None:
         """Bring old reminder tables up to the schedule-like schema.
 
@@ -71,28 +80,8 @@ class CalendarService:
         conn.execute("UPDATE reminders SET type = COALESCE(NULLIF(type, ''), 'reminder')")
         conn.execute("UPDATE reminders SET priority = COALESCE(NULLIF(priority, ''), 'medium')")
 
-    def seed_from_json_if_empty(self, json_path: str) -> None:
-        with self._connect() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM schedule_items").fetchone()[0]
-            if count > 0:
-                return
-
-        path = Path(json_path)
-        if not path.exists():
-            return
-
-        items: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
-        with self._connect() as conn:
-            conn.executemany(
-                """
-                INSERT INTO schedule_items (title, date, time, type, priority)
-                VALUES (:title, :date, :time, :type, :priority)
-                """,
-                items,
-            )
-
     def get_today_schedule(self) -> list[dict[str, Any]]:
-        # For demo purposes, return all seeded/user-added records.
+        # Return records created during the current clean backend run.
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, title, date, time, type, priority FROM schedule_items ORDER BY COALESCE(date, ''), COALESCE(time, ''), id"
