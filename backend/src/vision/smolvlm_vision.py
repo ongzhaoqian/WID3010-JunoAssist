@@ -23,14 +23,10 @@ import numpy as np
 
 from src.core.config import settings
 from src.core.models import EmotionState
+from src.vision.emotion_labels import EKMAN_EMOTIONS
 
-JUNO_EMOTION_LABELS = [
-    EmotionState.HAPPY,
-    EmotionState.NEUTRAL,
-    EmotionState.TIRED,
-    EmotionState.STRESSED,
-    EmotionState.FRUSTRATED,
-]
+JUNO_EMOTION_LABELS = list(EKMAN_EMOTIONS)
+
 
 _LABEL_TO_INDEX = {label: idx for idx, label in enumerate(JUNO_EMOTION_LABELS)}
 _LABEL_VALUES = {label.value for label in JUNO_EMOTION_LABELS}
@@ -38,17 +34,17 @@ _LABEL_VALUES = {label.value for label in JUNO_EMOTION_LABELS}
 DEFAULT_VISION_PROMPT = """
 You are JUNO Assist's compact vision-language module. Estimate the user's CURRENT VISIBLE STATE from this webcam frame for supportive human-robot interaction.
 
-Allowed labels only: happy, neutral, tired, stressed, frustrated, unknown.
+Allowed labels only: anger, disgust, fear, happiness, sadness, surprise, neutral, unknown.
 
 Decision rules:
 - Use only visible expression/posture cues such as eyes, eyebrows, mouth, facial tension, head angle, posture, and attentiveness.
 - Do not infer identity, age, gender, ethnicity, diagnosis, or private traits.
 - Do not default to neutral. Use neutral only when the person looks calm, relaxed, or normally attentive.
 - If the face is unclear, no person is visible, the image is too dark, or cues conflict strongly, use unknown with low confidence.
-- For subtle cues, still choose the most likely non-neutral label when there is evidence: droopy eyes or yawning -> tired; furrowed brow, tense face, worried look -> stressed; scowl, clenched jaw, annoyed look -> frustrated; smile/bright expression -> happy.
+- For subtle cues, still choose the most likely non-neutral label when there is evidence: scowl/clenched jaw -> anger; wrinkled nose/dislike -> disgust; wide eyes/worried look -> fear; smile/bright expression -> happiness; droopy eyes/downturned mouth -> sadness; raised eyebrows/open mouth -> surprise.
 
 Return ONLY valid compact JSON with this exact schema:
-{"emotion":"stressed","confidence":0.62,"scores":{"happy":0.05,"neutral":0.18,"tired":0.12,"stressed":0.55,"frustrated":0.10},"visual_cues":["furrowed brow","tense mouth"],"description":"brief reason"}
+{"emotion":"fear","confidence":0.62,"scores":{"anger":0.05,"disgust":0.02,"fear":0.55,"happiness":0.03,"sadness":0.12,"surprise":0.05,"neutral":0.18},"visual_cues":["furrowed brow","tense mouth"],"description":"brief reason"}
 
 The scores should sum roughly to 1. Confidence should reflect how clear the visible cues are, not how common the emotion is.
 """.strip()
@@ -365,7 +361,7 @@ class SmolVLMVisionModel:
         # Fallback parser if the model returns prose instead of JSON.
         lowered = text.lower()
         emotion = EmotionState.UNKNOWN
-        for label in ["frustrated", "stressed", "tired", "happy", "neutral", "unknown"]:
+        for label in ["anger", "angry", "disgust", "disgusted", "fear", "fearful", "happiness", "happy", "sadness", "sad", "surprise", "surprised", "neutral", "unknown", "frustrated", "stressed", "tired"]:
             if re.search(rf"\b{label}\b", lowered):
                 emotion = _normalise_emotion(label)
                 break
@@ -443,24 +439,40 @@ def _normalise_emotion(value: Any) -> EmotionState:
     label = str(value or "unknown").strip().lower()
     label = re.sub(r"[^a-z]", "", label)
     aliases = {
+        "happy": EmotionState.HAPPINESS,
+        "happiness": EmotionState.HAPPINESS,
+        "joy": EmotionState.HAPPINESS,
+        "joyful": EmotionState.HAPPINESS,
+        "anger": EmotionState.ANGER,
+        "angry": EmotionState.ANGER,
+        "frustrated": EmotionState.ANGER,
+        "disgust": EmotionState.DISGUST,
+        "disgusted": EmotionState.DISGUST,
+        "fear": EmotionState.FEAR,
+        "fearful": EmotionState.FEAR,
+        "stressed": EmotionState.FEAR,
+        "sad": EmotionState.SADNESS,
+        "sadness": EmotionState.SADNESS,
+        "surprise": EmotionState.SURPRISE,
+        "surprised": EmotionState.SURPRISE,
         "calm": EmotionState.NEUTRAL,
         "focused": EmotionState.NEUTRAL,
         "relaxed": EmotionState.NEUTRAL,
         "attentive": EmotionState.NEUTRAL,
         "normal": EmotionState.NEUTRAL,
-        "sleepy": EmotionState.TIRED,
-        "fatigued": EmotionState.TIRED,
-        "exhausted": EmotionState.TIRED,
-        "drained": EmotionState.TIRED,
-        "anxious": EmotionState.STRESSED,
-        "stress": EmotionState.STRESSED,
-        "worried": EmotionState.STRESSED,
-        "tense": EmotionState.STRESSED,
-        "angry": EmotionState.FRUSTRATED,
-        "annoyed": EmotionState.FRUSTRATED,
-        "irritated": EmotionState.FRUSTRATED,
-        "confused": EmotionState.FRUSTRATED,
-        "smiling": EmotionState.HAPPY,
+        "sleepy": EmotionState.SADNESS,
+        "fatigued": EmotionState.SADNESS,
+        "exhausted": EmotionState.SADNESS,
+        "drained": EmotionState.SADNESS,
+        "anxious": EmotionState.FEAR,
+        "stress": EmotionState.FEAR,
+        "worried": EmotionState.FEAR,
+        "tense": EmotionState.FEAR,
+        "mad": EmotionState.ANGER,
+        "annoyed": EmotionState.ANGER,
+        "irritated": EmotionState.ANGER,
+        "confused": EmotionState.SURPRISE,
+        "smiling": EmotionState.HAPPINESS,
     }
     if label in aliases:
         return aliases[label]
@@ -517,25 +529,33 @@ def _normalise_cues(value: Any) -> list[str]:
 
 
 _CUE_KEYWORDS: dict[EmotionState, tuple[tuple[str, float], ...]] = {
-    EmotionState.HAPPY: (
+    EmotionState.HAPPINESS: (
         ("smile", 0.32), ("smiling", 0.36), ("cheerful", 0.28), ("bright expression", 0.25),
         ("laugh", 0.25), ("upturned mouth", 0.25),
     ),
-    EmotionState.TIRED: (
+    EmotionState.SADNESS: (
         ("tired", 0.35), ("sleepy", 0.35), ("droopy", 0.28), ("drooping", 0.28),
         ("yawn", 0.36), ("eyes closed", 0.30), ("half closed eyes", 0.28),
         ("slumped", 0.25), ("head down", 0.22), ("low energy", 0.25), ("fatigued", 0.35),
         ("exhausted", 0.35),
     ),
-    EmotionState.STRESSED: (
-        ("stressed", 0.36), ("stress", 0.30), ("tense", 0.28), ("tension", 0.28),
+    EmotionState.FEAR: (
+        ("fear", 0.34), ("fearful", 0.34), ("stressed", 0.30), ("stress", 0.25), ("tense", 0.28), ("tension", 0.28),
         ("furrowed", 0.30), ("furrowed brow", 0.36), ("worried", 0.32), ("anxious", 0.34),
         ("strained", 0.30), ("wide eyes", 0.20), ("pressed lips", 0.22), ("brow tension", 0.30),
     ),
-    EmotionState.FRUSTRATED: (
-        ("frustrated", 0.38), ("annoyed", 0.34), ("angry", 0.35), ("irritated", 0.34),
+    EmotionState.ANGER: (
+        ("anger", 0.38), ("angry", 0.35), ("frustrated", 0.34), ("annoyed", 0.34), ("irritated", 0.34),
         ("scowl", 0.32), ("scowling", 0.32), ("clenched jaw", 0.30), ("grimace", 0.30),
         ("frown", 0.25), ("pursed lips", 0.24),
+    ),
+    EmotionState.DISGUST: (
+        ("disgust", 0.36), ("disgusted", 0.36), ("wrinkled nose", 0.30),
+        ("nose wrinkle", 0.30), ("grimace", 0.22), ("repulsed", 0.32),
+    ),
+    EmotionState.SURPRISE: (
+        ("surprise", 0.36), ("surprised", 0.36), ("raised eyebrows", 0.30),
+        ("wide eyes", 0.28), ("open mouth", 0.26), ("startled", 0.30),
     ),
     EmotionState.NEUTRAL: (
         ("neutral", 0.20), ("calm", 0.30), ("relaxed", 0.32), ("attentive", 0.25),

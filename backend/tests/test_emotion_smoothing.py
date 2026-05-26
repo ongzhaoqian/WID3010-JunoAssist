@@ -31,9 +31,10 @@ def test_emotion_smoother_empty_returns_unknown():
 
 def test_ema_initialises_to_neutral():
     from src.vision.emotion_fusion import EMAFusion
+    from src.vision.emotion_labels import LABEL_TO_INDEX
     ema = EMAFusion()
-    # Index 1 = Neutral; must be 1.0 on init
-    assert ema.P_t[1] == pytest.approx(1.0)
+    neutral_idx = LABEL_TO_INDEX[EmotionState.NEUTRAL]
+    assert ema.P_t[neutral_idx] == pytest.approx(1.0)
     assert ema.P_t.sum() == pytest.approx(1.0)
 
 
@@ -48,29 +49,32 @@ def test_ema_skip_does_not_change_distribution():
 
 def test_ema_update_moves_toward_input():
     from src.vision.emotion_fusion import EMAFusion
+    from src.vision.emotion_labels import LABEL_TO_INDEX, one_hot
     ema = EMAFusion(alpha=0.30)
-    P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
-    tired_before = float(ema.P_t[2])  # index 2 = Tired, initially 0.0
-    ema.update(P_tired)
-    assert ema.P_t[2] > tired_before
+    P_sadness = one_hot(EmotionState.SADNESS)
+    sadness_idx = LABEL_TO_INDEX[EmotionState.SADNESS]
+    sadness_before = float(ema.P_t[sadness_idx])
+    ema.update(P_sadness)
+    assert ema.P_t[sadness_idx] > sadness_before
 
 
 def test_ema_update_correct_weighted_blend():
     from src.vision.emotion_fusion import EMAFusion
+    from src.vision.emotion_labels import LABEL_TO_INDEX, one_hot, empty_distribution
     ema = EMAFusion(alpha=0.30)
-    # Initial P_t = [0, 1, 0, 0, 0]  (Neutral)
-    # Input       = [0, 0, 1, 0, 0]  (Tired)
-    # Expected    = 0.3*[0,0,1,0,0] + 0.7*[0,1,0,0,0] = [0, 0.7, 0.3, 0, 0]
-    P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
-    result = ema.update(P_tired)
-    expected = np.array([0.0, 0.7, 0.3, 0.0, 0.0], dtype=np.float32)
+    P_sadness = one_hot(EmotionState.SADNESS)
+    result = ema.update(P_sadness)
+    expected = 0.3 * P_sadness + 0.7 * empty_distribution(neutral=True)
     assert np.allclose(result, expected, atol=1e-5)
+    assert result[LABEL_TO_INDEX[EmotionState.SADNESS]] == pytest.approx(0.30)
+    assert result[LABEL_TO_INDEX[EmotionState.NEUTRAL]] == pytest.approx(0.70)
 
 
 def test_ema_update_returns_copy_not_reference():
     from src.vision.emotion_fusion import EMAFusion
+    from src.vision.emotion_labels import one_hot
     ema = EMAFusion()
-    P_input = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    P_input = one_hot(EmotionState.SADNESS)
     result = ema.update(P_input)
     result[0] = 99.0   # mutate the returned array
     assert ema.P_t[0] != 99.0  # internal state must be unaffected
@@ -78,10 +82,11 @@ def test_ema_update_returns_copy_not_reference():
 
 def test_ema_reset_restores_neutral():
     from src.vision.emotion_fusion import EMAFusion
+    from src.vision.emotion_labels import LABEL_TO_INDEX, one_hot
     ema = EMAFusion()
-    ema.update(np.array([1.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32))  # push toward Happy
+    ema.update(one_hot(EmotionState.HAPPINESS))
     ema.reset()
-    assert ema.P_t[1] == pytest.approx(1.0)  # back to Neutral
+    assert ema.P_t[LABEL_TO_INDEX[EmotionState.NEUTRAL]] == pytest.approx(1.0)
 
 
 # ── HysteresisStateMachine ────────────────────────────────────────────────────
@@ -95,7 +100,8 @@ def test_hysteresis_starts_neutral():
 def test_hysteresis_no_transition_before_dwell():
     from src.vision.emotion_fusion import HysteresisStateMachine, DWELL_FRAMES
     hsm = HysteresisStateMachine()
-    P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    from src.vision.emotion_labels import one_hot
+    P_tired = one_hot(EmotionState.SADNESS)
     for _ in range(DWELL_FRAMES - 1):
         hsm.update(P_tired)
     # 44 frames of Tired — state must still be Neutral
@@ -106,7 +112,8 @@ def test_hysteresis_no_transition_before_dwell():
 def test_hysteresis_transitions_at_dwell():
     from src.vision.emotion_fusion import HysteresisStateMachine, DWELL_FRAMES
     hsm = HysteresisStateMachine()
-    P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    from src.vision.emotion_labels import one_hot
+    P_tired = one_hot(EmotionState.SADNESS)
     for _ in range(DWELL_FRAMES):
         hsm.update(P_tired)
     # Exactly DWELL_FRAMES frames of Tired — must have transitioned
@@ -116,8 +123,9 @@ def test_hysteresis_transitions_at_dwell():
 def test_hysteresis_resets_dwell_on_candidate_change():
     from src.vision.emotion_fusion import HysteresisStateMachine, DWELL_FRAMES
     hsm = HysteresisStateMachine()
-    P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
-    P_neutral = np.array([0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    from src.vision.emotion_labels import one_hot
+    P_tired = one_hot(EmotionState.SADNESS)
+    P_neutral = one_hot(EmotionState.NEUTRAL)
 
     if DWELL_FRAMES <= 1:
         # Fast-response configuration: one clear Tired frame is enough to commit.
@@ -143,7 +151,8 @@ def test_hysteresis_resets_dwell_on_candidate_change():
 def test_hysteresis_dwell_resets_after_commit():
     from src.vision.emotion_fusion import HysteresisStateMachine, DWELL_FRAMES
     hsm = HysteresisStateMachine()
-    P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    from src.vision.emotion_labels import one_hot
+    P_tired = one_hot(EmotionState.SADNESS)
     for _ in range(DWELL_FRAMES):
         hsm.update(P_tired)
     assert hsm.current_state == EmotionState.TIRED
@@ -154,7 +163,8 @@ def test_hysteresis_dwell_resets_after_commit():
 def test_hysteresis_committed_state_does_not_flicker():
     from src.vision.emotion_fusion import HysteresisStateMachine, DWELL_FRAMES
     hsm = HysteresisStateMachine()
-    P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    from src.vision.emotion_labels import one_hot
+    P_tired = one_hot(EmotionState.SADNESS)
 
     # Commit Tired
     for _ in range(DWELL_FRAMES):
@@ -170,11 +180,13 @@ def test_hysteresis_committed_state_does_not_flicker():
 # ── EmotionDetector integration (mock path) ───────────────────────────────────
 
 _VALID_STATES = {
-    EmotionState.HAPPY,
+    EmotionState.ANGER,
+    EmotionState.DISGUST,
+    EmotionState.FEAR,
+    EmotionState.HAPPINESS,
+    EmotionState.SADNESS,
+    EmotionState.SURPRISE,
     EmotionState.NEUTRAL,
-    EmotionState.TIRED,
-    EmotionState.STRESSED,
-    EmotionState.FRUSTRATED,
 }
 
 
@@ -221,7 +233,8 @@ def test_mock_detector_hsm_prevents_rapid_state_change():
 
     detector = EmotionDetector()
 
-    P_tired = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    from src.vision.emotion_labels import one_hot
+    P_tired = one_hot(EmotionState.SADNESS)
     for _ in range(DWELL_FRAMES + 1):
         detector.ema.update(P_tired)
         committed = detector.hsm.update(detector.ema.P_t)

@@ -2107,3 +2107,17 @@ curl -s -X POST http://localhost:8000/api/command \
 The timer duration prompt now accepts flexible formats such as `twenty five minutes`, `1h 30m`, `half an hour`, and `2:30`. The user may exit the timer flow by saying `cancel`, `not now`, `skip`, or `never mind`; repeated unclear responses also cancel the pending timer setup. The dashboard Study Timer card provides Pause/Resume and Stop controls, and the active speech flow understands fuzzy timer-control commands such as `pause timer`, `resume timer`, `stop timer`, `end the countdown`, and `cancel the focus session`.
 
 When the user's transcript explicitly states an emotion, such as `I am stressed` or `I feel tired`, the backend treats the speech cue as higher priority than the visual emotion estimate for a short configurable window (`JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`).
+
+## Switchable JUNO/Ekman Vision Module Update
+
+The dashboard Vision Module now uses the `face_expression` backend by default with `mo-thecreator/vit-Facial-Expression-Recognition`, replacing SmolVLM as the normal emotion classifier. The classifier produces canonical Ekman evidence internally, while the dashboard can switch between JUNO mode (`happy`, `sad`, `tired`, `frustrated`, `stressed`, `neutral`) and Ekman mode (`anger`, `disgust`, `fear`, `happiness`, `sadness`, `surprise`, `neutral`) at any time during the same run. `unknown` is used when the frame or confidence is insufficient. Spoken emotion cues still override camera inference; for example, “I am stressed” is mapped to Ekman `fear` and shown as `stressed` in JUNO mode.
+
+Recommended environment settings:
+
+```bash
+JUNO_VISION_BACKEND=face_expression
+JUNO_VISION_MODEL_ID=mo-thecreator/vit-Facial-Expression-Recognition
+JUNO_VISION_EMOTION_MODE_DEFAULT=juno
+JUNO_VISION_REQUIRE_FACE=false
+JUNO_VISION_NEUTRAL_UNCERTAIN_CONFIDENCE=0.45
+```

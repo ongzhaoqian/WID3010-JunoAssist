@@ -62,11 +62,15 @@ def test_voice_timer_flow_asks_then_starts_duration():
 
     ask = client.post("/api/command", json={"text": "start study timer"})
     assert ask.status_code == 200
-    assert ask.json()["status"]["awaiting_timer_duration"] is True
+    assert ask.json()["status"]["awaiting_timer_minutes"] is True
 
-    duration_reply = client.post("/api/command", json={"text": "1 minute and 15 seconds"})
-    assert duration_reply.status_code == 200
-    payload = duration_reply.json()
+    minutes_reply = client.post("/api/command", json={"text": "1"})
+    assert minutes_reply.status_code == 200
+    assert minutes_reply.json()["status"]["awaiting_timer_seconds"] is True
+
+    seconds_reply = client.post("/api/command", json={"text": "15"})
+    assert seconds_reply.status_code == 200
+    payload = seconds_reply.json()
     assert payload["timer"]["remaining_seconds"] == 75
     assert payload["status"]["awaiting_timer_duration"] is False
     assert payload["status"]["awaiting_timer_minutes"] is False
@@ -80,7 +84,7 @@ def test_music_play_uses_current_emotion_and_spotify_embed():
     response = client.post("/api/music/play")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["emotion"] == "stressed"
+    assert payload["emotion"] == "fear"
     assert "open.spotify.com/embed" in payload["embed_url"]
 
     status = client.get("/api/music/status")
@@ -127,7 +131,7 @@ def test_voice_timer_flow_can_be_cancelled():
 
     ask = client.post("/api/command", json={"text": "start study timer"})
     assert ask.status_code == 200
-    assert ask.json()["status"]["awaiting_timer_duration"] is True
+    assert ask.json()["status"]["awaiting_timer_minutes"] is True
 
     cancel = client.post("/api/command", json={"text": "cancel"})
     assert cancel.status_code == 200
@@ -142,11 +146,11 @@ def test_voice_timer_flow_cancels_after_repeated_unclear_answers():
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_awaiting_timer_duration(True)
 
-    first = client.post("/api/command", json={"text": "umm maybe"})
+    first = client.post("/api/command", json={"text": "zero minutes"})
     assert first.status_code == 200
     assert first.json()["status"]["awaiting_timer_duration"] is True
 
-    second = client.post("/api/command", json={"text": "still not sure"})
+    second = client.post("/api/command", json={"text": "zero seconds"})
     assert second.status_code == 200
     assert second.json()["status"]["awaiting_timer_duration"] is False
 
@@ -182,7 +186,7 @@ def test_speech_emotion_overrides_visual_emotion_for_break_request():
     response = client.post("/api/command", json={"text": "I am stressed"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"]["current_emotion"] == "stressed"
+    assert payload["status"]["current_emotion"] == "fear"
     assert payload["status"]["emotion_source"] == "speech"
     assert "stressed" in payload["response"].lower()
 

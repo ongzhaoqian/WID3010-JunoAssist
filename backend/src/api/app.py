@@ -16,7 +16,7 @@ from src.activation.confirmation_handler import ConfirmationHandler
 from src.activation.wake_word_detector import WakeWordDetector
 from src.calendar_module.calendar_service import CalendarService
 from src.core.config import settings
-from src.core.models import CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, RobotMode, Intent, EmotionState
+from src.core.models import CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -135,7 +135,12 @@ def create_app() -> FastAPI:
             "camera_topic": settings.camera_topic,
             "stream_fps": settings.camera_stream_fps,
             "stream_url": "/api/vision/camera/stream",
-            "emotion": snapshot.get("current_emotion"),
+            "emotion": snapshot.get("display_emotion"),
+            "display_emotion": snapshot.get("display_emotion"),
+            "juno_emotion": snapshot.get("juno_emotion"),
+            "raw_ekman_emotion": snapshot.get("raw_ekman_emotion"),
+            "raw_ekman_scores": snapshot.get("raw_ekman_scores", {}),
+            "vision_emotion_mode": snapshot.get("vision_emotion_mode", "juno"),
             "emotion_source": snapshot.get("emotion_source"),
             "emotion_confidence": snapshot.get("emotion_confidence"),
             "vision_backend": detector.backend_name if detector is not None else settings.vision_backend,
@@ -218,6 +223,21 @@ def create_app() -> FastAPI:
         # flow, so replies such as "five minutes", "make it thirty", or
         # "zero seconds" are understood.
         return intent_classifier.extract_spoken_number(text)
+
+    _NUMBER_CONTENT_RE = re.compile(
+        r"\b(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|"
+        r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
+        r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|half|quarter)\b"
+    )
+
+    def _has_number_content(text: str) -> bool:
+        """Return True when text contains any digit or number word.
+
+        Used to distinguish a real-but-unclear answer ("twenty ish", "one")
+        from pure ASR noise ("what the hell is this") so that noise does not
+        burn the limited attempt counter and trigger premature cancellation.
+        """
+        return bool(_NUMBER_CONTENT_RE.search(text.lower()))
 
     def _timer_is_active_or_paused() -> bool:
         snap = robot_state.snapshot()
@@ -470,6 +490,8 @@ def create_app() -> FastAPI:
                 minutes = _extract_bare_number(text)
                 if minutes is not None:
                     return _ask_for_timer_seconds(minutes)
+                if not _has_number_content(text):
+                    return {"intent": Intent.SET_TIMER, "response": snapshot["last_response"], "status": robot_state.snapshot()}
                 attempts = robot_state.increment_timer_duration_attempts()
                 if attempts >= 2:
                     return _cancel_timer_setup("timer_cancelled_after_unclear")
@@ -492,6 +514,8 @@ def create_app() -> FastAPI:
                         tts.speak(response)
                         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
                     return _start_study_timer_from_seconds(total)
+                if not _has_number_content(text):
+                    return {"intent": Intent.SET_TIMER, "response": snapshot["last_response"], "status": robot_state.snapshot()}
                 attempts = robot_state.increment_timer_duration_attempts()
                 if attempts >= 2:
                     return _cancel_timer_setup("timer_cancelled_after_unclear")
@@ -510,6 +534,8 @@ def create_app() -> FastAPI:
                 if intent_classifier.is_likely_different_active_intent(text):
                     robot_state.set_awaiting_timer_duration(False)
                     return process_command_text(raw_text)
+                if not _has_number_content(text):
+                    return {"intent": Intent.SET_TIMER, "response": snapshot["last_response"], "status": robot_state.snapshot()}
                 attempts = robot_state.increment_timer_duration_attempts()
                 if attempts >= 2:
                     return _cancel_timer_setup("timer_cancelled_after_unclear")
@@ -534,7 +560,7 @@ def create_app() -> FastAPI:
                 duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
                 if duration_seconds:
                     return _start_study_timer_from_seconds(duration_seconds)
-                return _ask_for_timer_duration()
+                return _ask_for_timer_minutes()
             elif intent == Intent.ADD_SCHEDULE:
                 return _add_schedule_from_transcript(text)
             elif intent == Intent.ADD_REMINDER:
@@ -573,6 +599,7 @@ def create_app() -> FastAPI:
         calendar_service.seed_from_json_if_empty(str(Path("data/sample_schedule.json")))
         robot_state.set_camera_enabled(settings.camera_enabled_default)
         robot_state.set_vision_model_enabled(settings.vision_model_enabled_default)
+        robot_state.set_vision_emotion_mode(settings.vision_emotion_mode_default)
         asyncio.create_task(_emotion_monitor_loop())
         asyncio.create_task(_timer_loop())
         if settings.use_ros_robot:
@@ -587,10 +614,12 @@ def create_app() -> FastAPI:
                     if not robot_state.speech_emotion_override_active(settings.speech_emotion_override_seconds):
                         detector = _ensure_emotion_detector()
                         emotion = detector.predict_from_frame(frame)
+                        scores = getattr(detector.last_analysis, "scores", {}) if detector.last_analysis is not None else {}
                         robot_state.set_emotion(
                             emotion,
                             source=f"vision",
                             confidence=detector.last_confidence,
+                            scores=scores,
                         )
             await asyncio.sleep(settings.emotion_update_seconds)
 
@@ -698,9 +727,24 @@ def create_app() -> FastAPI:
         robot_state.set_vision_model_enabled(False)
         return _vision_status()
 
+    @app.get("/api/vision/mode")
+    def get_vision_mode():
+        snapshot = robot_state.snapshot()
+        return {
+            "mode": snapshot.get("vision_emotion_mode", VisionEmotionMode.JUNO.value),
+            "display_emotion": snapshot.get("display_emotion", "unknown"),
+            "juno_emotion": snapshot.get("juno_emotion", "unknown"),
+            "raw_ekman_emotion": snapshot.get("raw_ekman_emotion", EmotionState.UNKNOWN),
+        }
+
+    @app.post("/api/vision/mode")
+    def set_vision_mode(request: VisionModeRequest):
+        robot_state.set_vision_emotion_mode(request.mode)
+        return _vision_status()
+
     @app.post("/api/vision/analyse")
     def analyse_current_camera_frame():
-        """Run one immediate SmolVLM/vision analysis on the latest camera frame."""
+        """Run one immediate facial-expression analysis on the latest camera frame."""
         frame = robot.get_camera_frame()
         if frame is None:
             raise HTTPException(status_code=404, detail="No camera frame is currently available.")
@@ -714,6 +758,7 @@ def create_app() -> FastAPI:
             emotion,
             source=f"vision",
             confidence=float(analysis.get("confidence") or 0.0),
+            scores=getattr(detector.last_analysis, "scores", {}) if detector.last_analysis is not None else {},
         )
         return {"analysis": analysis, "status": robot_state.snapshot(), "vision": _vision_status()}
 

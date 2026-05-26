@@ -9,49 +9,31 @@ import numpy as np
 from src.core.config import settings
 from src.core.models import EmotionState
 from .emotion_fusion import EMAFusion, HysteresisStateMachine
+from .emotion_labels import EKMAN_EMOTIONS, JUNO_EMOTIONS, one_hot, normalise_distribution, ekman_to_juno_label
+from .facial_expression_classifier import FaceExpressionClassifier, FacialEmotionAnalysis
 from .smolvlm_vision import SmolVLMVisionModel, VisionAnalysis
 
-# ── Mock predictor weights ────────────────────────────────────────────────────
-
+# Mock path now follows the same Ekman taxonomy as the real classifier.
 _MOCK_WEIGHTS = [
     EmotionState.NEUTRAL,
     EmotionState.NEUTRAL,
-    EmotionState.NEUTRAL,
-    EmotionState.TIRED,
-    EmotionState.STRESSED,
-    EmotionState.HAPPY,
-    EmotionState.FRUSTRATED,
+    EmotionState.HAPPINESS,
+    EmotionState.SADNESS,
+    EmotionState.FEAR,
+    EmotionState.ANGER,
+    EmotionState.SURPRISE,
 ]
 
-# One-hot Juno-5 vectors — index order must match emotion_fusion._LABELS exactly:
-# [Happy=0, Neutral=1, Tired=2, Stressed=3, Frustrated=4]
-_JUNO_ONE_HOT: dict = {
-    EmotionState.HAPPY:      np.array([1.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
-    EmotionState.NEUTRAL:    np.array([0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32),
-    EmotionState.TIRED:      np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32),
-    EmotionState.STRESSED:   np.array([0.0, 0.0, 0.0, 1.0, 0.0], dtype=np.float32),
-    EmotionState.FRUSTRATED: np.array([0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float32),
-}
-
-# ── FER-7 → Juno-5 projection matrix ─────────────────────────────────────────
-# Rows = Juno-5 [Happy, Neutral, Tired, Stressed, Frustrated]
-# Cols = FER-7  [Angry, Disgust, Fear, Happy, Sad, Surprise, Neutral]
-MAPPING_MATRIX = np.array([
-    [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Happy     ← Happy (1:1)
-    [0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.8],  # Neutral   ← Neutral(0.8) + Surprise(0.2)
-    [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],  # Tired     ← Sad (low-arousal negative affect)
-    [0.3, 0.1, 0.6, 0.0, 0.0, 0.0, 0.0],  # Stressed  ← Fear(0.6)+Angry(0.3)+Disgust(0.1)
-    [0.7, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0],  # Frustrated← Angry(0.7)+Disgust(0.3)
-], dtype=np.float32)
-
-
-def _remap(P_raw: np.ndarray) -> np.ndarray:
-    """Project 7-class FER softmax onto 5 Juno emotion classes."""
-    P_juno = MAPPING_MATRIX @ P_raw
-    total = P_juno.sum()
-    if total > 0:
-        P_juno /= total
-    return P_juno
+# Legacy CNN order used by common FER2013 Mini-Xception examples.
+_LEGACY_FER_ORDER = (
+    EmotionState.ANGER,
+    EmotionState.DISGUST,
+    EmotionState.FEAR,
+    EmotionState.HAPPINESS,
+    EmotionState.SADNESS,
+    EmotionState.SURPRISE,
+    EmotionState.NEUTRAL,
+)
 
 
 def detect_face(frame: np.ndarray, net) -> Tuple[Optional[np.ndarray], float]:
@@ -80,7 +62,7 @@ def detect_face(frame: np.ndarray, net) -> Tuple[Optional[np.ndarray], float]:
 
 
 def preprocess_face(face_roi: np.ndarray) -> np.ndarray:
-    """Prepare face ROI for Mini-Xception: 64×64 grayscale, shape (1, 64, 64, 1)."""
+    """Prepare face ROI for legacy Mini-Xception: 64×64 grayscale."""
     import cv2
     face_gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
     face_resized = cv2.resize(face_gray, (64, 64))
@@ -91,14 +73,11 @@ def preprocess_face(face_roi: np.ndarray) -> np.ndarray:
 class EmotionDetector:
     """Core vision detector for JUNO Assist.
 
-    Production path: HuggingFaceTB/SmolVLM-256M-Instruct analyses the camera
-    frame with a compact image-text prompt and returns a JUNO emotion label.
-    The text result is converted into a five-class probability vector, then the
-    existing EMA + hysteresis smoother prevents rapid emotion flicker.
-
-    Fallbacks remain available:
-    - ``JUNO_VISION_BACKEND=mock`` for lightweight demos/tests.
-    - ``JUNO_VISION_BACKEND=legacy_cnn`` for the older OpenCV + CNN experiment.
+    Default production path: a lightweight facial-expression image classifier
+    fine-tuned for Ekman-7 emotions. SmolVLM remains available only as an
+    opt-in fallback (`JUNO_VISION_BACKEND=smolvlm`) for experiments, because it
+    is a general vision-language model and was not reliable for calibrated face
+    emotion classification in the robot loop.
     """
 
     def __init__(self, use_real: bool = False) -> None:
@@ -106,7 +85,7 @@ class EmotionDetector:
         self.hsm = HysteresisStateMachine()
         self.use_real = use_real
         self.backend_name = settings.vision_backend if use_real else "mock"
-        self.last_analysis: Optional[VisionAnalysis] = None
+        self.last_analysis: Optional[VisionAnalysis | FacialEmotionAnalysis] = None
         self.last_confidence: float = 0.0
         self.last_description: str = ""
         self.last_raw_output: str = ""
@@ -114,9 +93,16 @@ class EmotionDetector:
         self._face_net = None
         self._cnn_model = None
         self._smolvlm: Optional[SmolVLMVisionModel] = None
-        self._smolvlm_has_valid_signal = False
+        self._facial_classifier: Optional[FaceExpressionClassifier] = None
+        self._has_valid_signal = False
 
-        if use_real and self.backend_name == "smolvlm":
+        if use_real and self.backend_name in {"fer", "face_expression", "ekman", "vit"}:
+            self.backend_name = "face_expression"
+            self._facial_classifier = FaceExpressionClassifier(
+                model_id=settings.vision_model_id,
+                device=settings.vision_device,
+            )
+        elif use_real and self.backend_name == "smolvlm":
             self._smolvlm = SmolVLMVisionModel(
                 model_id=settings.vision_model_id,
                 device=settings.vision_device,
@@ -124,13 +110,15 @@ class EmotionDetector:
             )
         elif use_real and self.backend_name in {"legacy_cnn", "cnn", "opencv"}:
             self._load_legacy_cnn_models()
-        elif use_real and self.backend_name not in {"mock", "smolvlm", "legacy_cnn", "cnn", "opencv"}:
+        elif use_real and self.backend_name not in {"mock", "face_expression", "fer", "ekman", "vit", "smolvlm", "legacy_cnn", "cnn", "opencv"}:
             print(f"[EmotionDetector] Unknown JUNO_VISION_BACKEND={self.backend_name!r}; falling back to mock.")
             self.backend_name = "mock"
             self.use_real = False
 
     @property
     def model_loaded(self) -> bool:
+        if self.backend_name == "face_expression" and self._facial_classifier is not None:
+            return self._facial_classifier.loaded
         if self.backend_name == "smolvlm" and self._smolvlm is not None:
             return self._smolvlm.loaded
         if self.backend_name in {"legacy_cnn", "cnn", "opencv"}:
@@ -139,7 +127,7 @@ class EmotionDetector:
 
     @property
     def model_id(self) -> str:
-        if self.backend_name == "smolvlm":
+        if self.backend_name in {"face_expression", "smolvlm"}:
             return settings.vision_model_id
         if self.backend_name in {"legacy_cnn", "cnn", "opencv"}:
             return os.getenv("EMOTION_MODEL_PATH", "models/emotion_model.h5")
@@ -157,7 +145,7 @@ class EmotionDetector:
                 print("[EmotionDetector] Face detection model loaded.")
             if os.path.exists(model_path):
                 self._cnn_model = load_model(model_path, compile=False)
-                print("[EmotionDetector] Emotion classification model loaded.")
+                print("[EmotionDetector] Legacy emotion classification model loaded.")
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             print(f"[EmotionDetector] Legacy CNN load failed: {exc}. Falling back to mock.")
@@ -166,11 +154,18 @@ class EmotionDetector:
 
     def analyse_frame(self, frame: Any = None) -> dict:
         emotion = self.predict_from_frame(frame)
+        scores = getattr(self.last_analysis, "scores", {}) if self.last_analysis is not None else {}
         return {
             "emotion": emotion.value if isinstance(emotion, EmotionState) else str(emotion),
+            "raw_ekman_emotion": emotion.value if isinstance(emotion, EmotionState) else str(emotion),
+            "juno_emotion": ekman_to_juno_label(emotion, scores=scores, source="vision"),
             "confidence": self.last_confidence,
             "description": self.last_description,
             "raw_output": self.last_raw_output,
+            "scores": {key.value: float(value) for key, value in scores.items()},
+            "ekman_labels": [emotion.value for emotion in EKMAN_EMOTIONS],
+            "juno_labels": list(JUNO_EMOTIONS),
+            "labels": [emotion.value for emotion in EKMAN_EMOTIONS],
             "backend": self.backend_name,
             "model_id": self.model_id,
             "model_loaded": self.model_loaded,
@@ -178,79 +173,82 @@ class EmotionDetector:
         }
 
     def predict_from_frame(self, frame: Any = None) -> EmotionState:
+        if self.use_real and frame is not None and self.backend_name == "face_expression" and self._facial_classifier is not None:
+            return self._predict_with_face_expression(frame)
+
         if self.use_real and frame is not None and self.backend_name == "smolvlm" and self._smolvlm is not None:
             return self._predict_with_smolvlm(frame)
 
-        if (self.use_real
-                and frame is not None
-                and self.backend_name in {"legacy_cnn", "cnn", "opencv"}
-                and self._face_net is not None
-                and self._cnn_model is not None):
+        if (
+            self.use_real
+            and frame is not None
+            and self.backend_name in {"legacy_cnn", "cnn", "opencv"}
+            and self._face_net is not None
+            and self._cnn_model is not None
+        ):
             return self._predict_with_legacy_cnn(frame)
 
-        P_juno = self._mock_predict()
-        self.last_confidence = float(P_juno.max())
-        self.last_description = "Mock vision emotion used because the real vision model is unavailable or disabled."
+        P = self._mock_predict()
+        self.last_confidence = float(P.max())
+        self.last_description = "Mock Ekman emotion used because the real vision model is unavailable or disabled."
         self.last_raw_output = ""
         self.last_error = None
-        P_t = self.ema.update(P_juno)
+        P_t = self.ema.update(P)
         return self.hsm.update(P_t)
 
+    def _predict_with_face_expression(self, frame: Any) -> EmotionState:
+        assert self._facial_classifier is not None
+        analysis = self._facial_classifier.analyse(frame)
+        return self._apply_analysis(analysis)
+
     def _predict_with_smolvlm(self, frame: Any) -> EmotionState:
+        assert self._smolvlm is not None
         analysis = self._smolvlm.analyse(frame)
+        return self._apply_analysis(analysis)
+
+    def _apply_analysis(self, analysis: VisionAnalysis | FacialEmotionAnalysis) -> EmotionState:
         self.last_analysis = analysis
         self.last_confidence = float(analysis.confidence)
         self.last_description = analysis.description
         self.last_raw_output = analysis.raw_output
         self.last_error = analysis.error
 
-        # Previously, unavailable/unclear SmolVLM output was passed through the
-        # neutral-initialised EMA/HSM pipeline, so the dashboard often showed
-        # ``neutral`` at around 40% even when the model had not really made a
-        # usable prediction. Surface uncertainty explicitly instead.
         if not analysis.available or analysis.emotion == EmotionState.UNKNOWN:
             return EmotionState.UNKNOWN
 
         if analysis.confidence < settings.vision_min_confidence:
-            self.last_description = (
-                self.last_description or
-                "SmolVLM prediction was below the minimum confidence threshold."
-            )
+            self.last_description = self.last_description or "Vision prediction was below the minimum confidence threshold."
             return EmotionState.UNKNOWN
 
-        P_juno = analysis.probabilities()
-
-        # SmolVLM is a VLM producing text, not calibrated logits. A clear first
-        # non-neutral answer should not be diluted by the initial neutral EMA
-        # state. This makes expressions such as tired/stressed/frustrated appear
-        # immediately while still smoothing later frames.
+        P = analysis.probabilities()
         fast_switch = (
             analysis.emotion != EmotionState.NEUTRAL
             and analysis.confidence >= settings.vision_fast_switch_confidence
         )
-        if not self._smolvlm_has_valid_signal or fast_switch:
-            self.ema.P_t = P_juno.copy()
+        if not self._has_valid_signal or fast_switch:
+            self.ema.P_t = P.copy()
             self.hsm.candidate = analysis.emotion
             self.hsm.current_state = analysis.emotion
             self.hsm.dwell_count = 0
-            self._smolvlm_has_valid_signal = True
+            self._has_valid_signal = True
             return analysis.emotion
 
-        self._smolvlm_has_valid_signal = True
-        P_t = self.ema.update(P_juno)
+        self._has_valid_signal = True
+        P_t = self.ema.update(P)
         return self.hsm.update(P_t)
 
     def _predict_with_legacy_cnn(self, frame: Any) -> EmotionState:
         face_roi, _ = detect_face(frame, self._face_net)
         if face_roi is not None:
             tensor = preprocess_face(face_roi)
-            P_raw = self._cnn_model.predict(tensor, verbose=0)[0]
-            P_juno = _remap(P_raw)
-            self.last_confidence = float(P_juno.max())
-            self.last_description = "Legacy CNN emotion classification."
-            self.last_raw_output = str(P_juno.tolist())
+            raw = np.asarray(self._cnn_model.predict(tensor, verbose=0)[0], dtype=np.float32)
+            scores = {emotion: float(raw[idx]) for idx, emotion in enumerate(_LEGACY_FER_ORDER[: len(raw)])}
+            P = normalise_distribution(scores)
+            self.last_confidence = float(P.max())
+            self.last_description = "Legacy CNN emotion classification mapped to Ekman labels."
+            self.last_raw_output = str(scores)
             self.last_error = None
-            P_t = self.ema.update(P_juno)
+            P_t = self.ema.update(P)
         else:
             self.last_description = "No face was confidently detected by the legacy CNN path."
             self.last_confidence = 0.0
@@ -259,4 +257,4 @@ class EmotionDetector:
 
     def _mock_predict(self) -> np.ndarray:
         mock_emotion = random.choice(_MOCK_WEIGHTS)
-        return _JUNO_ONE_HOT[mock_emotion].copy()
+        return one_hot(mock_emotion, confidence=0.88)

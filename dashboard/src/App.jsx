@@ -30,7 +30,7 @@ export default function App() {
   }
 
   async function playMusic() {
-    await postJson("/api/music/play", { emotion: status?.current_emotion ?? "unknown" });
+    await postJson("/api/music/play", { emotion: status?.display_emotion ?? status?.current_emotion ?? "unknown" });
   }
 
   async function sleepJuno() {
@@ -72,7 +72,7 @@ export default function App() {
             <p className="text-sm font-medium text-slate-300">Current mode</p>
             <p className="mt-1 text-3xl font-bold capitalize text-white">{status?.mode ?? "loading"}</p>
             <p className="mt-3 text-sm text-slate-300">
-              Emotion estimate: <span className="font-semibold capitalize text-white">{status?.current_emotion ?? "unknown"}</span>
+              Emotion estimate: <span className="font-semibold capitalize text-white">{status?.display_emotion ?? status?.current_emotion ?? "unknown"}</span>
             </p>
           </div>
         </div>

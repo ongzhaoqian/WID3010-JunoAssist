@@ -1,51 +1,46 @@
 import numpy as np
 
 from src.core.models import EmotionState
+from src.vision.emotion_labels import EKMAN_EMOTIONS, LABEL_TO_INDEX, empty_distribution
 
-ALPHA: float = 0.30
+ALPHA: float = 0.35
 DWELL_FRAMES: int = 1
 
-# Ordered labels — index must match probability vector positions used throughout this module
-_LABELS = [
-    EmotionState.HAPPY,       # index 0
-    EmotionState.NEUTRAL,     # index 1
-    EmotionState.TIRED,       # index 2
-    EmotionState.STRESSED,    # index 3
-    EmotionState.FRUSTRATED,  # index 4
-]
+# Ordered labels — index must match the 7-class Ekman probability vector.
+_LABELS = list(EKMAN_EMOTIONS)
 
 
 class EMAFusion:
-    """Exponential Moving Average over the 5-class Juno emotion probability distribution.
+    """Exponential moving average over Ekman-7 facial-emotion probabilities.
 
-    Retains uncertainty across frames. α=0.30 weights recent frames ~1.4× more than
-    older ones while providing smooth output. Initialises to Neutral.
+    Smoothed output prevents rapid dashboard flicker while keeping all classifier
+    evidence in the native Ekman taxonomy: anger, disgust, fear, happiness,
+    sadness, surprise, and neutral.
     """
 
     def __init__(self, alpha: float = ALPHA) -> None:
         self.alpha = alpha
-        # P_t[1] = Neutral = 1.0 on start
-        self.P_t = np.array([0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        self.P_t = empty_distribution(neutral=True)
 
-    def update(self, P_juno: np.ndarray) -> np.ndarray:
-        """Blend new Juno-5 probability vector into the running estimate."""
-        self.P_t = self.alpha * P_juno + (1.0 - self.alpha) * self.P_t
+    def update(self, P_ekman: np.ndarray) -> np.ndarray:
+        incoming = np.asarray(P_ekman, dtype=np.float32)
+        if incoming.shape != self.P_t.shape:
+            raise ValueError(f"Expected Ekman probability vector of shape {self.P_t.shape}, got {incoming.shape}")
+        total = float(incoming.sum())
+        if total > 0:
+            incoming = incoming / total
+        self.P_t = self.alpha * incoming + (1.0 - self.alpha) * self.P_t
         return self.P_t.copy()
 
     def skip(self) -> np.ndarray:
-        """Call when face detection fails — distribution held, not updated."""
         return self.P_t.copy()
 
     def reset(self) -> None:
-        self.P_t = np.array([0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        self.P_t = empty_distribution(neutral=True)
 
 
 class HysteresisStateMachine:
-    """Commits a new emotion only after it leads argmax for DWELL_FRAMES consecutive frames.
-
-    Prevents the displayed emotion from flickering between adjacent states (e.g.
-    Neutral ↔ Tired) due to momentary changes in a single frame.
-    """
+    """Commits a new emotion after it leads for `dwell_frames` updates."""
 
     def __init__(self, dwell_frames: int = DWELL_FRAMES) -> None:
         self.dwell_frames = dwell_frames
@@ -62,8 +57,7 @@ class HysteresisStateMachine:
             self.candidate = new_candidate
             self.dwell_count = 1
 
-        if (self.dwell_count >= self.dwell_frames
-                and new_candidate != self.current_state):
+        if self.dwell_count >= self.dwell_frames and new_candidate != self.current_state:
             self.current_state = new_candidate
             self.dwell_count = 0
 

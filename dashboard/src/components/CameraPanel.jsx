@@ -18,7 +18,12 @@ export default function CameraPanel({ status }) {
     frame_available: false,
     camera_topic: "/camera/image_raw",
     stream_url: "/api/vision/camera/stream",
-    model_loaded: false
+    model_loaded: false,
+    vision_emotion_mode: "juno",
+    display_emotion: "unknown",
+    juno_emotion: "unknown",
+    raw_ekman_emotion: "unknown",
+    raw_ekman_scores: {}
   });
   const [loadingAction, setLoadingAction] = useState(null);
   const [streamKey, setStreamKey] = useState(Date.now());
@@ -26,7 +31,11 @@ export default function CameraPanel({ status }) {
   const cameraOn = Boolean(vision.camera_enabled);
   const visionModelOn = Boolean(vision.vision_model_enabled);
   const frameAvailable = Boolean(vision.frame_available);
-  const emotionLabel = visionModelOn ? (vision.emotion ?? status?.current_emotion ?? "unknown") : "Not running";
+  const selectedMode = vision.vision_emotion_mode ?? status?.vision_emotion_mode ?? "juno";
+  const displayEmotion = vision.display_emotion ?? status?.display_emotion ?? status?.current_emotion ?? "unknown";
+  const rawEkmanEmotion = vision.raw_ekman_emotion ?? status?.raw_ekman_emotion ?? status?.current_emotion ?? "unknown";
+  const junoEmotion = vision.juno_emotion ?? status?.juno_emotion ?? "unknown";
+  const emotionLabel = visionModelOn ? displayEmotion : "Not running";
   const emotionConfidence = Number(vision.emotion_confidence ?? status?.emotion_confidence ?? 0);
   const emotionSource = vision.emotion_source ?? status?.emotion_source ?? "none";
   const analysisDescription = vision.analysis_description ?? "";
@@ -69,6 +78,16 @@ export default function CameraPanel({ status }) {
     }
   }
 
+  async function setEmotionMode(mode) {
+    setLoadingAction(`mode-${mode}`);
+    try {
+      const data = await postJson("/api/vision/mode", { mode });
+      setVision(data);
+    } finally {
+      setLoadingAction(null);
+    }
+  }
+
   async function refreshStream() {
     setLoadingAction("refresh");
     try {
@@ -96,11 +115,11 @@ export default function CameraPanel({ status }) {
           </div>
           <h2 className="mt-2 text-2xl font-bold">Jupiter Camera View</h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-300">
-            Choose when to show the live robot webcam. The Vision Module is separate, so the camera can be used as a simple monitor without running emotion recognition.
+            Choose when to show the live robot webcam. The Vision Module can use either JUNO mode or Ekman mode without reloading the face-expression model.
           </p>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[520px]">
+        <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[620px] lg:grid-cols-4">
           <button
             onClick={toggleCamera}
             disabled={loadingAction === "camera"}
@@ -128,6 +147,17 @@ export default function CameraPanel({ status }) {
           >
             <Sparkles className="h-4 w-4" />
             {loadingAction === "model" ? "Updating..." : visionModelOn ? "Vision On" : "Vision Module"}
+          </button>
+
+          <button
+            onClick={() => setEmotionMode(selectedMode === "juno" ? "ekman" : "juno")}
+            disabled={loadingAction?.startsWith("mode-")}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 transition hover:bg-white/15 disabled:opacity-60"
+            type="button"
+            title="Switch the emotion labels shown by the vision module"
+          >
+            <Sparkles className="h-4 w-4" />
+            {loadingAction?.startsWith("mode-") ? "Switching..." : selectedMode === "ekman" ? "Ekman Mode" : "JUNO Mode"}
           </button>
 
           <button
@@ -192,7 +222,7 @@ export default function CameraPanel({ status }) {
               </span>
               <span className="inline-flex items-center gap-2 rounded-full bg-slate-950/70 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/15 backdrop-blur">
                 <Eye className="h-3.5 w-3.5" />
-                {visionModelOn ? "Emotion recognition on" : "Camera only"}
+                {visionModelOn ? `Emotion recognition on · ${selectedMode.toUpperCase()}` : "Camera only"}
               </span>
             </div>
           )}
@@ -219,11 +249,27 @@ export default function CameraPanel({ status }) {
                 <dd className="font-medium text-white">{visionModelOn ? "Running" : "Off"}</dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                <dt className="text-slate-300/70">Emotion mode</dt>
+                <dd className="font-medium uppercase text-white">{selectedMode}</dd>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
                 <dt className="text-slate-300/70">Emotion estimate</dt>
                 <dd className="font-medium capitalize text-white">
                   {emotionLabel}
                 </dd>
               </div>
+              {visionModelOn && (
+                <>
+                  <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                    <dt className="text-slate-300/70">Raw Ekman</dt>
+                    <dd className="font-medium capitalize text-white">{rawEkmanEmotion}</dd>
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
+                    <dt className="text-slate-300/70">JUNO label</dt>
+                    <dd className="font-medium capitalize text-white">{junoEmotion}</dd>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
                 <dt className="text-slate-300/70">Confidence</dt>
                 <dd className="font-medium text-white">
@@ -238,7 +284,7 @@ export default function CameraPanel({ status }) {
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 text-sm text-slate-300/80">
-            <p className="font-medium text-white">SmolVLM reading</p>
+            <p className="font-medium text-white">Face-expression classifier reading</p>
             <p className="mt-1">
               {analysisError
                 ? `Vision model issue: ${analysisError}`
@@ -249,7 +295,7 @@ export default function CameraPanel({ status }) {
           <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 text-sm text-slate-300/80">
             <p className="font-medium text-white">Operator note</p>
             <p className="mt-1">
-              Use <span className="font-medium text-white">Camera On</span> for normal monitoring. Enable the <span className="font-medium text-white">Vision Module</span> only when you want JUNO to run SmolVLM emotion recognition on the camera frames. Speech emotion cues still take priority when the user explicitly says how they feel.
+              Use <span className="font-medium text-white">Camera On</span> for normal monitoring. Enable the <span className="font-medium text-white">Vision Module</span> when you want facial emotion recognition, then switch between <span className="font-medium text-white">JUNO Mode</span> and <span className="font-medium text-white">Ekman Mode</span> at any time. Speech emotion cues still take priority when the user explicitly says how they feel.
             </p>
           </div>
         </div>

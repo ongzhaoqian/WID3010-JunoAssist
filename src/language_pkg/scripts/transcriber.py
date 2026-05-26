@@ -55,6 +55,7 @@ class WhisperTinyTranscriber:
         self.language = os.getenv("JUNO_ASR_LANGUAGE", "").strip() or None
         self.device = self._parse_device(os.getenv("JUNO_ASR_DEVICE", "-1"))
         self.tts_resume_delay = float(os.getenv("JUNO_ASR_TTS_RESUME_DELAY", "0.5"))
+        self.post_tts_silence_gate = float(os.getenv("JUNO_ASR_POST_TTS_SILENCE_GATE", "1.5"))
 
         self.moonshine_model = os.getenv("JUNO_ASR_MOONSHINE_MODEL", "moonshine/base")
 
@@ -63,6 +64,7 @@ class WhisperTinyTranscriber:
         self.current_length = 0
         self._muted = False
         self._last_loud_time: float = 0.0
+        self._post_tts_last_loud: float = 0.0
         self._silence_flush_seconds: float = 0.4
         self._asr_pipeline: Optional[Any] = None
         self._moonshine: Optional[Any] = None
@@ -85,6 +87,7 @@ class WhisperTinyTranscriber:
         rospy.loginfo("Manual/external transcript input topic: %s", self.manual_text_topic)
         rospy.loginfo("TTS mute topics: %s -> %s", self.tts_topic, self.tts_done_topic)
         rospy.loginfo("ASR task: %s | window: %.2fs at %d Hz | RMS threshold: %.4f", self.task, self.window_seconds, self.sample_rate, self.min_rms)
+        rospy.loginfo("Post-TTS silence gate: %.1fs (JUNO_ASR_POST_TTS_SILENCE_GATE)", self.post_tts_silence_gate)
 
     def _on_tts_start(self, _msg: String) -> None:
         """Pause STT and clear buffered audio when JUNO starts speaking."""
@@ -93,11 +96,26 @@ class WhisperTinyTranscriber:
         rospy.loginfo("TTS started — transcription muted, audio buffer cleared.")
 
     def _on_tts_done(self, _msg: String) -> None:
-        """Resume STT shortly after JUNO finishes speaking."""
+        """Resume STT after JUNO finishes speaking and the room is quiet.
+
+        Waits for post_tts_silence_gate seconds of audio below the RMS
+        threshold so that TTS playback reverb and mic bleed do not flood
+        the transcript queue with hallucinated phrases.
+        """
+        import time as _time
         rospy.sleep(self.tts_resume_delay)
         self._clear_audio_buffer()
+        # Seed the gate so we always wait at least one full silence window.
+        self._post_tts_last_loud = _time.monotonic()
+        deadline = _time.monotonic() + 6.0
+        while _time.monotonic() < deadline:
+            if (_time.monotonic() - self._post_tts_last_loud) >= self.post_tts_silence_gate:
+                break
+            rospy.sleep(0.1)
+        self._clear_audio_buffer()
+        self._last_loud_time = 0.0
         self._muted = False
-        rospy.loginfo("TTS done — transcription resumed.")
+        rospy.loginfo("TTS done — transcription resumed after silence gate.")
 
     def audio_callback(self, msg: Float32MultiArray) -> None:
         import time as _time
@@ -111,6 +129,7 @@ class WhisperTinyTranscriber:
         chunk_rms = float(np.sqrt(np.mean(np.square(chunk))))
         if chunk_rms >= self.min_rms:
             self._last_loud_time = _time.monotonic()
+            self._post_tts_last_loud = _time.monotonic()
 
         with self.audio_lock:
             self.audio_buffer.append(chunk)
@@ -281,7 +300,7 @@ class WhisperTinyTranscriber:
             rospy.logwarn("Dropping non-ASCII hallucination: %s...", text[:40])
             return True
 
-        # known Whisper silence phrases
+        # known Whisper silence/short-clip hallucination phrases
         _SILENCE_PHRASES = {
             "thank you for watching",
             "thanks for watching",
@@ -293,11 +312,45 @@ class WhisperTinyTranscriber:
             "thanks",
             "sour de la pente",
             "a lot of people are watching",
+            # Common Whisper Tiny hallucinations on short/quiet audio
+            "i'm more",
+            "i'm sorry",
+            "i'm not sure",
+            "subtitles by",
+            "www.",
+            ".com",
         }
         lower = text.lower().strip(" .,!?")
         if any(p in lower for p in _SILENCE_PHRASES):
             rospy.logwarn("Dropping known silence hallucination: %s", text[:60])
             return True
+
+        # Single-word outputs are almost always hallucinations on short clips.
+        # Allow known single-word commands through; drop everything else.
+        _VALID_SINGLE_WORDS = {
+            "stop", "pause", "resume", "continue", "cancel", "delete", "reset",
+            "yes", "yeah", "yep", "yup", "no", "nope", "nah",
+            "silence", "quiet", "shush", "mute",
+            "sleep", "timer", "time", "schedule", "music", "break", "status",
+            "confirm", "go", "start", "ready", "okay", "ok",
+        }
+        _VALID_SINGLE_NUMBER_WORDS = {
+            "zero", "one", "two", "three", "four", "five", "six", "seven",
+            "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+            "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+            "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+            "hundred", "minute", "minutes", "second", "seconds",
+        }
+        words = _re.sub(r"[^a-z0-9\s]", " ", lower).split()
+        if len(words) <= 1:
+            word = words[0] if words else ""
+            if (word in _VALID_SINGLE_WORDS
+                    or word in _VALID_SINGLE_NUMBER_WORDS
+                    or _re.fullmatch(r"\d{1,3}", word)):
+                pass
+            else:
+                rospy.logwarn("Dropping single-word hallucination: %r", text)
+                return True
 
         # single char repeated with any separator: J-J-J-J or a.a.a.a
         if _re.search(r'\b(\w)\W\1(\W\1){4,}', text):
@@ -305,7 +358,6 @@ class WhisperTinyTranscriber:
             return True
 
         # 4-word ngram repeated 3+ times
-        words = text.split()
         ngram_size = 4
         if len(words) >= ngram_size * 3:
             ngrams = [" ".join(words[i:i+ngram_size]) for i in range(len(words) - ngram_size + 1)]
