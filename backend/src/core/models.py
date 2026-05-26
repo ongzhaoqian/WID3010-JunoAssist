@@ -98,6 +98,22 @@ class Intent(str, Enum):
     UNKNOWN = "unknown"
 
 
+class AuthRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=120)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class AuthUser(BaseModel):
+    id: int
+    username: str
+    created_at: Optional[str] = None
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: AuthUser
+
+
 class CommandRequest(BaseModel):
     text: str = Field(..., min_length=1)
 
@@ -149,6 +165,17 @@ class MusicPlayRequest(BaseModel):
 
 class VisionModeRequest(BaseModel):
     mode: VisionEmotionMode = VisionEmotionMode.JUNO
+
+class FitnessProfileRequest(BaseModel):
+    height_m: Optional[float] = Field(default=None, ge=0.5, le=2.5)
+    weight_kg: Optional[float] = Field(default=None, ge=20, le=250)
+
+
+class FitnessSessionRequest(BaseModel):
+    score_67: int = Field(..., ge=0, le=10000)
+    source: str = Field(default="manual", max_length=40)
+    duration_seconds: Optional[int] = Field(default=None, ge=1, le=600)
+
 
 
 class RobotStatus(BaseModel):

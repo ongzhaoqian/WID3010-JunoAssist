@@ -53,18 +53,19 @@ Students often face many assignments, tests, classes, and deadlines during the s
 
 - Wake command: `Hey, Juno` or `Hey, John`
 - Voice confirmation before activation
-- Web dashboard after activation
+- Web dashboard after activation with log in / sign up access control
 - Embedded dashboard camera window for the Jupiter webcam feed
 - Switchable JUNO/Ekman facial emotion analysis using a lightweight Hugging Face image classifier (`mo-thecreator/vit-Facial-Expression-Recognition`), with mock fallback for lightweight demos
 - Rule-based intent detection for course-level feasibility
 - Lightweight Whisper Tiny speech recognition for robot microphone input
-- SQLite-backed schedule and reminder storage
+- SQLite-backed user accounts, schedule, reminder, and fitness storage
 - Editable dashboard schedule items with live speech retrieval of newly added items
 - Editable dashboard reminders using the same main fields as schedule items: `title`, `date`, `time`, `type`, and `priority`
 - Voice commands for checking schedules, adding schedules, checking reminders, and adding reminders
 - Speech-tolerant schedule/reminder date and time parsing, including `25 May`, `25/05/2026`, `tomorrow`, `next Monday`, `nine pm`, `nine thirty`, `half past nine`, and `quarter to six`
 - Study timer with minute-and-second input, flexible speech duration parsing, cancellation support, and bell sound on completion
 - Emotion-aware Spotify dashboard music window with voice-stop support
+- 6-7 fitness game popup with score saving, one-off/cumulative statistics, and calorie estimates based on user-entered height and weight
 - Immediate `stop` command to interrupt JUNO speech and stop dashboard music
 - REST API and WebSocket updates using FastAPI
 - React dashboard using Vite and Tailwind CSS
@@ -531,6 +532,60 @@ POST /api/dashboard/closed
 POST /api/dashboard/open
 ```
 
+## Fitness Game Dashboard Feature
+
+The Quick Actions card includes a **Play Fitness Game** button. It now opens the 67 Speed game page in a separate popup/window first so the dashboard stays open for saving the result. If the browser blocks the popup, the dashboard requests a new tab as a fallback. The embedded view is available only as an optional manual fallback and is sandboxed so the third-party game cannot navigate the dashboard away from JUNO.
+
+Because `https://67speed.com/` is a third-party page, automatic score extraction is implemented as a best-effort browser `postMessage` listener. If the external game does not expose its score to the parent page, the user can enter the final 6-7 count manually after the round. This avoids fragile cross-origin scraping and keeps the feature reliable during demos.
+
+Fitness APIs:
+
+```text
+GET  /api/fitness/profile
+POST /api/fitness/profile        # { "height_m": 1.70, "weight_kg": 60 }
+GET  /api/fitness/sessions
+POST /api/fitness/sessions       # { "score_67": 67, "duration_seconds": 60 }
+GET  /api/fitness/stats?scope=latest
+GET  /api/fitness/stats?scope=cumulative
+GET  /api/fitness/game
+```
+
+Calories are estimates only, using the standard MET formula with a default MET value of 4.0 for a light fitness game movement estimate. The dashboard supports **One-off Stats** for the latest game and **Cumulative Stats** for all saved sessions.
+
+
+## Database Refresh on Startup
+
+The backend now starts with a clean runtime database by default. When `JUNO_DATABASE_REFRESH_ON_START=true`, the startup flow clears user-scoped schedule items, reminders, fitness profile data, and fitness game sessions before the dashboard and ROS loops begin. User accounts are retained/recreated, and no hardcoded/sample schedule dataset is loaded.
+
+Set this to `false` only if you intentionally want to persist runtime entries across backend restarts:
+
+```bash
+JUNO_DATABASE_REFRESH_ON_START=false
+```
+
+
+### Dashboard login and user-scoped data
+
+The dashboard now requires users to log in before accessing recorded data such as schedules, reminders, command-created records, fitness profile values, and fitness game sessions. Authentication uses SQLite-backed users and bearer session tokens. User rows are scoped with `user_id`, so one user cannot read, edit, or delete another user’s dashboard data through the API.
+
+Default accounts are created automatically on backend startup:
+
+| Username | Password |
+|---|---|
+| `mackwongyy@gmail.com` | `12345678` |
+| `jonathansiew@hotmail.com` | `87654321` |
+
+Useful authentication endpoints:
+
+```text
+POST /api/auth/login
+POST /api/auth/signup
+POST /api/auth/logout
+GET  /api/auth/me
+```
+
+Protected dashboard-data endpoints require an `Authorization: Bearer <token>` header. The React dashboard stores the session token in browser local storage and sends it automatically.
+
 ## Quick Start: Dashboard
 
 Open a second terminal:
@@ -689,7 +744,7 @@ This project is intentionally scoped to be achievable:
 - Robot motion is optional.
 - Emotion detection can be demonstrated through a mock model first.
 - Speech can be tested using dashboard text commands.
-- Calendar data can use SQLite or sample JSON before API integration.
+- Runtime schedule, reminder, and fitness data uses SQLite and is refreshed on backend startup by default; no sample JSON dataset is loaded.
 - The system demonstrates robotics integration through perception, interaction, decision-making, and user-facing feedback.
 
 ## Ethical Note

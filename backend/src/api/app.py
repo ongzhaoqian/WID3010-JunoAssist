@@ -7,17 +7,17 @@ import json
 import time
 import difflib
 import threading
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from src.activation.confirmation_handler import ConfirmationHandler
 from src.activation.wake_word_detector import WakeWordDetector
+from src.auth.user_service import AuthError, AuthService
 from src.calendar_module.calendar_service import CalendarService
 from src.core.config import settings
-from src.core.models import CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
+from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -26,6 +26,7 @@ from src.nlp.response_generator import ResponseGenerator
 from src.nlp.phrase_bank import PhraseBank
 from src.productivity.music_service import MusicService
 from src.productivity.timer_service import TimerService
+from src.productivity.fitness_service import FitnessService, FITNESS_GAME_URL
 from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
 from src.vision.emotion_detector import EmotionDetector
@@ -69,13 +70,64 @@ def create_app() -> FastAPI:
     wake_detector = WakeWordDetector()
     confirmation_handler = ConfirmationHandler()
     intent_classifier = IntentClassifier()
-    calendar_service = CalendarService(os.getenv("JUNO_DATABASE_PATH", settings.database_path))
+    db_path = os.getenv("JUNO_DATABASE_PATH", settings.database_path)
+    auth_service = AuthService(db_path)
+    calendar_service = CalendarService(db_path)
     llm_client = MalaysianLlamaClient()
     input_normalizer = MalaysianInputNormalizer(llm_client)
     phrase_bank = PhraseBank()
     response_generator = ResponseGenerator(calendar_service, llm_client=llm_client, phrase_bank=phrase_bank)
     timer_service = TimerService()
     music_service = MusicService()
+    fitness_service = FitnessService(db_path)
+
+    def _database_refresh_on_start_enabled() -> bool:
+        return os.getenv("JUNO_DATABASE_REFRESH_ON_START", "true").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    def _refresh_runtime_database() -> None:
+        calendar_service.reset_runtime_data()
+        fitness_service.reset_runtime_data()
+
+    # Refresh immediately when the backend app is constructed. This also makes
+    # test clients and non-lifespan launch paths start from a clean database.
+    if _database_refresh_on_start_enabled():
+        _refresh_runtime_database()
+
+    # Ensure the two requested demo accounts exist after any database refresh.
+    auth_service.ensure_default_accounts()
+
+    def _token_from_authorization(authorization: Optional[str]) -> Optional[str]:
+        if not authorization:
+            return None
+        value = authorization.strip()
+        if value.lower().startswith("bearer "):
+            return value.split(" ", 1)[1].strip()
+        return value
+
+    def _set_active_user(user: Optional[dict]) -> None:
+        user_id = int(user["id"]) if user else None
+        auth_service.set_active_user(user_id)
+        calendar_service.set_active_user(user_id)
+        fitness_service.set_active_user(user_id)
+
+    def _require_user(authorization: Optional[str] = Header(default=None)) -> dict:
+        token = _token_from_authorization(authorization)
+        user = auth_service.get_user_by_token(token)
+        if not user:
+            raise HTTPException(status_code=401, detail="Please log in to access this dashboard data.")
+        _set_active_user(user)
+        return user
+
+    def _optional_user(authorization: Optional[str] = Header(default=None)) -> Optional[dict]:
+        token = _token_from_authorization(authorization)
+        user = auth_service.get_user_by_token(token)
+        if user:
+            _set_active_user(user)
+        return user
+
+    def _active_user_or_none() -> Optional[int]:
+        return auth_service.active_user_id()
+
     speech_emotion_detector = SpeechEmotionDetector()
     # The emotion model is created only when the operator explicitly enables
     # the Vision Module. This keeps the dashboard camera lightweight by default.
@@ -269,7 +321,7 @@ def create_app() -> FastAPI:
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
-    def _extract_bare_number(text: str) -> int | None:
+    def _extract_bare_number(text: str) -> Optional[int]:
         # Legacy helper for the older two-step minute/second flow. It now uses
         # the same tolerant spoken-number parser as the single-shot duration
         # flow, so replies such as "five minutes", "make it thirty", or
@@ -295,7 +347,7 @@ def create_app() -> FastAPI:
         snap = robot_state.snapshot()
         return snap.get("timer_remaining_seconds", 0) > 0 or bool(snap.get("timer_paused"))
 
-    def _handle_timer_pause_resume_delete(text: str) -> dict | None:
+    def _handle_timer_pause_resume_delete(text: str) -> Optional[dict]:
         """Handle spoken timer control while the timer is running or paused.
 
         The robot's ASR can produce noisy variants such as "stap timer",
@@ -407,6 +459,12 @@ def create_app() -> FastAPI:
         }
 
     def _add_schedule_from_transcript(command_text: str) -> dict:
+        active_user_id = _active_user_or_none()
+        if active_user_id is None:
+            response = "Please log in on the dashboard before adding schedule items."
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.ADD_SCHEDULE, "response": response, "status": robot_state.snapshot()}
         parsed = intent_classifier.extract_schedule_item(command_text)
         if not parsed.get("title"):
             response = phrase_bank.say("schedule_missing")
@@ -420,6 +478,7 @@ def create_app() -> FastAPI:
             time=parsed.get("time"),
             type=parsed.get("type") or "study",
             priority=parsed.get("priority") or "medium",
+            user_id=active_user_id,
         )
         response = phrase_bank.say(
             "schedule_added",
@@ -438,6 +497,12 @@ def create_app() -> FastAPI:
         }
 
     def _add_reminder_from_transcript(command_text: str) -> dict:
+        active_user_id = _active_user_or_none()
+        if active_user_id is None:
+            response = "Please log in on the dashboard before adding reminders."
+            robot_state.set_response(response)
+            tts.speak(response)
+            return {"intent": Intent.ADD_REMINDER, "response": response, "status": robot_state.snapshot()}
         parsed = intent_classifier.extract_reminder_item(command_text)
         if not parsed.get("title"):
             response = phrase_bank.say("reminder_missing")
@@ -451,6 +516,7 @@ def create_app() -> FastAPI:
             time=parsed.get("time"),
             type=parsed.get("type") or "reminder",
             priority=parsed.get("priority") or "medium",
+            user_id=active_user_id,
         )
         response = phrase_bank.say(
             "reminder_added",
@@ -642,7 +708,11 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup_event():
-        calendar_service.seed_from_json_if_empty(str(Path("data/sample_schedule.json")))
+        # Start each backend run from an empty operational database. This removes
+        # stale rows and avoids loading hardcoded/sample schedule data.
+        if _database_refresh_on_start_enabled():
+            _refresh_runtime_database()
+        auth_service.ensure_default_accounts()
         robot_state.set_camera_enabled(settings.camera_enabled_default)
         robot_state.set_vision_model_enabled(settings.vision_model_enabled_default)
         robot_state.set_vision_emotion_mode(settings.vision_emotion_mode_default)
@@ -693,6 +763,37 @@ def create_app() -> FastAPI:
                 _log.error("ROS speech loop error (continuing): %s", exc)
             await asyncio.sleep(0.05)
 
+    @app.post("/api/auth/signup")
+    def signup(request: AuthRequest):
+        try:
+            auth_service.create_user(request.username, request.password)
+            result = auth_service.login(request.username, request.password)
+            _set_active_user(result["user"])
+            return result
+        except AuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.post("/api/auth/login")
+    def login(request: AuthRequest):
+        try:
+            result = auth_service.login(request.username, request.password)
+            _set_active_user(result["user"])
+            return result
+        except AuthError as exc:
+            raise HTTPException(status_code=401, detail=str(exc))
+
+    @app.post("/api/auth/logout")
+    def logout(authorization: Optional[str] = Header(default=None)):
+        token = _token_from_authorization(authorization)
+        if token:
+            auth_service.logout(token)
+        _set_active_user(None)
+        return {"logged_out": True}
+
+    @app.get("/api/auth/me")
+    def auth_me(user: dict = Depends(_require_user)):
+        return {"user": user}
+
     @app.get("/api/features")
     def get_features():
         return [
@@ -705,6 +806,7 @@ def create_app() -> FastAPI:
             {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
+            {"name": "Fitness Game", "description": "Open the 6-7 fitness game, save scores, and estimate calories for one-off or cumulative statistics."},
         ]
 
     @app.get("/api/status")
@@ -838,45 +940,47 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/schedule/today")
-    def get_today_schedule():
-        return calendar_service.get_today_schedule()
+    def get_today_schedule(user: dict = Depends(_require_user)):
+        return calendar_service.get_today_schedule(user_id=user["id"])
 
     @app.post("/api/schedule")
-    def add_schedule_item(request: ScheduleItemRequest):
+    def add_schedule_item(request: ScheduleItemRequest, user: dict = Depends(_require_user)):
         item = calendar_service.add_schedule_item(
             title=request.title.strip(),
             date=request.date,
             time=request.time,
             type=request.type or "study",
             priority=request.priority or "medium",
+            user_id=user["id"],
         )
         robot_state.set_response(phrase_bank.say("schedule_added", purpose=item["title"], date=item.get("formatted_date") or item.get("date") or "not specified", time=item.get("time") or "not specified", priority=item.get("priority") or "medium"))
         return item
 
     @app.delete("/api/schedule/{item_id}")
-    def delete_schedule_item(item_id: int):
-        deleted = calendar_service.delete_schedule_item(item_id)
+    def delete_schedule_item(item_id: int, user: dict = Depends(_require_user)):
+        deleted = calendar_service.delete_schedule_item(item_id, user_id=user["id"])
         if not deleted:
             raise HTTPException(status_code=404, detail="Schedule item not found")
         robot_state.set_response("Schedule item removed.")
         return {"deleted": True, "id": item_id}
 
     @app.get("/api/deadlines")
-    def get_deadlines():
-        return calendar_service.get_upcoming_deadlines()
+    def get_deadlines(user: dict = Depends(_require_user)):
+        return calendar_service.get_upcoming_deadlines(user_id=user["id"])
 
     @app.get("/api/reminders")
-    def get_reminders():
-        return calendar_service.list_reminders()
+    def get_reminders(user: dict = Depends(_require_user)):
+        return calendar_service.list_reminders(user_id=user["id"])
 
     @app.post("/api/reminders")
-    def add_reminder(request: ReminderRequest):
+    def add_reminder(request: ReminderRequest, user: dict = Depends(_require_user)):
         reminder = calendar_service.add_reminder(
             title=request.title.strip(),
             date=request.date,
             time=request.time,
             type=request.type or "reminder",
             priority=request.priority or "medium",
+            user_id=user["id"],
         )
         robot_state.set_response(
             phrase_bank.say(
@@ -890,8 +994,8 @@ def create_app() -> FastAPI:
         return reminder
 
     @app.delete("/api/reminders/{item_id}")
-    def delete_reminder(item_id: int):
-        deleted = calendar_service.delete_reminder(item_id)
+    def delete_reminder(item_id: int, user: dict = Depends(_require_user)):
+        deleted = calendar_service.delete_reminder(item_id, user_id=user["id"])
         if not deleted:
             raise HTTPException(status_code=404, detail="Reminder not found")
         robot_state.set_response(phrase_bank.say("reminder_removed"))
@@ -935,6 +1039,41 @@ def create_app() -> FastAPI:
         response = phrase_bank.say("timer_deleted")
         robot_state.set_response(response)
         return {"deleted": True, "message": response, "status": robot_state.snapshot()}
+
+    @app.get("/api/fitness/profile")
+    def get_fitness_profile(user: dict = Depends(_require_user)):
+        return fitness_service.get_profile(user_id=user["id"])
+
+    @app.post("/api/fitness/profile")
+    def save_fitness_profile(request: FitnessProfileRequest, user: dict = Depends(_require_user)):
+        return fitness_service.save_profile(height_m=request.height_m, weight_kg=request.weight_kg, user_id=user["id"])
+
+    @app.get("/api/fitness/sessions")
+    def get_fitness_sessions(limit: int = 20, user: dict = Depends(_require_user)):
+        return fitness_service.list_sessions(limit=limit, user_id=user["id"])
+
+    @app.post("/api/fitness/sessions")
+    def add_fitness_session(request: FitnessSessionRequest, user: dict = Depends(_require_user)):
+        session = fitness_service.add_session(
+            score_67=request.score_67,
+            source=request.source,
+            duration_seconds=request.duration_seconds,
+            user_id=user["id"],
+        )
+        robot_state.set_response(f"Fitness score saved: {session['score_67']} six-seven motions.")
+        return session
+
+    @app.get("/api/fitness/stats")
+    def get_fitness_stats(scope: str = "latest", user: dict = Depends(_require_user)):
+        return fitness_service.stats(scope=scope, user_id=user["id"])
+
+    @app.get("/api/fitness/game")
+    def get_fitness_game_info():
+        return {
+            "game_url": FITNESS_GAME_URL,
+            "capture_method": "postMessage_or_manual",
+            "note": "Automatic score capture depends on whether the third-party game exposes score data to the parent page. Manual score entry is kept as a reliable fallback.",
+        }
 
     @app.get("/api/music/status")
     def get_music_status():
@@ -994,7 +1133,7 @@ def create_app() -> FastAPI:
         return {"message": "Speech request published", "text": text, "status": robot_state.snapshot()}
 
     @app.post("/api/command")
-    def handle_command(request: CommandRequest):
+    def handle_command(request: CommandRequest, user: dict = Depends(_require_user)):
         return process_command_text(request.text)
 
     @app.websocket("/ws/status")

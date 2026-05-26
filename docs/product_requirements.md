@@ -180,7 +180,7 @@ Each feature below is owned by a named coding agent. Agents must not reach outsi
 #### Requirements
 - Database file: `backend/juno_assist.db` (path configurable via `JUNO_DATABASE_PATH`).
 - The `CalendarService` (`calendar_module/calendar_service.py`) manages schedule and reminder storage.
-- On startup, `sample_schedule.json` (`backend/data/`) is seeded into the schedule table if it is empty.
+- On startup, the runtime SQLite tables are refreshed so schedule, reminder, profile, and fitness game data start empty. No hardcoded/sample schedule dataset is loaded.
 
 - REST endpoints exposed by Backend-API:
 
@@ -520,7 +520,7 @@ Located in `/backend`, this serves as the central brain of the system, handling 
     - **Music Service**: Plays calming/soothing background music to aid concentration.
 - **Calendar Module (`src/calendar_module/`)**:
     - **Calendar Service**: Manages daily schedules, academic deadlines, and reminders.
-    - **Database**: Uses SQLite (`juno_assist.db`) for persistent storage.
+    - **Database**: Uses SQLite (`juno_assist.db`) for runtime storage, refreshed on backend startup by default to avoid stale or dummy data.
 
 #### Testing
 - **Backend Tests (`tests/`)**: Includes unit tests for `emotion_smoothing` and `intent_classifier` to ensure logic correctness.
@@ -1101,3 +1101,13 @@ The face detection model weights (Caffe `.prototxt` + `.caffemodel`) should also
 ### Ekman-7 Emotion Taxonomy Update
 
 The current implementation keeps the original JUNO emotion vocabulary (`happy`, `sad`, `tired`, `frustrated`, `stressed`, `neutral`) while adding a switchable Ekman mode display labels (`angry`, `disgusted`, `scared`, `happy`, `sad`, `surprised`, `neutral`) while preserving raw Ekman values (`anger`, `disgust`, `fear`, `happiness`, `sadness`, `surprise`, `neutral`). The backend stores canonical Ekman evidence internally and maps it to the selected dashboard mode without reloading the model. It may return `unknown` when the camera frame or classifier confidence is insufficient. The default model is now `mo-thecreator/vit-Facial-Expression-Recognition` through the `face_expression` backend, replacing the previous SmolVLM default for normal robot operation.
+
+### Fitness Game Feature
+
+The dashboard includes a 6-7 fitness game feature under Quick Actions. The **Play Fitness Game** button opens the 67 Speed game in a separate popup/window first so the dashboard stays open. If a popup is blocked, the dashboard requests a new tab as fallback. An optional embedded view remains available, but it is sandboxed to prevent the third-party page from replacing the dashboard. The dashboard attempts to receive score data through browser `postMessage`; if the third-party page does not expose the score, the user can manually enter the final 6-7 count after one round. Saved sessions are stored through `/api/fitness/sessions`, and the Fitness Game Statistics window can show either one-off or cumulative 6-7 count and estimated calories burnt.
+
+The user can enter height in metres and weight in kilogrammes through `/api/fitness/profile`. Weight is used for a rough MET-based calorie estimate; the result is displayed as a dashboard estimate only, not as medical or fitness advice.
+
+### User Authentication and Data Isolation Update
+
+The dashboard now supports log in and sign up before accessing recorded dashboard data. Two default accounts are created on backend startup: `mackwongyy@gmail.com` / `12345678` and `jonathansiew@hotmail.com` / `87654321`. Schedule items, reminders, fitness profiles, and fitness game sessions are stored with a `user_id` scope so authenticated users can only access their own records through the API. The protected endpoints require a bearer token from `/api/auth/login` or `/api/auth/signup`.

@@ -605,7 +605,7 @@ This checklist tracks the actual software components that still need to be compl
 
 | Component | Current Status | What Still Needs To Be Done | Owner | Priority |
 |---|---|---|---|---|
-| SQLite calendar service | Implemented | Confirm database initializes and sample schedule loads. | Zhao Qian | Must |
+| SQLite calendar service | Implemented | Confirm database initializes cleanly and does not load hardcoded/sample schedule data. | Zhao Qian | Must |
 | Schedule endpoint | Implemented | Confirm dashboard displays schedule. | Zhao Qian, Mack | Must |
 | Deadline endpoint | Implemented | Confirm deadline command gives meaningful response. | Zhao Qian | Must |
 | Reminder endpoint | Implemented | Test adding/listing reminders from dashboard. | Zhao Qian, Mack | Should |
@@ -1288,3 +1288,9 @@ This upgrade path is fully designed and documented. It was not implemented in th
 The timer duration prompt now accepts flexible formats such as `twenty five minutes`, `1h 30m`, `half an hour`, and `2:30`. The user may exit the timer flow by saying `cancel`, `not now`, `skip`, or `never mind`; repeated unclear responses also cancel the pending timer setup. The dashboard Study Timer card provides Pause/Resume and Stop controls, and the active speech flow understands fuzzy timer-control commands such as `pause timer`, `resume timer`, `stop timer`, `end the countdown`, and `cancel the focus session`.
 
 When the user's transcript explicitly states an emotion, such as `I am stressed` or `I feel tired`, the backend treats the speech cue as higher priority than the visual emotion estimate for a short configurable window (`JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`).
+
+### Fitness Game Feature
+
+The dashboard includes a 6-7 fitness game feature under Quick Actions. The **Play Fitness Game** button opens the 67 Speed game in a separate popup/window first so the dashboard stays open. If a popup is blocked, the dashboard requests a new tab as fallback. An optional embedded view remains available, but it is sandboxed to prevent the third-party page from replacing the dashboard. The dashboard attempts to receive score data through browser `postMessage`; if the third-party page does not expose the score, the user can manually enter the final 6-7 count after one round. Saved sessions are stored through `/api/fitness/sessions`, and the Fitness Game Statistics window can show either one-off or cumulative 6-7 count and estimated calories burnt.
+
+The user can enter height in metres and weight in kilogrammes through `/api/fitness/profile`. Weight is used for a rough MET-based calorie estimate; the result is displayed as a dashboard estimate only, not as medical or fitness advice.

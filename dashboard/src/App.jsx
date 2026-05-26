@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getJson, postJson, statusSocket } from "./lib/api";
+import { getAuthToken, getJson, postJson, setAuthToken, statusSocket } from "./lib/api";
 import StatusPanel from "./components/StatusPanel";
 import CommandPanel from "./components/CommandPanel";
 import SchedulePanel from "./components/SchedulePanel";
@@ -8,13 +8,38 @@ import DateTimePanel from "./components/DateTimePanel";
 import ReminderPanel from "./components/ReminderPanel";
 import CameraPanel from "./components/CameraPanel";
 import MusicPanel from "./components/MusicPanel";
+import FitnessPanel from "./components/FitnessPanel";
+import FitnessGameModal, { openFitnessGameWindow } from "./components/FitnessGameModal";
+import AuthPanel from "./components/AuthPanel";
 import Card from "./components/Card";
 
 export default function App() {
   const [status, setStatus] = useState(null);
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [schedule, setSchedule] = useState([]);
   const [lastCommand, setLastCommand] = useState(null);
   const [dashboardClosing, setDashboardClosing] = useState(false);
+  const [fitnessGameOpen, setFitnessGameOpen] = useState(false);
+  const [fitnessRefreshKey, setFitnessRefreshKey] = useState(0);
+  const [fitnessLaunchMessage, setFitnessLaunchMessage] = useState("");
+
+  async function handleAuthenticated(authUser) {
+    setUser(authUser);
+    await loadInitialData();
+  }
+
+  async function logout() {
+    try {
+      await postJson("/api/auth/logout", {});
+    } catch {
+      // The local token is cleared regardless of backend response.
+    }
+    setAuthToken(null);
+    setUser(null);
+    setSchedule([]);
+    setLastCommand(null);
+  }
 
   async function loadSchedule() {
     const scheduleData = await getJson("/api/schedule/today");
@@ -39,6 +64,19 @@ export default function App() {
     await postJson("/api/robot/sleep");
   }
 
+  async function handleFitnessSessionSaved() {
+    setFitnessRefreshKey((current) => current + 1);
+  }
+
+  function launchFitnessGame() {
+    const openedPopup = openFitnessGameWindow();
+    setFitnessLaunchMessage(
+      openedPopup
+        ? "Game opened in a separate popup window. Keep this dashboard open to save the final 6-7 score."
+        : "A new game tab was requested because the browser may have blocked the popup. Keep this dashboard open to save the final 6-7 score."
+    );
+    setFitnessGameOpen(true);
+  }
 
   useEffect(() => {
     if (!status?.dashboard_should_close) {
@@ -63,22 +101,58 @@ export default function App() {
   }, [status?.dashboard_should_close, status?.dashboard_session_id]);
 
   useEffect(() => {
-    loadInitialData();
+    async function checkExistingSession() {
+      const token = getAuthToken();
+      if (!token) {
+        setAuthChecked(true);
+        return;
+      }
 
+      try {
+        const result = await getJson("/api/auth/me");
+        setUser(result.user);
+        await loadInitialData();
+      } catch {
+        setAuthToken(null);
+        setUser(null);
+      } finally {
+        setAuthChecked(true);
+      }
+    }
+
+    checkExistingSession();
+  }, []);
+
+  useEffect(() => {
     const ws = statusSocket();
     ws.onmessage = (event) => {
       setStatus(JSON.parse(event.data));
     };
 
-    // Voice-created schedule items arrive through the backend/ROS loop, not
-    // through this component, so poll lightly to keep the dashboard current.
-    const scheduleInterval = window.setInterval(loadSchedule, 4000);
+    let scheduleInterval = null;
+    if (user) {
+      scheduleInterval = window.setInterval(loadSchedule, 4000);
+    }
 
     return () => {
       ws.close();
-      window.clearInterval(scheduleInterval);
+      if (scheduleInterval) {
+        window.clearInterval(scheduleInterval);
+      }
     };
-  }, []);
+  }, [user?.id]);
+
+  if (!authChecked) {
+    return (
+      <main className="relative mx-auto flex min-h-screen max-w-7xl items-center justify-center px-4 text-white">
+        <div className="glass-card rounded-[2rem] p-8">Loading secure dashboard...</div>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return <AuthPanel onAuthenticated={handleAuthenticated} />;
+  }
 
   return (
     <main className="relative mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
@@ -105,11 +179,15 @@ export default function App() {
             </p>
           </div>
           <div className="glass-inner rounded-[2rem] p-4">
-            <p className="text-sm font-medium text-slate-300">Current mode</p>
-            <p className="mt-1 text-3xl font-bold capitalize text-white">{status?.mode ?? "loading"}</p>
+            <p className="text-sm font-medium text-slate-300">Signed in as</p>
+            <p className="mt-1 break-all text-lg font-bold text-white">{user.username}</p>
             <p className="mt-3 text-sm text-slate-300">
-              Emotion estimate: <span className="font-semibold capitalize text-white">{status?.display_emotion ?? status?.current_emotion ?? "unknown"}</span>
+              Mode: <span className="font-semibold capitalize text-white">{status?.mode ?? "loading"}</span>
             </p>
+            <p className="mt-1 text-sm text-slate-300">
+              Emotion: <span className="font-semibold capitalize text-white">{status?.display_emotion ?? status?.current_emotion ?? "unknown"}</span>
+            </p>
+            <button onClick={logout} className="btn-secondary mt-4 px-4 py-2 text-sm font-semibold">Log out</button>
           </div>
         </div>
       </header>
@@ -138,6 +216,12 @@ export default function App() {
         <Card title="Quick Actions">
           <div className="flex flex-wrap gap-3">
             <button
+              onClick={launchFitnessGame}
+              className="btn-primary px-5 py-2.5 text-sm font-semibold"
+            >
+              Play Fitness Game
+            </button>
+            <button
               onClick={sleepJuno}
               className="btn-secondary px-5 py-2.5 text-sm font-semibold"
             >
@@ -145,7 +229,7 @@ export default function App() {
             </button>
           </div>
           <p className="mt-3 text-sm text-slate-300/75">
-            Music selection follows the latest emotion estimate when the Vision Module is on; otherwise it falls back to a neutral study playlist.
+            Use the fitness game for a quick movement break, or put JUNO back to sleep when the session is done.
           </p>
         </Card>
       </section>
@@ -154,11 +238,21 @@ export default function App() {
         <MusicPanel status={status} />
       </section>
 
+      <section className="mt-5">
+        <FitnessPanel refreshKey={fitnessRefreshKey} onProfileSaved={handleFitnessSessionSaved} />
+      </section>
+
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
         <SchedulePanel schedule={schedule} onScheduleChanged={loadSchedule} />
         <ReminderPanel />
       </section>
 
+      <FitnessGameModal
+        open={fitnessGameOpen}
+        onClose={() => setFitnessGameOpen(false)}
+        onSessionSaved={handleFitnessSessionSaved}
+        launchMessage={fitnessLaunchMessage}
+      />
     </main>
   );
 }
