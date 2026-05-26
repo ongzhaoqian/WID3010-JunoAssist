@@ -63,7 +63,23 @@ Install space: /home/mustar/Desktop/WID3010-JunoAssist/install
 ####
 ```
 
-Build completed successfully with no errors.
+Build completed successfully with no errors:
+
+```
+mustar@jupiter:~/Desktop/WID3010-JunoAssist$ catkin_make && echo "BUILD SUCCESS"
+Base path: /home/mustar/Desktop/WID3010-JunoAssist
+Source space: /home/mustar/Desktop/WID3010-JunoAssist/src
+Build space: /home/mustar/Desktop/WID3010-JunoAssist/build
+Devel space: /home/mustar/Desktop/WID3010-JunoAssist/devel
+Install space: /home/mustar/Desktop/WID3010-JunoAssist/install
+####
+#### Running command: "make cmake_check_build_system" in "/home/mustar/Desktop/WID3010-JunoAssist/build"
+####
+####
+#### Running command: "make -j12 -l12" in "/home/mustar/Desktop/WID3010-JunoAssist/build"
+####
+BUILD SUCCESS
+```
 
 ## Workspace Sourcing and Package Discovery
 
