@@ -96,7 +96,7 @@ def create_app() -> FastAPI:
     # Ensure the two requested demo accounts exist after any database refresh.
     auth_service.ensure_default_accounts()
 
-    def _token_from_authorization(authorization: str | None) -> str | None:
+    def _token_from_authorization(authorization: Optional[str]) -> Optional[str]:
         if not authorization:
             return None
         value = authorization.strip()
@@ -104,13 +104,13 @@ def create_app() -> FastAPI:
             return value.split(" ", 1)[1].strip()
         return value
 
-    def _set_active_user(user: dict | None) -> None:
+    def _set_active_user(user: Optional[dict]) -> None:
         user_id = int(user["id"]) if user else None
         auth_service.set_active_user(user_id)
         calendar_service.set_active_user(user_id)
         fitness_service.set_active_user(user_id)
 
-    def _require_user(authorization: str | None = Header(default=None)) -> dict:
+    def _require_user(authorization: Optional[str] = Header(default=None)) -> dict:
         token = _token_from_authorization(authorization)
         user = auth_service.get_user_by_token(token)
         if not user:
@@ -118,14 +118,14 @@ def create_app() -> FastAPI:
         _set_active_user(user)
         return user
 
-    def _optional_user(authorization: str | None = Header(default=None)) -> dict | None:
+    def _optional_user(authorization: Optional[str] = Header(default=None)) -> Optional[dict]:
         token = _token_from_authorization(authorization)
         user = auth_service.get_user_by_token(token)
         if user:
             _set_active_user(user)
         return user
 
-    def _active_user_or_none() -> int | None:
+    def _active_user_or_none() -> Optional[int]:
         return auth_service.active_user_id()
 
     speech_emotion_detector = SpeechEmotionDetector()
@@ -321,7 +321,7 @@ def create_app() -> FastAPI:
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
-    def _extract_bare_number(text: str) -> int | None:
+    def _extract_bare_number(text: str) -> Optional[int]:
         # Legacy helper for the older two-step minute/second flow. It now uses
         # the same tolerant spoken-number parser as the single-shot duration
         # flow, so replies such as "five minutes", "make it thirty", or
@@ -347,7 +347,7 @@ def create_app() -> FastAPI:
         snap = robot_state.snapshot()
         return snap.get("timer_remaining_seconds", 0) > 0 or bool(snap.get("timer_paused"))
 
-    def _handle_timer_pause_resume_delete(text: str) -> dict | None:
+    def _handle_timer_pause_resume_delete(text: str) -> Optional[dict]:
         """Handle spoken timer control while the timer is running or paused.
 
         The robot's ASR can produce noisy variants such as "stap timer",
@@ -783,7 +783,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=401, detail=str(exc))
 
     @app.post("/api/auth/logout")
-    def logout(authorization: str | None = Header(default=None)):
+    def logout(authorization: Optional[str] = Header(default=None)):
         token = _token_from_authorization(authorization)
         if token:
             auth_service.logout(token)
