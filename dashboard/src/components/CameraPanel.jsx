@@ -233,27 +233,27 @@ export default function CameraPanel({ status }) {
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300/70">Live status</p>
             <dl className="mt-4 space-y-3 text-sm">
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                <dt className="text-slate-300/70">Camera stream</dt>
+                <dt className="text-slate-300/70">Camera Mode</dt>
                 <dd className="font-medium text-white">{cameraOn ? "On" : "Off"}</dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                <dt className="text-slate-300/70">ROS topic</dt>
+                <dt className="text-slate-300/70">ROS Topic</dt>
                 <dd className="font-medium text-white">{vision.camera_topic}</dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                <dt className="text-slate-300/70">Frames</dt>
-                <dd className="font-medium text-white">{frameAvailable ? "Receiving" : "Not detected"}</dd>
+                <dt className="text-slate-300/70">Frame Availability</dt>
+                <dd className="font-medium text-white">{frameAvailable ? "Receiving" : "Not Receiving"}</dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                <dt className="text-slate-300/70">Vision model</dt>
+                <dt className="text-slate-300/70">Vision Model</dt>
                 <dd className="font-medium text-white">{visionModelOn ? "Running" : "Off"}</dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                <dt className="text-slate-300/70">Emotion mode</dt>
+                <dt className="text-slate-300/70">Emotion Mode</dt>
                 <dd className="font-medium uppercase text-white">{selectedMode}</dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                <dt className="text-slate-300/70">Emotion estimate</dt>
+                <dt className="text-slate-300/70">Emotion Estimate</dt>
                 <dd className="font-medium capitalize text-white">
                   {emotionLabel}
                 </dd>
@@ -261,11 +261,11 @@ export default function CameraPanel({ status }) {
               {visionModelOn && (
                 <>
                   <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                    <dt className="text-slate-300/70">Raw Ekman</dt>
+                    <dt className="text-slate-300/70">Raw Ekman Emotion</dt>
                     <dd className="font-medium capitalize text-white">{rawEkmanEmotion}</dd>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                    <dt className="text-slate-300/70">JUNO label</dt>
+                    <dt className="text-slate-300/70">JUNO Label</dt>
                     <dd className="font-medium capitalize text-white">{junoEmotion}</dd>
                   </div>
                 </>
@@ -277,23 +277,23 @@ export default function CameraPanel({ status }) {
                 </dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white/[0.08] px-4 py-3 ring-1 ring-white/15">
-                <dt className="text-slate-300/70">Emotion source</dt>
+                <dt className="text-slate-300/70">Emotion Source</dt>
                 <dd className="font-medium text-white">{visionModelOn ? emotionSource : "—"}</dd>
               </div>
             </dl>
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 text-sm text-slate-300/80">
-            <p className="font-medium text-white">Face-expression classifier reading</p>
+            <p className="font-medium text-white">Face-Expression Classifier Reading</p>
             <p className="mt-1">
               {analysisError
-                ? `Vision model issue: ${analysisError}`
+                ? `Vision Model Issue: ${analysisError}`
                 : analysisDescription || "Switch on the Vision Module to show the model's latest visual reasoning here."}
             </p>
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 text-sm text-slate-300/80">
-            <p className="font-medium text-white">Operator note</p>
+            <p className="font-medium text-white">Operator Note</p>
             <p className="mt-1">
               Use <span className="font-medium text-white">Camera On</span> for normal monitoring. Enable the <span className="font-medium text-white">Vision Module</span> when you want facial emotion recognition, then switch between <span className="font-medium text-white">JUNO Mode</span> and <span className="font-medium text-white">Ekman Mode</span> at any time. Speech emotion cues still take priority when the user explicitly says how they feel.
             </p>

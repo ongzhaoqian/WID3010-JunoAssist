@@ -81,7 +81,7 @@ export default function App() {
       <section className="grid gap-5 lg:grid-cols-3">
         <StatusPanel status={status} />
         <TimerPanel status={status} />
-        <Card title="Last Response">
+        <Card title="Most Recent Response from JUNO">
           <p className="text-slate-200/85">{status?.last_response ?? "Loading..."}</p>
           {lastCommand && (
             <p className="mt-3 text-sm text-slate-300/75">
@@ -99,12 +99,6 @@ export default function App() {
         <CommandPanel onCommandResult={setLastCommand} />
         <Card title="Quick Actions">
           <div className="flex flex-wrap gap-3">
-            <button
-              onClick={playMusic}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold"
-            >
-              Play Music by Emotion
-            </button>
             <button
               onClick={sleepJuno}
               className="btn-secondary px-5 py-2.5 text-sm font-semibold"
