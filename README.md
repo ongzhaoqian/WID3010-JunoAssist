@@ -335,6 +335,19 @@ rosrun perception_pkg camera_listener_node.py _display_window:=true
 ```
 
 
+
+### Current Date, Time, and Timezone Window
+
+The dashboard now includes a **Current System Date & Time** card above Robot Status, Study Timer, and Most Recent Response from JUNO. It shows a live clock and date based on the device system time, formatted using the selected location or timezone.
+
+The user can choose from common location presets such as Kuala Lumpur, Singapore, Tokyo, London, New York, San Francisco, Sydney, and UTC, or select an IANA timezone directly. The selected timezone and location label are saved in browser local storage so the dashboard remembers the user's choice after refresh.
+
+Implementation file:
+
+```text
+dashboard/src/components/DateTimePanel.jsx
+```
+
 ## Dashboard Music, Schedule, Reminder, and Study Timer Updates
 
 ### Emotion-aware music window

@@ -4,6 +4,7 @@ import StatusPanel from "./components/StatusPanel";
 import CommandPanel from "./components/CommandPanel";
 import SchedulePanel from "./components/SchedulePanel";
 import TimerPanel from "./components/TimerPanel";
+import DateTimePanel from "./components/DateTimePanel";
 import ReminderPanel from "./components/ReminderPanel";
 import CameraPanel from "./components/CameraPanel";
 import MusicPanel from "./components/MusicPanel";
@@ -112,6 +113,8 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      <DateTimePanel />
 
       <section className="grid gap-5 lg:grid-cols-3">
         <StatusPanel status={status} />
