@@ -98,6 +98,22 @@ class Intent(str, Enum):
     UNKNOWN = "unknown"
 
 
+class AuthRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=120)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class AuthUser(BaseModel):
+    id: int
+    username: str
+    created_at: Optional[str] = None
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: AuthUser
+
+
 class CommandRequest(BaseModel):
     text: str = Field(..., min_length=1)
 

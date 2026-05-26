@@ -7,6 +7,18 @@ from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 
 
+def authenticated_client(app):
+    client = TestClient(app)
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "mackwongyy@gmail.com", "password": "12345678"},
+    )
+    assert login.status_code == 200, login.text
+    client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})
+    return client
+
+
+
 @pytest.fixture(autouse=True)
 def reset_robot_state():
     """Reset shared robot_state between tests to prevent state leakage."""
@@ -21,7 +33,7 @@ def reset_robot_state():
 
 def test_schedule_item_can_be_added_and_removed(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
 
     created = client.post(
         "/api/schedule",
@@ -46,7 +58,7 @@ def test_schedule_item_can_be_added_and_removed(tmp_path, monkeypatch):
 
 
 def test_timer_accepts_minutes_and_seconds():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     response = client.post("/api/timer/start", json={"minutes": 1, "seconds": 30})
 
     assert response.status_code == 200
@@ -56,7 +68,7 @@ def test_timer_accepts_minutes_and_seconds():
 
 
 def test_voice_timer_flow_asks_then_starts_duration():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_awaiting_timer_duration(False)
 
@@ -78,7 +90,7 @@ def test_voice_timer_flow_asks_then_starts_duration():
 
 
 def test_music_play_uses_current_emotion_and_spotify_embed():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_emotion(EmotionState.STRESSED)
 
     response = client.post("/api/music/play")
@@ -103,7 +115,7 @@ def test_timer_duration_parser_supports_minutes_and_seconds():
 
 def test_voice_schedule_add_accepts_structured_transcription(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
 
     response = client.post(
@@ -125,7 +137,7 @@ def test_voice_schedule_add_accepts_structured_transcription(tmp_path, monkeypat
 
 
 def test_voice_timer_flow_can_be_cancelled():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_awaiting_timer_duration(False)
 
@@ -142,7 +154,7 @@ def test_voice_timer_flow_can_be_cancelled():
 
 
 def test_voice_timer_flow_cancels_after_repeated_unclear_answers():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_awaiting_timer_duration(True)
 
@@ -179,7 +191,7 @@ def test_timer_duration_parser_handles_noisy_asr_number_phrases():
 
 
 def test_speech_emotion_overrides_visual_emotion_for_break_request():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_emotion(EmotionState.HAPPY, source="vision", confidence=0.60)
 
@@ -193,7 +205,7 @@ def test_speech_emotion_overrides_visual_emotion_for_break_request():
 
 def test_dashboard_reminder_uses_schedule_like_columns_and_can_be_deleted(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
 
     created = client.post(
         "/api/reminders",
@@ -226,7 +238,7 @@ def test_dashboard_reminder_uses_schedule_like_columns_and_can_be_deleted(tmp_pa
 
 def test_voice_can_add_and_then_read_updated_reminder_list(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
 
     add = client.post(
@@ -248,7 +260,7 @@ def test_voice_can_add_and_then_read_updated_reminder_list(tmp_path, monkeypatch
 
 def test_voice_schedule_reads_dashboard_added_items(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
 
     created = client.post(
@@ -282,7 +294,7 @@ def test_timer_completion_payload_is_emitted_once():
 
 
 def test_voice_stop_command_stops_music_without_speaking_acknowledgement():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_awaiting_timer_duration(True)
 
@@ -298,7 +310,7 @@ def test_voice_stop_command_stops_music_without_speaking_acknowledgement():
 
 def test_voice_schedule_add_accepts_natural_date_and_time(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
 
     response = client.post(
@@ -314,7 +326,7 @@ def test_voice_schedule_add_accepts_natural_date_and_time(tmp_path, monkeypatch)
 
 
 def test_dashboard_timer_pause_resume_and_stop_endpoints():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
 
     start = client.post("/api/timer/start", json={"minutes": 0, "seconds": 45})
     assert start.status_code == 200
@@ -343,7 +355,7 @@ def test_dashboard_timer_pause_resume_and_stop_endpoints():
 
 
 def test_voice_stop_timer_uses_fuzzy_stop_commands():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_timer(120, "Study timer")
 
@@ -356,7 +368,7 @@ def test_voice_stop_timer_uses_fuzzy_stop_commands():
 
 
 def test_voice_pause_and_resume_timer_commands():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_timer(90, "Study timer")
 
@@ -375,7 +387,7 @@ def test_voice_pause_and_resume_timer_commands():
 
 
 def test_stop_speaking_does_not_delete_running_timer():
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_timer(60, "Study timer")
 
@@ -391,7 +403,7 @@ def test_robot_sleep_requests_dashboard_close_and_runtime_powerdown(monkeypatch)
 
     monkeypatch.setattr(DashboardLifecycleManager, "close_dashboard", lambda self: {"closed": True})
     monkeypatch.setattr(DashboardLifecycleManager, "cleanup_powerdown_processes", lambda self: None)
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.mark_dashboard_open()
 
@@ -408,7 +420,7 @@ def test_dashboard_open_endpoint_reuses_dashboard_state(monkeypatch):
     from src.system.dashboard_lifecycle import DashboardLifecycleManager
 
     monkeypatch.setattr(DashboardLifecycleManager, "open_or_focus", lambda self, url: {"opened": False, "focused": True, "url": url})
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     robot_state.request_dashboard_close()
 
     response = client.post("/api/dashboard/open")
@@ -421,7 +433,7 @@ def test_dashboard_open_endpoint_reuses_dashboard_state(monkeypatch):
 
 def test_fitness_profile_session_and_stats(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
 
     profile = client.post("/api/fitness/profile", json={"height_m": 1.7, "weight_kg": 60}).json()
     assert profile["height_m"] == 1.7
@@ -448,7 +460,7 @@ def test_fitness_profile_session_and_stats(tmp_path, monkeypatch):
 
 def test_fitness_session_without_profile_marks_calories_pending(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
 
     response = client.post("/api/fitness/sessions", json={"score_67": 10})
     assert response.status_code == 200
@@ -464,7 +476,7 @@ def test_database_refresh_on_start_clears_runtime_tables(tmp_path, monkeypatch):
     db_path = tmp_path / "juno_test.db"
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(db_path))
 
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
     created = client.post(
         "/api/schedule",
         json={"title": "Temporary row", "date": "2026-05-20", "time": "10:00", "type": "study", "priority": "medium"},
@@ -473,13 +485,13 @@ def test_database_refresh_on_start_clears_runtime_tables(tmp_path, monkeypatch):
     assert client.get("/api/schedule/today").json()
 
     # A fresh app startup should clear previous runtime rows by default.
-    refreshed_client = TestClient(create_app())
+    refreshed_client = authenticated_client(create_app())
     assert refreshed_client.get("/api/schedule/today").json() == []
 
 
 def test_startup_does_not_load_sample_schedule_dataset(tmp_path, monkeypatch):
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
-    client = TestClient(create_app())
+    client = authenticated_client(create_app())
 
     schedule = client.get("/api/schedule/today")
     assert schedule.status_code == 200
@@ -492,3 +504,53 @@ def test_startup_does_not_load_sample_schedule_dataset(tmp_path, monkeypatch):
     fitness_stats = client.get("/api/fitness/stats?scope=cumulative")
     assert fitness_stats.status_code == 200
     assert fitness_stats.json()["session_count"] == 0
+
+
+def test_auth_default_accounts_and_data_isolation(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+
+    mack_login = client.post("/api/auth/login", json={"username": "mackwongyy@gmail.com", "password": "12345678"})
+    assert mack_login.status_code == 200
+    mack_headers = {"Authorization": f"Bearer {mack_login.json()['token']}"}
+
+    jon_login = client.post("/api/auth/login", json={"username": "jonathansiew@hotmail.com", "password": "87654321"})
+    assert jon_login.status_code == 200
+    jon_headers = {"Authorization": f"Bearer {jon_login.json()['token']}"}
+
+    created = client.post(
+        "/api/schedule",
+        headers=mack_headers,
+        json={"title": "Mack private task", "date": "2026-05-20", "time": "10:00", "type": "study", "priority": "medium"},
+    )
+    assert created.status_code == 200
+
+    mack_schedule = client.get("/api/schedule/today", headers=mack_headers).json()
+    jon_schedule = client.get("/api/schedule/today", headers=jon_headers).json()
+    assert any(row["title"] == "Mack private task" for row in mack_schedule)
+    assert all(row["title"] != "Mack private task" for row in jon_schedule)
+
+    delete_attempt = client.delete(f"/api/schedule/{created.json()['id']}", headers=jon_headers)
+    assert delete_attempt.status_code == 404
+
+
+def test_protected_dashboard_data_requires_login(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+
+    assert client.get("/api/schedule/today").status_code == 401
+    assert client.post("/api/fitness/sessions", json={"score_67": 10}).status_code == 401
+    assert client.post("/api/command", json={"text": "start study timer"}).status_code == 401
+
+
+def test_signup_creates_isolated_new_user(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+
+    signup = client.post("/api/auth/signup", json={"username": "newuser@example.com", "password": "password123"})
+    assert signup.status_code == 200
+    headers = {"Authorization": f"Bearer {signup.json()['token']}"}
+    me = client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["user"]["username"] == "newuser@example.com"
+    assert client.get("/api/schedule/today", headers=headers).json() == []

@@ -2160,3 +2160,7 @@ POST /api/dashboard/open
 The dashboard includes a 6-7 fitness game feature under Quick Actions. The **Play Fitness Game** button opens the 67 Speed game in a separate popup/window first so the dashboard stays open. If a popup is blocked, the dashboard requests a new tab as fallback. An optional embedded view remains available, but it is sandboxed to prevent the third-party page from replacing the dashboard. The dashboard attempts to receive score data through browser `postMessage`; if the third-party page does not expose the score, the user can manually enter the final 6-7 count after one round. Saved sessions are stored through `/api/fitness/sessions`, and the Fitness Game Statistics window can show either one-off or cumulative 6-7 count and estimated calories burnt.
 
 The user can enter height in metres and weight in kilogrammes through `/api/fitness/profile`. Weight is used for a rough MET-based calorie estimate; the result is displayed as a dashboard estimate only, not as medical or fitness advice.
+
+## Dashboard Authentication Note
+
+The React dashboard now requires user authentication before schedule, reminder, command, and fitness data endpoints are used. Default accounts are created on startup for demo testing. Voice-created schedule/reminder items are attached to the currently active logged-in dashboard user; if no user is logged in, JUNO prompts the operator to log in first.

@@ -223,7 +223,7 @@ export default function FitnessGameModal({ open, onClose, onSessionSaved, launch
             </div>
 
             <label className="block text-sm font-medium text-slate-200">
-              Number of 6-7 motions completed
+              Number of 6-7 Motions Achieved
               <input
                 type="number"
                 min="0"
@@ -236,7 +236,7 @@ export default function FitnessGameModal({ open, onClose, onSessionSaved, launch
             </label>
 
             <label className="block text-sm font-medium text-slate-200">
-              Duration in seconds, optional
+              Duration in Seconds
               <input
                 type="number"
                 min="1"

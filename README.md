@@ -53,12 +53,12 @@ Students often face many assignments, tests, classes, and deadlines during the s
 
 - Wake command: `Hey, Juno` or `Hey, John`
 - Voice confirmation before activation
-- Web dashboard after activation
+- Web dashboard after activation with log in / sign up access control
 - Embedded dashboard camera window for the Jupiter webcam feed
 - Switchable JUNO/Ekman facial emotion analysis using a lightweight Hugging Face image classifier (`mo-thecreator/vit-Facial-Expression-Recognition`), with mock fallback for lightweight demos
 - Rule-based intent detection for course-level feasibility
 - Lightweight Whisper Tiny speech recognition for robot microphone input
-- SQLite-backed schedule and reminder storage
+- SQLite-backed user accounts, schedule, reminder, and fitness storage
 - Editable dashboard schedule items with live speech retrieval of newly added items
 - Editable dashboard reminders using the same main fields as schedule items: `title`, `date`, `time`, `type`, and `priority`
 - Voice commands for checking schedules, adding schedules, checking reminders, and adding reminders
@@ -555,13 +555,36 @@ Calories are estimates only, using the standard MET formula with a default MET v
 
 ## Database Refresh on Startup
 
-The backend now starts with a clean runtime database by default. When `JUNO_DATABASE_REFRESH_ON_START=true`, the startup flow clears schedule items, reminders, fitness profile data, and fitness game sessions before the dashboard and ROS loops begin. No hardcoded/sample schedule dataset is loaded.
+The backend now starts with a clean runtime database by default. When `JUNO_DATABASE_REFRESH_ON_START=true`, the startup flow clears user-scoped schedule items, reminders, fitness profile data, and fitness game sessions before the dashboard and ROS loops begin. User accounts are retained/recreated, and no hardcoded/sample schedule dataset is loaded.
 
 Set this to `false` only if you intentionally want to persist runtime entries across backend restarts:
 
 ```bash
 JUNO_DATABASE_REFRESH_ON_START=false
 ```
+
+
+### Dashboard login and user-scoped data
+
+The dashboard now requires users to log in before accessing recorded data such as schedules, reminders, command-created records, fitness profile values, and fitness game sessions. Authentication uses SQLite-backed users and bearer session tokens. User rows are scoped with `user_id`, so one user cannot read, edit, or delete another user’s dashboard data through the API.
+
+Default accounts are created automatically on backend startup:
+
+| Username | Password |
+|---|---|
+| `mackwongyy@gmail.com` | `12345678` |
+| `jonathansiew@hotmail.com` | `87654321` |
+
+Useful authentication endpoints:
+
+```text
+POST /api/auth/login
+POST /api/auth/signup
+POST /api/auth/logout
+GET  /api/auth/me
+```
+
+Protected dashboard-data endpoints require an `Authorization: Bearer <token>` header. The React dashboard stores the session token in browser local storage and sends it automatically.
 
 ## Quick Start: Dashboard
 
