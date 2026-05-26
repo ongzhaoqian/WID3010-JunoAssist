@@ -150,6 +150,17 @@ class MusicPlayRequest(BaseModel):
 class VisionModeRequest(BaseModel):
     mode: VisionEmotionMode = VisionEmotionMode.JUNO
 
+class FitnessProfileRequest(BaseModel):
+    height_m: Optional[float] = Field(default=None, ge=0.5, le=2.5)
+    weight_kg: Optional[float] = Field(default=None, ge=20, le=250)
+
+
+class FitnessSessionRequest(BaseModel):
+    score_67: int = Field(..., ge=0, le=10000)
+    source: str = Field(default="manual", max_length=40)
+    duration_seconds: Optional[int] = Field(default=None, ge=1, le=600)
+
+
 
 class RobotStatus(BaseModel):
     mode: RobotMode

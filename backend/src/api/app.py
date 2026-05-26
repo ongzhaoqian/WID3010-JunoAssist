@@ -17,7 +17,7 @@ from src.activation.confirmation_handler import ConfirmationHandler
 from src.activation.wake_word_detector import WakeWordDetector
 from src.calendar_module.calendar_service import CalendarService
 from src.core.config import settings
-from src.core.models import CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
+from src.core.models import CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -26,6 +26,7 @@ from src.nlp.response_generator import ResponseGenerator
 from src.nlp.phrase_bank import PhraseBank
 from src.productivity.music_service import MusicService
 from src.productivity.timer_service import TimerService
+from src.productivity.fitness_service import FitnessService, FITNESS_GAME_URL
 from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
 from src.vision.emotion_detector import EmotionDetector
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
     response_generator = ResponseGenerator(calendar_service, llm_client=llm_client, phrase_bank=phrase_bank)
     timer_service = TimerService()
     music_service = MusicService()
+    fitness_service = FitnessService(os.getenv("JUNO_DATABASE_PATH", settings.database_path))
     speech_emotion_detector = SpeechEmotionDetector()
     # The emotion model is created only when the operator explicitly enables
     # the Vision Module. This keeps the dashboard camera lightweight by default.
@@ -705,6 +707,7 @@ def create_app() -> FastAPI:
             {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
+            {"name": "Fitness Game", "description": "Open the 6-7 fitness game, save scores, and estimate calories for one-off or cumulative statistics."},
         ]
 
     @app.get("/api/status")
@@ -935,6 +938,40 @@ def create_app() -> FastAPI:
         response = phrase_bank.say("timer_deleted")
         robot_state.set_response(response)
         return {"deleted": True, "message": response, "status": robot_state.snapshot()}
+
+    @app.get("/api/fitness/profile")
+    def get_fitness_profile():
+        return fitness_service.get_profile()
+
+    @app.post("/api/fitness/profile")
+    def save_fitness_profile(request: FitnessProfileRequest):
+        return fitness_service.save_profile(height_m=request.height_m, weight_kg=request.weight_kg)
+
+    @app.get("/api/fitness/sessions")
+    def get_fitness_sessions(limit: int = 20):
+        return fitness_service.list_sessions(limit=limit)
+
+    @app.post("/api/fitness/sessions")
+    def add_fitness_session(request: FitnessSessionRequest):
+        session = fitness_service.add_session(
+            score_67=request.score_67,
+            source=request.source,
+            duration_seconds=request.duration_seconds,
+        )
+        robot_state.set_response(f"Fitness score saved: {session['score_67']} six-seven motions.")
+        return session
+
+    @app.get("/api/fitness/stats")
+    def get_fitness_stats(scope: str = "latest"):
+        return fitness_service.stats(scope=scope)
+
+    @app.get("/api/fitness/game")
+    def get_fitness_game_info():
+        return {
+            "game_url": FITNESS_GAME_URL,
+            "capture_method": "postMessage_or_manual",
+            "note": "Automatic score capture depends on whether the third-party game exposes score data to the parent page. Manual score entry is kept as a reliable fallback.",
+        }
 
     @app.get("/api/music/status")
     def get_music_status():

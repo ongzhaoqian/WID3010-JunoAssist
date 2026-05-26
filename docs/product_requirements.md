@@ -1101,3 +1101,9 @@ The face detection model weights (Caffe `.prototxt` + `.caffemodel`) should also
 ### Ekman-7 Emotion Taxonomy Update
 
 The current implementation keeps the original JUNO emotion vocabulary (`happy`, `sad`, `tired`, `frustrated`, `stressed`, `neutral`) while adding a switchable Ekman mode display labels (`angry`, `disgusted`, `scared`, `happy`, `sad`, `surprised`, `neutral`) while preserving raw Ekman values (`anger`, `disgust`, `fear`, `happiness`, `sadness`, `surprise`, `neutral`). The backend stores canonical Ekman evidence internally and maps it to the selected dashboard mode without reloading the model. It may return `unknown` when the camera frame or classifier confidence is insufficient. The default model is now `mo-thecreator/vit-Facial-Expression-Recognition` through the `face_expression` backend, replacing the previous SmolVLM default for normal robot operation.
+
+### Fitness Game Feature
+
+The dashboard includes a 6-7 fitness game feature under Quick Actions. The **Play Fitness Game** button opens the 67 Speed game in an embedded popup-style panel with a separate browser popup fallback. The dashboard attempts to receive score data through browser `postMessage`; if the third-party page does not expose the score, the user can manually enter the final 6-7 count after one round. Saved sessions are stored through `/api/fitness/sessions`, and the Fitness Game Statistics window can show either one-off or cumulative 6-7 count and estimated calories burnt.
+
+The user can enter height in metres and weight in kilogrammes through `/api/fitness/profile`. Weight is used for a rough MET-based calorie estimate; the result is displayed as a dashboard estimate only, not as medical or fitness advice.

@@ -65,6 +65,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Speech-tolerant schedule/reminder date and time parsing, including `25 May`, `25/05/2026`, `tomorrow`, `next Monday`, `nine pm`, `nine thirty`, `half past nine`, and `quarter to six`
 - Study timer with minute-and-second input, flexible speech duration parsing, cancellation support, and bell sound on completion
 - Emotion-aware Spotify dashboard music window with voice-stop support
+- 6-7 fitness game popup with score saving, one-off/cumulative statistics, and calorie estimates based on user-entered height and weight
 - Immediate `stop` command to interrupt JUNO speech and stop dashboard music
 - REST API and WebSocket updates using FastAPI
 - React dashboard using Vite and Tailwind CSS
@@ -530,6 +531,26 @@ POST /api/robot/sleep
 POST /api/dashboard/closed
 POST /api/dashboard/open
 ```
+
+## Fitness Game Dashboard Feature
+
+The Quick Actions card includes a **Play Fitness Game** button. It opens the 67 Speed game page in an embedded game window with a popup fallback. After one round, the dashboard can save the user's 6-7 count and show it in the **Fitness Game Statistics** window.
+
+Because `https://67speed.com/` is a third-party page, automatic score extraction is implemented as a best-effort browser `postMessage` listener. If the external game does not expose its score to the parent page, the user can enter the final 6-7 count manually after the round. This avoids fragile cross-origin scraping and keeps the feature reliable during demos.
+
+Fitness APIs:
+
+```text
+GET  /api/fitness/profile
+POST /api/fitness/profile        # { "height_m": 1.70, "weight_kg": 60 }
+GET  /api/fitness/sessions
+POST /api/fitness/sessions       # { "score_67": 67, "duration_seconds": 60 }
+GET  /api/fitness/stats?scope=latest
+GET  /api/fitness/stats?scope=cumulative
+GET  /api/fitness/game
+```
+
+Calories are estimates only, using the standard MET formula with a default MET value of 4.0 for a light fitness game movement estimate. The dashboard supports **One-off Stats** for the latest game and **Cumulative Stats** for all saved sessions.
 
 ## Quick Start: Dashboard
 

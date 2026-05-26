@@ -8,6 +8,8 @@ import DateTimePanel from "./components/DateTimePanel";
 import ReminderPanel from "./components/ReminderPanel";
 import CameraPanel from "./components/CameraPanel";
 import MusicPanel from "./components/MusicPanel";
+import FitnessPanel from "./components/FitnessPanel";
+import FitnessGameModal from "./components/FitnessGameModal";
 import Card from "./components/Card";
 
 export default function App() {
@@ -15,6 +17,8 @@ export default function App() {
   const [schedule, setSchedule] = useState([]);
   const [lastCommand, setLastCommand] = useState(null);
   const [dashboardClosing, setDashboardClosing] = useState(false);
+  const [fitnessGameOpen, setFitnessGameOpen] = useState(false);
+  const [fitnessRefreshKey, setFitnessRefreshKey] = useState(0);
 
   async function loadSchedule() {
     const scheduleData = await getJson("/api/schedule/today");
@@ -39,6 +43,9 @@ export default function App() {
     await postJson("/api/robot/sleep");
   }
 
+  async function handleFitnessSessionSaved() {
+    setFitnessRefreshKey((current) => current + 1);
+  }
 
   useEffect(() => {
     if (!status?.dashboard_should_close) {
@@ -138,6 +145,12 @@ export default function App() {
         <Card title="Quick Actions">
           <div className="flex flex-wrap gap-3">
             <button
+              onClick={() => setFitnessGameOpen(true)}
+              className="btn-primary px-5 py-2.5 text-sm font-semibold"
+            >
+              Play Fitness Game
+            </button>
+            <button
               onClick={sleepJuno}
               className="btn-secondary px-5 py-2.5 text-sm font-semibold"
             >
@@ -145,7 +158,7 @@ export default function App() {
             </button>
           </div>
           <p className="mt-3 text-sm text-slate-300/75">
-            Music selection follows the latest emotion estimate when the Vision Module is on; otherwise it falls back to a neutral study playlist.
+            Use the fitness game for a quick movement break, or put JUNO back to sleep when the session is done.
           </p>
         </Card>
       </section>
@@ -154,11 +167,20 @@ export default function App() {
         <MusicPanel status={status} />
       </section>
 
+      <section className="mt-5">
+        <FitnessPanel refreshKey={fitnessRefreshKey} onProfileSaved={handleFitnessSessionSaved} />
+      </section>
+
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
         <SchedulePanel schedule={schedule} onScheduleChanged={loadSchedule} />
         <ReminderPanel />
       </section>
 
+      <FitnessGameModal
+        open={fitnessGameOpen}
+        onClose={() => setFitnessGameOpen(false)}
+        onSessionSaved={handleFitnessSessionSaved}
+      />
     </main>
   );
 }

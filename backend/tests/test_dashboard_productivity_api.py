@@ -417,3 +417,43 @@ def test_dashboard_open_endpoint_reuses_dashboard_state(monkeypatch):
     status = response.json()["status"]
     assert status["dashboard_should_close"] is False
     assert status["dashboard_open"] is True
+
+
+def test_fitness_profile_session_and_stats(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+
+    profile = client.post("/api/fitness/profile", json={"height_m": 1.7, "weight_kg": 60}).json()
+    assert profile["height_m"] == 1.7
+    assert profile["weight_kg"] == 60
+    assert profile["complete"] is True
+
+    session = client.post("/api/fitness/sessions", json={"score_67": 67, "source": "test", "duration_seconds": 60})
+    assert session.status_code == 200
+    payload = session.json()
+    assert payload["score_67"] == 67
+    assert payload["calories_burned"] is not None
+
+    latest = client.get("/api/fitness/stats?scope=latest").json()
+    assert latest["score_67"] == 67
+    assert latest["session_count"] == 1
+    assert latest["calories_burned"] == payload["calories_burned"]
+
+    client.post("/api/fitness/sessions", json={"score_67": 33, "source": "test", "duration_seconds": 30})
+    cumulative = client.get("/api/fitness/stats?scope=cumulative").json()
+    assert cumulative["score_67"] == 100
+    assert cumulative["session_count"] == 2
+    assert cumulative["calories_burned"] > latest["calories_burned"]
+
+
+def test_fitness_session_without_profile_marks_calories_pending(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = TestClient(create_app())
+
+    response = client.post("/api/fitness/sessions", json={"score_67": 10})
+    assert response.status_code == 200
+    assert response.json()["calories_burned"] is None
+
+    stats = client.get("/api/fitness/stats?scope=latest").json()
+    assert stats["needs_profile"] is True
+    assert stats["calories_burned"] is None
