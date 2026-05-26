@@ -9,7 +9,7 @@ import ReminderPanel from "./components/ReminderPanel";
 import CameraPanel from "./components/CameraPanel";
 import MusicPanel from "./components/MusicPanel";
 import FitnessPanel from "./components/FitnessPanel";
-import FitnessGameModal from "./components/FitnessGameModal";
+import FitnessGameModal, { openFitnessGameWindow } from "./components/FitnessGameModal";
 import Card from "./components/Card";
 
 export default function App() {
@@ -19,6 +19,7 @@ export default function App() {
   const [dashboardClosing, setDashboardClosing] = useState(false);
   const [fitnessGameOpen, setFitnessGameOpen] = useState(false);
   const [fitnessRefreshKey, setFitnessRefreshKey] = useState(0);
+  const [fitnessLaunchMessage, setFitnessLaunchMessage] = useState("");
 
   async function loadSchedule() {
     const scheduleData = await getJson("/api/schedule/today");
@@ -45,6 +46,16 @@ export default function App() {
 
   async function handleFitnessSessionSaved() {
     setFitnessRefreshKey((current) => current + 1);
+  }
+
+  function launchFitnessGame() {
+    const openedPopup = openFitnessGameWindow();
+    setFitnessLaunchMessage(
+      openedPopup
+        ? "Game opened in a separate popup window. Keep this dashboard open to save the final 6-7 score."
+        : "A new game tab was requested because the browser may have blocked the popup. Keep this dashboard open to save the final 6-7 score."
+    );
+    setFitnessGameOpen(true);
   }
 
   useEffect(() => {
@@ -145,7 +156,7 @@ export default function App() {
         <Card title="Quick Actions">
           <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => setFitnessGameOpen(true)}
+              onClick={launchFitnessGame}
               className="btn-primary px-5 py-2.5 text-sm font-semibold"
             >
               Play Fitness Game
@@ -180,6 +191,7 @@ export default function App() {
         open={fitnessGameOpen}
         onClose={() => setFitnessGameOpen(false)}
         onSessionSaved={handleFitnessSessionSaved}
+        launchMessage={fitnessLaunchMessage}
       />
     </main>
   );

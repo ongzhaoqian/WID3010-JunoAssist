@@ -534,7 +534,7 @@ POST /api/dashboard/open
 
 ## Fitness Game Dashboard Feature
 
-The Quick Actions card includes a **Play Fitness Game** button. It opens the 67 Speed game page in an embedded game window with a popup fallback. After one round, the dashboard can save the user's 6-7 count and show it in the **Fitness Game Statistics** window.
+The Quick Actions card includes a **Play Fitness Game** button. It now opens the 67 Speed game page in a separate popup/window first so the dashboard stays open for saving the result. If the browser blocks the popup, the dashboard requests a new tab as a fallback. The embedded view is available only as an optional manual fallback and is sandboxed so the third-party game cannot navigate the dashboard away from JUNO.
 
 Because `https://67speed.com/` is a third-party page, automatic score extraction is implemented as a best-effort browser `postMessage` listener. If the external game does not expose its score to the parent page, the user can enter the final 6-7 count manually after the round. This avoids fragile cross-origin scraping and keeps the feature reliable during demos.
 

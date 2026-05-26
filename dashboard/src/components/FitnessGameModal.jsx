@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { postJson } from "../lib/api";
 
-const GAME_URL = "https://67speed.com/";
+export const GAME_URL = "https://67speed.com/";
 
 function extractScoreFromMessage(data) {
   if (data == null) return null;
@@ -43,16 +43,44 @@ function extractScoreFromMessage(data) {
   return null;
 }
 
-export default function FitnessGameModal({ open, onClose, onSessionSaved }) {
+export function openFitnessGameWindow() {
+  const popup = window.open(
+    GAME_URL,
+    "juno-67-speed-game",
+    "popup=yes,width=520,height=820,left=80,top=60,menubar=no,toolbar=no,location=yes,status=no,scrollbars=yes,resizable=yes"
+  );
+
+  if (popup) {
+    popup.focus?.();
+    return true;
+  }
+
+  // Browser popup blockers may reject window.open. Opening with _blank from a
+  // user click is the next safest fallback and keeps the dashboard page alive.
+  const fallbackAnchor = document.createElement("a");
+  fallbackAnchor.href = GAME_URL;
+  fallbackAnchor.target = "_blank";
+  fallbackAnchor.rel = "noopener noreferrer";
+  fallbackAnchor.style.display = "none";
+  document.body.appendChild(fallbackAnchor);
+  fallbackAnchor.click();
+  fallbackAnchor.remove();
+  return false;
+}
+
+export default function FitnessGameModal({ open, onClose, onSessionSaved, launchMessage = "" }) {
   const [score, setScore] = useState("");
   const [durationSeconds, setDurationSeconds] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [iframeFailed, setIframeFailed] = useState(false);
+  const [showEmbeddedGame, setShowEmbeddedGame] = useState(false);
   const iframeSrc = useMemo(() => `${GAME_URL}?juno=1`, []);
 
   useEffect(() => {
     if (!open) return undefined;
+
+    setMessage(launchMessage || "The game should open in a separate window while this dashboard stays open for saving the result.");
 
     function handleMessage(event) {
       // The game is third-party. If it emits postMessage score data, capture it;
@@ -66,22 +94,24 @@ export default function FitnessGameModal({ open, onClose, onSessionSaved }) {
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
+  }, [open, launchMessage]);
+
+  useEffect(() => {
+    if (!open) {
+      setShowEmbeddedGame(false);
+      setIframeFailed(false);
+    }
   }, [open]);
 
   if (!open) return null;
 
   function openPopupWindow() {
-    const popup = window.open(
-      GAME_URL,
-      "juno-67-speed-game",
-      "popup=yes,width=520,height=820,menubar=no,toolbar=no,location=yes,status=no,scrollbars=yes,resizable=yes"
+    const openedPopup = openFitnessGameWindow();
+    setMessage(
+      openedPopup
+        ? "Game opened in a separate popup window. The dashboard remains open here for saving the final 6-7 count."
+        : "A new game tab was requested because the browser may have blocked the popup. Keep this dashboard open to save the score."
     );
-    if (!popup) {
-      setMessage("Your browser blocked the popup. Please allow popups or use the embedded game panel.");
-      return;
-    }
-    popup.focus?.();
-    setMessage("Game popup opened. Enter the 6-7 score here after the round if it is not auto-detected.");
   }
 
   async function saveScore() {
@@ -123,12 +153,19 @@ export default function FitnessGameModal({ open, onClose, onSessionSaved }) {
             <p className="section-kicker text-xs font-semibold">Fitness Game</p>
             <h2 className="mt-1 text-2xl font-black text-white">Play 6-7 Speed Challenge</h2>
             <p className="mt-1 text-sm text-slate-300/75">
-              Play the game, then save your 6-7 count for one-off or cumulative fitness statistics.
+              The game opens in a separate popup/tab so the dashboard stays available for saving the score.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button onClick={openPopupWindow} className="btn-secondary px-4 py-2 text-sm font-semibold" type="button">
-              Open Game Popup
+              Open / Reopen Game
+            </button>
+            <button
+              onClick={() => setShowEmbeddedGame((current) => !current)}
+              className="btn-secondary px-4 py-2 text-sm font-semibold"
+              type="button"
+            >
+              {showEmbeddedGame ? "Hide Embedded View" : "Try Embedded View"}
             </button>
             <button onClick={onClose} className="btn-secondary px-4 py-2 text-sm font-semibold" type="button">
               Close
@@ -136,26 +173,43 @@ export default function FitnessGameModal({ open, onClose, onSessionSaved }) {
           </div>
         </div>
 
-        <div className="relative z-10 grid min-h-0 flex-1 gap-4 p-5 lg:grid-cols-[1.5fr_0.7fr]">
-          <div className="min-h-[520px] overflow-hidden rounded-[1.5rem] border border-white/15 bg-slate-950/55">
-            {!iframeFailed ? (
+        <div className="relative z-10 grid min-h-0 flex-1 gap-4 p-5 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="min-h-[420px] overflow-hidden rounded-[1.5rem] border border-white/15 bg-slate-950/55">
+            {showEmbeddedGame && !iframeFailed ? (
               <iframe
                 title="67 Speed fitness game"
                 src={iframeSrc}
                 className="h-full min-h-[520px] w-full"
                 allow="clipboard-read; clipboard-write; fullscreen; autoplay"
+                // Keep this sandboxed so if the third-party site tries frame-busting
+                // navigation, it cannot replace the dashboard page with 67speed.com.
+                sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"
                 loading="lazy"
                 onError={() => setIframeFailed(true)}
               />
             ) : (
-              <div className="flex h-full min-h-[520px] flex-col items-center justify-center p-8 text-center">
-                <p className="text-xl font-bold text-white">Embedded game could not load.</p>
-                <p className="mt-2 max-w-md text-sm text-slate-300/75">
-                  Some third-party sites block iframe embedding. Use the popup button to play the game in a separate window.
+              <div className="flex h-full min-h-[420px] flex-col items-center justify-center p-8 text-center">
+                <p className="text-xl font-bold text-white">
+                  {iframeFailed ? "Embedded game could not load." : "Game opened outside the dashboard."}
                 </p>
-                <button onClick={openPopupWindow} className="btn-primary mt-4 px-5 py-2.5 text-sm font-semibold" type="button">
-                  Open Game Popup
-                </button>
+                <p className="mt-2 max-w-lg text-sm leading-6 text-slate-300/75">
+                  Some third-party sites block iframe embedding or attempt to navigate the parent page. JUNO therefore opens 67 Speed in a separate popup/tab first, while this window stays open for score saving.
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-3">
+                  <button onClick={openPopupWindow} className="btn-primary px-5 py-2.5 text-sm font-semibold" type="button">
+                    Open / Reopen Game
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIframeFailed(false);
+                      setShowEmbeddedGame(true);
+                    }}
+                    className="btn-secondary px-5 py-2.5 text-sm font-semibold"
+                    type="button"
+                  >
+                    Try Embedded View
+                  </button>
+                </div>
               </div>
             )}
           </div>
