@@ -76,7 +76,7 @@ def test_vision_mode_can_switch_between_juno_and_ekman():
     assert switched.status_code == 200
     payload = switched.json()
     assert payload["vision_emotion_mode"] == "ekman"
-    assert payload["display_emotion"] == "fear"
+    assert payload["display_emotion"] == "scared"
     assert payload["juno_emotion"] == "stressed"
 
     back = client.post("/api/vision/mode", json={"mode": "juno"}).json()

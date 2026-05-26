@@ -2110,7 +2110,7 @@ When the user's transcript explicitly states an emotion, such as `I am stressed`
 
 ## Switchable JUNO/Ekman Vision Module Update
 
-The dashboard Vision Module now uses the `face_expression` backend by default with `mo-thecreator/vit-Facial-Expression-Recognition`, replacing SmolVLM as the normal emotion classifier. The classifier produces canonical Ekman evidence internally, while the dashboard can switch between JUNO mode (`happy`, `sad`, `tired`, `frustrated`, `stressed`, `neutral`) and Ekman mode (`anger`, `disgust`, `fear`, `happiness`, `sadness`, `surprise`, `neutral`) at any time during the same run. `unknown` is used when the frame or confidence is insufficient. Spoken emotion cues still override camera inference; for example, “I am stressed” is mapped to Ekman `fear` and shown as `stressed` in JUNO mode.
+The dashboard Vision Module now uses the `face_expression` backend by default with `mo-thecreator/vit-Facial-Expression-Recognition`, replacing SmolVLM as the normal emotion classifier. The classifier produces canonical Ekman evidence internally, while the dashboard can switch between JUNO mode (`happy`, `sad`, `tired`, `frustrated`, `stressed`, `neutral`) and Ekman mode display labels (`angry`, `disgusted`, `scared`, `happy`, `sad`, `surprised`, `neutral`) while preserving raw Ekman values (`anger`, `disgust`, `fear`, `happiness`, `sadness`, `surprise`, `neutral`) at any time during the same run. `unknown` is used when the frame or confidence is insufficient. Spoken emotion cues still override camera inference; for example, “I am stressed” is mapped to Ekman `fear` and shown as `stressed` in JUNO mode.
 
 Recommended environment settings:
 

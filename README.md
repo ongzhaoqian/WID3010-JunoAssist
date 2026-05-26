@@ -179,7 +179,13 @@ pip install -r requirements-asr.txt
 
 The core vision model now uses `mo-thecreator/vit-Facial-Expression-Recognition` by default through the `face_expression` backend. The model runs once and produces a canonical Ekman-style probability vector internally. The dashboard can then switch between two display modes during the same run without reloading the model.
 
-Ekman mode shows the native classifier classes:
+Ekman mode shows user-facing display labels while preserving raw Ekman values in the Jupiter Camera View details:
+
+```text
+angry, disgusted, scared, happy, sad, surprised, neutral
+```
+
+The raw Ekman values remain available separately as:
 
 ```text
 anger, disgust, fear, happiness, sadness, surprise, neutral

@@ -31,6 +31,19 @@ JUNO_EMOTIONS: tuple[str, ...] = (
     "neutral",
 )
 
+# User-facing labels for Ekman mode. Raw Ekman labels are still preserved in
+# `raw_ekman_emotion` and `raw_ekman_scores`; these labels are only for display.
+EKMAN_DISPLAY_LABELS: dict[EmotionState, str] = {
+    EmotionState.ANGER: "angry",
+    EmotionState.DISGUST: "disgusted",
+    EmotionState.FEAR: "scared",
+    EmotionState.HAPPINESS: "happy",
+    EmotionState.SADNESS: "sad",
+    EmotionState.SURPRISE: "surprised",
+    EmotionState.NEUTRAL: "neutral",
+    EmotionState.UNKNOWN: "unknown",
+}
+
 
 def normalise_vision_mode(value: object) -> VisionEmotionMode:
     if isinstance(value, VisionEmotionMode):
@@ -119,7 +132,7 @@ def format_emotion_for_mode(
     except Exception:
         state = EmotionState.UNKNOWN
     if selected_mode == VisionEmotionMode.EKMAN:
-        return state.value
+        return EKMAN_DISPLAY_LABELS.get(state, state.value)
     return ekman_to_juno_label(state, scores=scores, source=source, speech_text=speech_text)
 
 

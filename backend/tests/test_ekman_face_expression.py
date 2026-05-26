@@ -60,7 +60,7 @@ def test_juno_mode_maps_ekman_to_original_labels():
     assert ekman_to_juno_label(EmotionState.SADNESS) == "sad"
     assert ekman_to_juno_label(EmotionState.FEAR) == "stressed"
     assert ekman_to_juno_label(EmotionState.ANGER) == "frustrated"
-    assert format_emotion_for_mode(VisionEmotionMode.EKMAN, EmotionState.FEAR) == "fear"
+    assert format_emotion_for_mode(VisionEmotionMode.EKMAN, EmotionState.FEAR) == "scared"
     assert format_emotion_for_mode(VisionEmotionMode.JUNO, EmotionState.FEAR) == "stressed"
 
 
