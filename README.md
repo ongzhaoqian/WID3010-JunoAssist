@@ -478,6 +478,40 @@ The dashboard Vision Module still estimates emotion from the camera, but speech 
 
 This keeps break recommendations and emotion-aware music aligned with the user's stated feelings rather than relying only on visible facial expression.
 
+
+## Dashboard Power Lifecycle
+
+When JUNO powers on after confirmation, the backend now calls the dashboard lifecycle manager instead of blindly opening another browser tab. It first tries to focus an existing dashboard window using `wmctrl`; only if no matching window is found does it open `JUNO_DASHBOARD_URL`.
+
+When JUNO powers off or enters sleep mode, the backend:
+
+1. switches the robot state back to `idle`,
+2. disables the camera and Vision Module,
+3. sends the dashboard a `dashboard_should_close=true` state flag,
+4. tries to close the browser window using `wmctrl`, and
+5. runs best-effort process cleanup for configured JUNO runtime processes while excluding `roscore`, `rosmaster`, `rosout`, and the current backend process.
+
+The dashboard also attempts `window.close()` when it receives the close flag. If the browser blocks automatic closing, it shows a powered-off overlay and the same page is reused when JUNO powers on again.
+
+Useful settings:
+
+```text
+JUNO_DASHBOARD_REUSE_EXISTING=true
+JUNO_DASHBOARD_CLOSE_ON_SLEEP=true
+JUNO_POWERDOWN_CLEANUP_ENABLED=true
+JUNO_POWERDOWN_CLEANUP_DELAY_SECONDS=2.0
+JUNO_POWERDOWN_CLEANUP_PATTERNS=npm\s+run\s+dev|vite|roslaunch\s+juno_bringup|camera_node\.py|microphone_node\.py|tts_node\.py|transcriber\.py
+JUNO_POWERDOWN_CLEANUP_EXCLUDE_PATTERNS=roscore|rosmaster|rosout|backend/main\.py|uvicorn.*backend|pytest
+```
+
+Useful endpoints:
+
+```text
+POST /api/robot/sleep
+POST /api/dashboard/closed
+POST /api/dashboard/open
+```
+
 ## Quick Start: Dashboard
 
 Open a second terminal:

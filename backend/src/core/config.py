@@ -13,6 +13,22 @@ def _env_bool(name: str, default: bool = False) -> bool:
 class Settings:
     app_name: str = "JUNO Assist"
     dashboard_url: str = os.getenv("JUNO_DASHBOARD_URL", "http://localhost:5173")
+    dashboard_window_title: str = os.getenv("JUNO_DASHBOARD_WINDOW_TITLE", "JUNO Assist Dashboard")
+    dashboard_reuse_existing: bool = _env_bool("JUNO_DASHBOARD_REUSE_EXISTING", True)
+    dashboard_close_on_sleep: bool = _env_bool("JUNO_DASHBOARD_CLOSE_ON_SLEEP", True)
+    # Best-effort runtime cleanup when JUNO powers down. The backend and roscore
+    # are excluded so the robot can still be woken again in the same run.
+    powerdown_cleanup_enabled: bool = _env_bool("JUNO_POWERDOWN_CLEANUP_ENABLED", True)
+    powerdown_cleanup_grace_seconds: float = float(os.getenv("JUNO_POWERDOWN_CLEANUP_GRACE_SECONDS", "1.0"))
+    powerdown_cleanup_delay_seconds: float = float(os.getenv("JUNO_POWERDOWN_CLEANUP_DELAY_SECONDS", "2.0"))
+    powerdown_cleanup_patterns: str = os.getenv(
+        "JUNO_POWERDOWN_CLEANUP_PATTERNS",
+        r"npm\s+run\s+dev|vite|roslaunch\s+juno_bringup|camera_node\.py|microphone_node\.py|tts_node\.py|transcriber\.py|camera_listener_node\.py|microphone_listener_node\.py"
+    )
+    powerdown_cleanup_exclude_patterns: str = os.getenv(
+        "JUNO_POWERDOWN_CLEANUP_EXCLUDE_PATTERNS",
+        r"roscore|rosmaster|rosout|backend/main\.py|uvicorn.*backend|pytest"
+    )
     database_path: str = os.getenv("JUNO_DATABASE_PATH", "juno_assist.db")
     wake_phrase: str = os.getenv("JUNO_WAKE_PHRASE", "hey john")
     confirmation_phrase: str = os.getenv("JUNO_CONFIRMATION_PHRASE", "yes")

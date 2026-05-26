@@ -384,3 +384,36 @@ def test_stop_speaking_does_not_delete_running_timer():
     payload = response.json()
     assert payload["intent"] == "stop"
     assert payload["status"]["timer_remaining_seconds"] == 60
+
+
+def test_robot_sleep_requests_dashboard_close_and_runtime_powerdown(monkeypatch):
+    from src.system.dashboard_lifecycle import DashboardLifecycleManager
+
+    monkeypatch.setattr(DashboardLifecycleManager, "close_dashboard", lambda self: {"closed": True})
+    monkeypatch.setattr(DashboardLifecycleManager, "cleanup_powerdown_processes", lambda self: None)
+    client = TestClient(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.mark_dashboard_open()
+
+    response = client.post("/api/robot/sleep")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"]["mode"] == "idle"
+    assert payload["status"]["dashboard_should_close"] is True
+    assert payload["status"]["dashboard_open"] is False
+
+
+def test_dashboard_open_endpoint_reuses_dashboard_state(monkeypatch):
+    from src.system.dashboard_lifecycle import DashboardLifecycleManager
+
+    monkeypatch.setattr(DashboardLifecycleManager, "open_or_focus", lambda self, url: {"opened": False, "focused": True, "url": url})
+    client = TestClient(create_app())
+    robot_state.request_dashboard_close()
+
+    response = client.post("/api/dashboard/open")
+
+    assert response.status_code == 200
+    status = response.json()["status"]
+    assert status["dashboard_should_close"] is False
+    assert status["dashboard_open"] is True

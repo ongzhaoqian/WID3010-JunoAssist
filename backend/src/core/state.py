@@ -16,6 +16,9 @@ class RobotState:
         self.display_emotion = "unknown"
         self.juno_emotion = "unknown"
         self.last_response = "JUNO is waiting for the wake command."
+        self.dashboard_should_close = False
+        self.dashboard_open = False
+        self.dashboard_session_id = 0
         self.timer_remaining_seconds = 0
         self.active_timer_label = None
         self.awaiting_timer_duration = False
@@ -59,6 +62,9 @@ class RobotState:
                 "display_emotion": self.display_emotion,
                 "juno_emotion": self.juno_emotion,
                 "last_response": self.last_response,
+                "dashboard_should_close": self.dashboard_should_close,
+                "dashboard_open": self.dashboard_open,
+                "dashboard_session_id": self.dashboard_session_id,
                 "timer_remaining_seconds": self.timer_remaining_seconds,
                 "active_timer_label": self.active_timer_label,
                 "awaiting_timer_duration": self.awaiting_timer_duration,
@@ -147,6 +153,27 @@ class RobotState:
     def set_response(self, response: str) -> None:
         with self._lock:
             self.last_response = response
+
+    def mark_dashboard_open(self) -> None:
+        with self._lock:
+            self.dashboard_open = True
+            self.dashboard_should_close = False
+            self.dashboard_session_id += 1
+
+    def request_dashboard_close(self) -> None:
+        with self._lock:
+            self.dashboard_open = False
+            self.dashboard_should_close = True
+            self.dashboard_session_id += 1
+
+    def acknowledge_dashboard_closed(self) -> None:
+        with self._lock:
+            self.dashboard_open = False
+
+    def clear_dashboard_close_request(self) -> None:
+        with self._lock:
+            self.dashboard_should_close = False
+            self.dashboard_open = True
 
     def set_camera_enabled(self, enabled: bool) -> None:
         with self._lock:

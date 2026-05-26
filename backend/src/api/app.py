@@ -6,6 +6,7 @@ import re
 import json
 import time
 import difflib
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
@@ -29,6 +30,7 @@ from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
 from src.vision.emotion_detector import EmotionDetector
 from src.vision.speech_emotion import SpeechEmotionDetector
+from src.system.dashboard_lifecycle import DashboardLifecycleManager
 
 
 def _fuzzy_matches(word: str, candidates: list[str] | tuple[str, ...], threshold: float = 0.78) -> bool:
@@ -78,6 +80,15 @@ def create_app() -> FastAPI:
     # The emotion model is created only when the operator explicitly enables
     # the Vision Module. This keeps the dashboard camera lightweight by default.
     emotion_detector: Optional[EmotionDetector] = None
+    dashboard_lifecycle = DashboardLifecycleManager(
+        dashboard_title=settings.dashboard_window_title,
+        reuse_existing=settings.dashboard_reuse_existing,
+        close_browser_on_sleep=settings.dashboard_close_on_sleep,
+        cleanup_enabled=settings.powerdown_cleanup_enabled,
+        cleanup_patterns=(settings.powerdown_cleanup_patterns,),
+        cleanup_exclude_patterns=(settings.powerdown_cleanup_exclude_patterns,),
+        cleanup_grace_seconds=settings.powerdown_cleanup_grace_seconds,
+    )
 
     def _latest_camera_jpeg() -> Optional[bytes]:
         """Return the latest ROS camera frame encoded as JPEG for the dashboard."""
@@ -155,6 +166,47 @@ def create_app() -> FastAPI:
         if emotion_detector is None:
             emotion_detector = EmotionDetector(use_real=True)
         return emotion_detector
+
+    def _schedule_powerdown_cleanup() -> None:
+        if not settings.powerdown_cleanup_enabled:
+            return
+        timer = threading.Timer(
+            max(0.0, settings.powerdown_cleanup_delay_seconds),
+            dashboard_lifecycle.cleanup_powerdown_processes,
+        )
+        timer.daemon = True
+        timer.start()
+
+    def _activate_robot_with_dashboard() -> dict:
+        robot_state.set_mode(RobotMode.ACTIVE)
+        robot_state.clear_dashboard_close_request()
+        robot.set_led_state("active")
+        dashboard_result = dashboard_lifecycle.open_or_focus(settings.dashboard_url)
+        robot_state.mark_dashboard_open()
+        return dashboard_result
+
+    def _power_down_robot(response_key: str = "sleep", speak: bool = True) -> dict:
+        # Keep the backend alive so JUNO can be woken again in the same run, but
+        # close/hide the dashboard and clean up auxiliary runtime processes.
+        robot_state.set_mode(RobotMode.IDLE)
+        robot_state.set_camera_enabled(False)
+        robot_state.set_vision_model_enabled(False)
+        robot_state.delete_timer()
+        music_service.stop()
+        robot.set_led_state("sleep")
+        response = phrase_bank.say(response_key)
+        robot_state.set_response(response)
+        if speak:
+            tts.speak(response)
+        robot_state.request_dashboard_close()
+        dashboard_close = dashboard_lifecycle.close_dashboard()
+        _schedule_powerdown_cleanup()
+        return {
+            "intent": Intent.SLEEP,
+            "response": response,
+            "dashboard": dashboard_close,
+            "status": robot_state.snapshot(),
+        }
 
     def _apply_speech_emotion_from_text(text: str) -> None:
         """Prioritise explicit speech emotion cues over webcam-only inference."""
@@ -470,14 +522,12 @@ def create_app() -> FastAPI:
             if not (words & _explicit_yes):
                 return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
 
-            robot_state.set_mode(RobotMode.ACTIVE)
-            robot.set_led_state("active")
-            robot.open_dashboard(settings.dashboard_url)
+            dashboard_result = _activate_robot_with_dashboard()
             response = phrase_bank.say("online")
             robot_state.set_response(response)
             tts.speak(response)
             tts.speak(phrase_bank.say("prompt_help"))
-            return {"intent": Intent.CONFIRM, "response": response, "status": robot_state.snapshot()}
+            return {"intent": Intent.CONFIRM, "response": response, "dashboard": dashboard_result, "status": robot_state.snapshot()}
 
             # unreachable — kept for structure
             return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
@@ -550,11 +600,7 @@ def create_app() -> FastAPI:
                 return timer_action
 
             if intent == Intent.SLEEP:
-                robot_state.set_mode(RobotMode.IDLE)
-                response = phrase_bank.say("sleep")
-                robot_state.set_response(response)
-                tts.speak(response)
-                return {"intent": intent, "response": response, "status": robot_state.snapshot()}
+                return _power_down_robot("sleep", speak=True)
 
             if intent == Intent.SET_TIMER:
                 duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
@@ -921,12 +967,18 @@ def create_app() -> FastAPI:
 
     @app.post("/api/robot/sleep")
     def sleep_robot():
-        robot_state.set_mode(RobotMode.IDLE)
-        response = phrase_bank.say("direct_sleep")
-        robot_state.set_response(response)
-        robot.set_led_state("sleep")
-        tts.speak(response)
-        return robot_state.snapshot()
+        return _power_down_robot("direct_sleep", speak=True)
+
+    @app.post("/api/dashboard/closed")
+    def dashboard_closed():
+        robot_state.acknowledge_dashboard_closed()
+        return {"acknowledged": True, "status": robot_state.snapshot()}
+
+    @app.post("/api/dashboard/open")
+    def dashboard_open():
+        dashboard_result = dashboard_lifecycle.open_or_focus(settings.dashboard_url)
+        robot_state.mark_dashboard_open()
+        return {"dashboard": dashboard_result, "status": robot_state.snapshot()}
 
     @app.post("/api/robot/speak")
     def speak_robot(request: CommandRequest):

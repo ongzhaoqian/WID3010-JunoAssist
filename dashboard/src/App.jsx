@@ -13,6 +13,7 @@ export default function App() {
   const [status, setStatus] = useState(null);
   const [schedule, setSchedule] = useState([]);
   const [lastCommand, setLastCommand] = useState(null);
+  const [dashboardClosing, setDashboardClosing] = useState(false);
 
   async function loadSchedule() {
     const scheduleData = await getJson("/api/schedule/today");
@@ -37,6 +38,29 @@ export default function App() {
     await postJson("/api/robot/sleep");
   }
 
+
+  useEffect(() => {
+    if (!status?.dashboard_should_close) {
+      setDashboardClosing(false);
+      return;
+    }
+
+    setDashboardClosing(true);
+    postJson("/api/dashboard/closed", {}).catch(() => {});
+
+    const closeTimer = window.setTimeout(() => {
+      try {
+        window.open("", "_self");
+        window.close();
+      } catch (error) {
+        // Browsers may block window.close() for tabs not opened by script.
+        // The powered-off overlay below remains as the safe fallback.
+      }
+    }, 250);
+
+    return () => window.clearTimeout(closeTimer);
+  }, [status?.dashboard_should_close, status?.dashboard_session_id]);
+
   useEffect(() => {
     loadInitialData();
 
@@ -57,6 +81,17 @@ export default function App() {
 
   return (
     <main className="relative mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
+      {dashboardClosing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 px-6 text-center text-white backdrop-blur-xl">
+          <div className="max-w-lg rounded-[2rem] border border-white/15 bg-white/[0.08] p-8 shadow-2xl">
+            <p className="section-kicker text-xs font-semibold">JUNO powered off</p>
+            <h2 className="mt-3 text-3xl font-black">Closing dashboard</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-300">
+              The robot has returned to sleep mode. If your browser blocks automatic tab closing, this page will stay here safely and will be reused when JUNO powers on again.
+            </p>
+          </div>
+        </div>
+      )}
       <header className="hero-shell mb-8 overflow-hidden rounded-[2.25rem] p-8 text-white">
         <div className="relative z-10 grid gap-6 lg:grid-cols-[1.4fr_0.6fr] lg:items-end">
           <div>
