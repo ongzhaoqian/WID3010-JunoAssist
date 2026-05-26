@@ -11,7 +11,7 @@ function withCacheBuster(url, refreshKey) {
 export default function MusicPanel({ status }) {
   const [music, setMusic] = useState(status?.music ?? null);
   const [refreshKey, setRefreshKey] = useState(Date.now());
-  const currentEmotion = status?.current_emotion ?? "unknown";
+  const currentEmotion = status?.display_emotion ?? status?.current_emotion ?? "unknown";
 
   useEffect(() => {
     if (status?.music) {

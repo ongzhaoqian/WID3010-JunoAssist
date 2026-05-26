@@ -44,23 +44,26 @@ jobs:
           from src.vision.emotion_detector import EmotionDetector
           from src.vision.emotion_fusion import EMAFusion, HysteresisStateMachine
 
+          # Ekman-7 probability vector: [anger, disgust, fear, happiness, sadness, surprise, neutral]
           ema = EMAFusion(alpha=0.30)
-          result = ema.update(np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32))
-          assert result.shape == (5,)
+          result = ema.update(np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32))
+          assert result.shape == (7,)
           assert abs(float(result.sum()) - 1.0) < 1e-5
 
+          # index 2 = FEAR in Ekman-7
           hsm = HysteresisStateMachine(dwell_frames=1)
-          state = hsm.update(np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32))
-          assert state == EmotionState.TIRED
+          state = hsm.update(np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32))
+          assert state == EmotionState.FEAR
 
           detector = EmotionDetector()
           for _ in range(10):
               assert detector.predict_from_frame(None) in {
-                  EmotionState.HAPPY,
+                  EmotionState.HAPPINESS,
                   EmotionState.NEUTRAL,
-                  EmotionState.TIRED,
-                  EmotionState.STRESSED,
-                  EmotionState.FRUSTRATED,
+                  EmotionState.SADNESS,
+                  EmotionState.FEAR,
+                  EmotionState.ANGER,
+                  EmotionState.SURPRISE,
               }
           print('Vision smoke test passed without robot hardware.')
           PY

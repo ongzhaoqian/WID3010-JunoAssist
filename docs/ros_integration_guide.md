@@ -2107,3 +2107,50 @@ curl -s -X POST http://localhost:8000/api/command \
 The timer duration prompt now accepts flexible formats such as `twenty five minutes`, `1h 30m`, `half an hour`, and `2:30`. The user may exit the timer flow by saying `cancel`, `not now`, `skip`, or `never mind`; repeated unclear responses also cancel the pending timer setup. The dashboard Study Timer card provides Pause/Resume and Stop controls, and the active speech flow understands fuzzy timer-control commands such as `pause timer`, `resume timer`, `stop timer`, `end the countdown`, and `cancel the focus session`.
 
 When the user's transcript explicitly states an emotion, such as `I am stressed` or `I feel tired`, the backend treats the speech cue as higher priority than the visual emotion estimate for a short configurable window (`JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`).
+
+## Switchable JUNO/Ekman Vision Module Update
+
+The dashboard Vision Module now uses the `face_expression` backend by default with `mo-thecreator/vit-Facial-Expression-Recognition`, replacing SmolVLM as the normal emotion classifier. The classifier produces canonical Ekman evidence internally, while the dashboard can switch between JUNO mode (`happy`, `sad`, `tired`, `frustrated`, `stressed`, `neutral`) and Ekman mode display labels (`angry`, `disgusted`, `scared`, `happy`, `sad`, `surprised`, `neutral`) while preserving raw Ekman values (`anger`, `disgust`, `fear`, `happiness`, `sadness`, `surprise`, `neutral`) at any time during the same run. `unknown` is used when the frame or confidence is insufficient. Spoken emotion cues still override camera inference; for example, “I am stressed” is mapped to Ekman `fear` and shown as `stressed` in JUNO mode.
+
+Recommended environment settings:
+
+```bash
+JUNO_VISION_BACKEND=face_expression
+JUNO_VISION_MODEL_ID=mo-thecreator/vit-Facial-Expression-Recognition
+JUNO_VISION_EMOTION_MODE_DEFAULT=juno
+JUNO_VISION_REQUIRE_FACE=false
+JUNO_VISION_NEUTRAL_UNCERTAIN_CONFIDENCE=0.45
+```
+
+## Dashboard Power Lifecycle
+
+When JUNO powers on after confirmation, the backend now calls the dashboard lifecycle manager instead of blindly opening another browser tab. It first tries to focus an existing dashboard window using `wmctrl`; only if no matching window is found does it open `JUNO_DASHBOARD_URL`.
+
+When JUNO powers off or enters sleep mode, the backend:
+
+1. switches the robot state back to `idle`,
+2. disables the camera and Vision Module,
+3. sends the dashboard a `dashboard_should_close=true` state flag,
+4. tries to close the browser window using `wmctrl`, and
+5. runs best-effort process cleanup for configured JUNO runtime processes while excluding `roscore`, `rosmaster`, `rosout`, and the current backend process.
+
+The dashboard also attempts `window.close()` when it receives the close flag. If the browser blocks automatic closing, it shows a powered-off overlay and the same page is reused when JUNO powers on again.
+
+Useful settings:
+
+```text
+JUNO_DASHBOARD_REUSE_EXISTING=true
+JUNO_DASHBOARD_CLOSE_ON_SLEEP=true
+JUNO_POWERDOWN_CLEANUP_ENABLED=true
+JUNO_POWERDOWN_CLEANUP_DELAY_SECONDS=2.0
+JUNO_POWERDOWN_CLEANUP_PATTERNS=npm\s+run\s+dev|vite|roslaunch\s+juno_bringup|camera_node\.py|microphone_node\.py|tts_node\.py|transcriber\.py
+JUNO_POWERDOWN_CLEANUP_EXCLUDE_PATTERNS=roscore|rosmaster|rosout|backend/main\.py|uvicorn.*backend|pytest
+```
+
+Useful endpoints:
+
+```text
+POST /api/robot/sleep
+POST /api/dashboard/closed
+POST /api/dashboard/open
+```

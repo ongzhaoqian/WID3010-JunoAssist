@@ -1,5 +1,5 @@
-# Optional vision-module dependencies for HuggingFaceTB/SmolVLM-256M-Instruct.
-# Install these in the backend/vision environment before enabling the dashboard Vision Module.
+# Optional vision-module dependencies for Ekman-style facial emotion recognition.
+# Default model: mo-thecreator/vit-Facial-Expression-Recognition (lightweight FER image classifier).
 numpy>=1.24,<2.0
 opencv-python-headless>=4.8
 pillow>=10.0

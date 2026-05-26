@@ -58,3 +58,26 @@ def test_camera_frame_returns_no_content_without_mock_frame():
     client = TestClient(create_app())
     response = client.get("/api/vision/camera/frame.jpg")
     assert response.status_code == 204
+
+
+def test_vision_mode_can_switch_between_juno_and_ekman():
+    from src.core.models import EmotionState, VisionEmotionMode
+
+    robot_state.set_vision_emotion_mode(VisionEmotionMode.JUNO)
+    robot_state.set_emotion(EmotionState.FEAR, source="vision", confidence=0.8)
+    client = TestClient(create_app())
+
+    initial = client.get("/api/vision/status").json()
+    assert initial["vision_emotion_mode"] == "juno"
+    assert initial["display_emotion"] == "stressed"
+    assert initial["raw_ekman_emotion"] == "fear"
+
+    switched = client.post("/api/vision/mode", json={"mode": "ekman"})
+    assert switched.status_code == 200
+    payload = switched.json()
+    assert payload["vision_emotion_mode"] == "ekman"
+    assert payload["display_emotion"] == "scared"
+    assert payload["juno_emotion"] == "stressed"
+
+    back = client.post("/api/vision/mode", json={"mode": "juno"}).json()
+    assert back["display_emotion"] == "stressed"

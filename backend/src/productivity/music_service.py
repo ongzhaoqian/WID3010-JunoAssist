@@ -9,38 +9,47 @@ from src.core.state import robot_state
 class MusicService:
     """Selects an emotion-appropriate Spotify playlist for the dashboard.
 
-    The backend does not store Spotify secrets. Instead, it returns Spotify
-    playlist/embed URLs that the dashboard can render in its music window.
-    If the project later adds OAuth + Spotify Web Playback SDK, this class can
-    be extended without changing the robot intent pipeline.
+    The backend does not store Spotify secrets. It returns Spotify playlist/embed
+    URLs that the dashboard can render. The presets now follow JUNO's Ekman-7
+    emotion taxonomy.
     """
 
     def __init__(self) -> None:
         self._presets = {
-            EmotionState.HAPPY: {
-                "title": "Happy focus mix",
+            EmotionState.HAPPINESS: {
+                "title": "Positive focus mix",
                 "description": "Upbeat songs to maintain a positive study mood.",
-                "url": settings.spotify_happy_url,
+                "url": settings.spotify_happiness_url,
             },
             EmotionState.NEUTRAL: {
                 "title": "Deep focus mix",
                 "description": "Low-distraction music for steady concentration.",
                 "url": settings.spotify_neutral_url,
             },
-            EmotionState.TIRED: {
+            EmotionState.SADNESS: {
                 "title": "Gentle reset mix",
-                "description": "Softer tracks for a tired or low-energy moment.",
-                "url": settings.spotify_tired_url,
+                "description": "Softer tracks for a low-energy or sad moment.",
+                "url": settings.spotify_sadness_url,
             },
-            EmotionState.STRESSED: {
+            EmotionState.FEAR: {
                 "title": "Calm study mix",
-                "description": "Relaxed tracks to reduce pressure while studying.",
-                "url": settings.spotify_stressed_url,
+                "description": "Relaxed tracks to reduce pressure, worry, or anxiety while studying.",
+                "url": settings.spotify_fear_url,
             },
-            EmotionState.FRUSTRATED: {
+            EmotionState.ANGER: {
                 "title": "Cool-down mix",
-                "description": "Chill songs for regaining focus after frustration.",
-                "url": settings.spotify_frustrated_url,
+                "description": "Chill songs for regaining focus after anger or frustration.",
+                "url": settings.spotify_anger_url,
+            },
+            EmotionState.DISGUST: {
+                "title": "Reset and refocus mix",
+                "description": "Neutral tracks to help reset attention after discomfort or dislike.",
+                "url": settings.spotify_disgust_url,
+            },
+            EmotionState.SURPRISE: {
+                "title": "Energy stabiliser mix",
+                "description": "Balanced tracks for returning to focus after a surprised reaction.",
+                "url": settings.spotify_surprise_url,
             },
             EmotionState.UNKNOWN: {
                 "title": "Deep focus mix",
@@ -93,10 +102,7 @@ class MusicService:
             return emotion
         if not emotion:
             return EmotionState.UNKNOWN
-        try:
-            return EmotionState(str(emotion).lower())
-        except ValueError:
-            return EmotionState.UNKNOWN
+        return EmotionState(str(emotion).lower())
 
     @staticmethod
     def _to_spotify_embed_url(url: str) -> str:

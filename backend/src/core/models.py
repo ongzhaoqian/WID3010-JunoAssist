@@ -10,13 +10,75 @@ class RobotMode(str, Enum):
     SLEEP = "sleep"
 
 
+class VisionEmotionMode(str, Enum):
+    JUNO = "juno"
+    EKMAN = "ekman"
+
+
 class EmotionState(str, Enum):
-    HAPPY = "happy"
+    # Ekman-style facial emotion taxonomy used by the vision module:
+    # six basic emotions plus neutral. UNKNOWN means the system does not have
+    # enough evidence to make a responsible judgement.
+    ANGER = "anger"
+    DISGUST = "disgust"
+    FEAR = "fear"
+    HAPPINESS = "happiness"
+    SADNESS = "sadness"
+    SURPRISE = "surprise"
     NEUTRAL = "neutral"
-    TIRED = "tired"
-    STRESSED = "stressed"
-    FRUSTRATED = "frustrated"
     UNKNOWN = "unknown"
+
+    # Backwards-compatible aliases used by older response/music code. These
+    # now resolve to the Ekman classes instead of creating a separate taxonomy.
+    ANGRY = "anger"
+    HAPPY = "happiness"
+    SAD = "sadness"
+    TIRED = "sadness"
+    STRESSED = "fear"
+    FRUSTRATED = "anger"
+
+    @classmethod
+    def _missing_(cls, value):
+        label = str(value or "unknown").strip().lower().replace(" ", "_").replace("-", "_")
+        aliases = {
+            "angry": cls.ANGER,
+            "anger": cls.ANGER,
+            "annoyed": cls.ANGER,
+            "frustrated": cls.ANGER,
+            "irritated": cls.ANGER,
+            "disgust": cls.DISGUST,
+            "disgusted": cls.DISGUST,
+            "repulsed": cls.DISGUST,
+            "fear": cls.FEAR,
+            "fearful": cls.FEAR,
+            "afraid": cls.FEAR,
+            "scared": cls.FEAR,
+            "anxious": cls.FEAR,
+            "stressed": cls.FEAR,
+            "stress": cls.FEAR,
+            "worried": cls.FEAR,
+            "happy": cls.HAPPINESS,
+            "happiness": cls.HAPPINESS,
+            "joy": cls.HAPPINESS,
+            "joyful": cls.HAPPINESS,
+            "smiling": cls.HAPPINESS,
+            "sad": cls.SADNESS,
+            "sadness": cls.SADNESS,
+            "tired": cls.SADNESS,
+            "sleepy": cls.SADNESS,
+            "fatigued": cls.SADNESS,
+            "surprise": cls.SURPRISE,
+            "surprised": cls.SURPRISE,
+            "shock": cls.SURPRISE,
+            "shocked": cls.SURPRISE,
+            "neutral": cls.NEUTRAL,
+            "calm": cls.NEUTRAL,
+            "relaxed": cls.NEUTRAL,
+            "normal": cls.NEUTRAL,
+            "unknown": cls.UNKNOWN,
+            "uncertain": cls.UNKNOWN,
+        }
+        return aliases.get(label, cls.UNKNOWN)
 
 
 class Intent(str, Enum):
@@ -83,6 +145,10 @@ class TimerRequest(BaseModel):
 
 class MusicPlayRequest(BaseModel):
     emotion: Optional[EmotionState] = None
+
+
+class VisionModeRequest(BaseModel):
+    mode: VisionEmotionMode = VisionEmotionMode.JUNO
 
 
 class RobotStatus(BaseModel):

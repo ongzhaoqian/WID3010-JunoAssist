@@ -55,7 +55,7 @@ Students often face many assignments, tests, classes, and deadlines during the s
 - Voice confirmation before activation
 - Web dashboard after activation
 - Embedded dashboard camera window for the Jupiter webcam feed
-- Vision-language emotion analysis using Hugging Face `HuggingFaceTB/SmolVLM-256M-Instruct`, with mock fallback for lightweight demos
+- Switchable JUNO/Ekman facial emotion analysis using a lightweight Hugging Face image classifier (`mo-thecreator/vit-Facial-Expression-Recognition`), with mock fallback for lightweight demos
 - Rule-based intent detection for course-level feasibility
 - Lightweight Whisper Tiny speech recognition for robot microphone input
 - SQLite-backed schedule and reminder storage
@@ -83,7 +83,7 @@ User
 │
 ├── Vision Input
 │   ├── Camera Adapter
-│   ├── SmolVLM Vision-Language Emotion Analyzer
+│   ├── Ekman-7 Facial Emotion Classifier
 │   └── Emotion Smoothing
 │
 ├── JUNO Backend
@@ -132,7 +132,7 @@ WID3010-JunoAssist/
 | Backend | Python, FastAPI, Uvicorn |
 | Real-time updates | WebSocket |
 | Storage | SQLite |
-| Vision | ROS `/camera/image_raw` frames streamed to the dashboard through FastAPI MJPEG; Hugging Face `HuggingFaceTB/SmolVLM-256M-Instruct` as the core vision-language emotion model with mock fallback |
+| Vision | ROS `/camera/image_raw` frames streamed to the dashboard through FastAPI MJPEG; Hugging Face `mo-thecreator/vit-Facial-Expression-Recognition` as the core facial-expression model, with switchable JUNO/Ekman display modes and mock fallback |
 | Speech | ROS microphone input transcribed by Hugging Face `openai/whisper-tiny`; manual transcript fallback retained |
 | NLP | Rule-based intent classifier with deterministic backend responses; optional text LLM boundary disabled by default |
 | Dashboard | React, Vite, Tailwind CSS |
@@ -175,9 +175,29 @@ cd backend
 pip install -r requirements-asr.txt
 ```
 
-### Optional: Enable SmolVLM Vision Module
+### Optional: Enable Switchable JUNO/Ekman Vision Module
 
-The core vision model is now `HuggingFaceTB/SmolVLM-256M-Instruct`. It is a compact image-text-to-text model that analyses the latest camera frame with a structured prompt and returns a JUNO emotion label (`happy`, `neutral`, `tired`, `stressed`, `frustrated`, or `unknown`) together with confidence, scores, visual cues, and a short reason. The backend now avoids the previous unhelpful `neutral, 40%` fallback: unclear or low-confidence neutral answers are shown as `unknown`, while clear non-neutral cues can update the dashboard immediately instead of being diluted by the previous neutral state.
+The core vision model now uses `mo-thecreator/vit-Facial-Expression-Recognition` by default through the `face_expression` backend. The model runs once and produces a canonical Ekman-style probability vector internally. The dashboard can then switch between two display modes during the same run without reloading the model.
+
+Ekman mode shows user-facing display labels while preserving raw Ekman values in the Jupiter Camera View details:
+
+```text
+angry, disgusted, scared, happy, sad, surprised, neutral
+```
+
+The raw Ekman values remain available separately as:
+
+```text
+anger, disgust, fear, happiness, sadness, surprise, neutral
+```
+
+JUNO mode keeps the original robot-facing labels:
+
+```text
+happy, sad, tired, frustrated, stressed, neutral
+```
+
+`unknown` is still used when the frame is missing, too dark, has weak evidence, or the classifier is below the configured confidence threshold. Low-confidence neutral predictions are treated as `unknown`, which avoids the previous issue where the dashboard showed `neutral` at about 40% confidence for most frames. The `tired` label is not forced from facial expression alone; it is used when speech content explicitly says the user is tired, exhausted, or drained.
 
 Install the optional vision dependencies before switching on the dashboard Vision Module:
 
@@ -189,16 +209,24 @@ pip install -r requirements-vision.txt
 Recommended settings:
 
 ```bash
-export JUNO_VISION_BACKEND=smolvlm
-export JUNO_VISION_MODEL_ID=HuggingFaceTB/SmolVLM-256M-Instruct
+export JUNO_VISION_BACKEND=face_expression
+export JUNO_VISION_MODEL_ID=mo-thecreator/vit-Facial-Expression-Recognition
+export JUNO_VISION_EMOTION_MODE_DEFAULT=juno   # juno or ekman
 export JUNO_VISION_DEVICE=auto          # CUDA → Apple MPS → CPU
-export JUNO_VISION_MAX_NEW_TOKENS=96
 export JUNO_VISION_MIN_CONFIDENCE=0.30
 export JUNO_VISION_NEUTRAL_UNCERTAIN_CONFIDENCE=0.45
 export JUNO_VISION_FAST_SWITCH_CONFIDENCE=0.52
+export JUNO_VISION_REQUIRE_FACE=false   # false keeps a centre-crop fallback for demo conditions
 ```
 
-Use this lightweight fallback when the demo machine should not load the Hugging Face vision model:
+Experimental SmolVLM mode is still available, but it is no longer the default:
+
+```bash
+export JUNO_VISION_BACKEND=smolvlm
+export JUNO_VISION_MODEL_ID=HuggingFaceTB/SmolVLM-256M-Instruct
+```
+
+Use this lightweight fallback when the demo machine should not load any Hugging Face vision model:
 
 ```bash
 export JUNO_VISION_BACKEND=mock
@@ -206,13 +234,11 @@ export JUNO_VISION_BACKEND=mock
 
 #### Vision emotion troubleshooting
 
-If the dashboard used to show `neutral` at about `40%` confidence for most frames, that usually means the VLM output was unclear, the JSON response was incomplete, or the previous neutral EMA state was overpowering a subtle non-neutral prediction. The current backend changes that behaviour as follows:
-
-- Low-confidence neutral predictions are shown as `unknown` unless the model gives clear calm/relaxed cues.
-- The parser now accepts nested `scores` JSON, prose answers, and visual cue text.
-- Clear non-neutral states such as `tired`, `stressed`, or `frustrated` can update the dashboard immediately.
-- The dashboard now displays the emotion confidence, source, SmolVLM reading, and model error message when available.
-- Explicit spoken emotion still has priority. For example, if the transcript says `I am stressed`, speech emotion remains trusted over the webcam estimate for the configured override window.
+- If no face is detected, JUNO either uses a centre-crop fallback or reports `unknown`, depending on `JUNO_VISION_REQUIRE_FACE`.
+- Low-confidence neutral predictions are shown as `unknown` unless the classifier gives sufficiently clear neutral evidence.
+- Clear non-neutral states such as `anger`, `fear`, `sadness`, `happiness`, `disgust`, or `surprise` can update the dashboard immediately.
+- The dashboard now displays the selected emotion mode, display label, raw Ekman label, JUNO label, confidence, source, classifier description, and model error message when available.
+- Explicit spoken emotion still has priority. For example, if the transcript says `I am stressed`, speech emotion is mapped to Ekman `fear` and remains trusted over the webcam estimate for the configured override window.
 
 
 For ROS usage, the language package also includes the same dependency list:
@@ -286,7 +312,7 @@ The Jupiter webcam feed is shown inside the dashboard instead of a separate ROS 
 camera_node.py → /camera/image_raw → FastAPI ROS bridge → /api/vision/camera/stream → React CameraPanel
 ```
 
-On first dashboard load, the camera is **off by default**. To gain consent from the user for live image use, the camera window remains visible as a placeholder with a **Switch On Camera** button, so the operator decides when the live `/dev/video2` feed should appear. The **Vision Module** toggle is separate: switch it on only when you want to load/run the SmolVLM vision-language emotion model. If the camera is on but the Vision Module is off, the panel works as a normal camera monitor only.
+On first dashboard load, the camera is **off by default**. To gain consent from the user for live image use, the camera window remains visible as a placeholder with a **Switch On Camera** button, so the operator decides when the live `/dev/video2` feed should appear. The **Vision Module** toggle is separate: switch it on only when you want to load/run the facial-emotion model. The **JUNO/Ekman mode** control changes the displayed emotion vocabulary at any time without reloading the model. If the camera is on but the Vision Module is off, the panel works as a normal camera monitor only.
 
 Useful endpoints:
 
@@ -300,7 +326,7 @@ POST http://localhost:8000/api/vision/model/stop
 POST http://localhost:8000/api/vision/analyse       # one-shot analysis of the latest camera frame
 ```
 
-`/api/vision/status` now reports the active vision backend, model ID, whether the model has loaded, the latest visual-emotion confidence, and the latest SmolVLM description/error if available.
+`/api/vision/status` now reports the active vision backend, model ID, whether the model has loaded, the latest visual-emotion confidence, and the latest classifier description/error if available.
 
 For normal operation, do not launch `camera_listener_node.py`; it no longer opens a pop-up by default. For debugging only:
 
@@ -309,11 +335,24 @@ rosrun perception_pkg camera_listener_node.py _display_window:=true
 ```
 
 
+
+### Current Date, Time, and Timezone Window
+
+The dashboard now includes a **Current System Date & Time** card above Robot Status, Study Timer, and Most Recent Response from JUNO. It shows a live clock and date based on the device system time, formatted using the selected location or timezone.
+
+The user can choose from common location presets such as Kuala Lumpur, Singapore, Tokyo, London, New York, San Francisco, Sydney, and UTC, or select an IANA timezone directly. The selected timezone and location label are saved in browser local storage so the dashboard remembers the user's choice after refresh.
+
+Implementation file:
+
+```text
+dashboard/src/components/DateTimePanel.jsx
+```
+
 ## Dashboard Music, Schedule, Reminder, and Study Timer Updates
 
 ### Emotion-aware music window
 
-The dashboard now includes an **Emotion-Aware Music** card. When the user asks JUNO to play music, the backend checks the latest `current_emotion` value and selects a matching Spotify playlist for the dashboard player. If the Vision Module is off or the emotion state is unknown, JUNO falls back to a neutral deep-focus playlist.
+The dashboard now includes an **Emotion-Aware Music** card. When the user asks JUNO to play music, the backend checks the latest displayed/current emotion value and selects a matching Spotify playlist for the dashboard player. If the Vision Module is off or the emotion state is unknown, JUNO falls back to a neutral deep-focus playlist.
 
 The current implementation uses Spotify embed URLs instead of storing Spotify API secrets in the repository. This is safer for a student demo and still allows the dashboard to display a Spotify player. The default emotion mapping can be changed in `backend/.env.example` or a local `.env` file:
 
@@ -454,9 +493,43 @@ The dashboard Study Timer card now includes explicit **Pause Timer** and **Stop 
 
 ### Speech-prioritised emotion handling
 
-The dashboard Vision Module still estimates emotion from the camera, but speech now has priority when the user explicitly states how they feel. For example, if the camera reads the user as neutral but the transcript says `I am stressed`, JUNO records the current emotion as `stressed` with source `speech` and temporarily prevents visual inference from overriding it. The override window is configured with `JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`.
+The dashboard Vision Module still estimates emotion from the camera, but speech now has priority when the user explicitly states how they feel. For example, if the camera reads the user as neutral but the transcript says `I am stressed`, JUNO records the current emotion as Ekman `fear` with source `speech` and temporarily prevents visual inference from overriding it. The override window is configured with `JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`.
 
 This keeps break recommendations and emotion-aware music aligned with the user's stated feelings rather than relying only on visible facial expression.
+
+
+## Dashboard Power Lifecycle
+
+When JUNO powers on after confirmation, the backend now calls the dashboard lifecycle manager instead of blindly opening another browser tab. It first tries to focus an existing dashboard window using `wmctrl`; only if no matching window is found does it open `JUNO_DASHBOARD_URL`.
+
+When JUNO powers off or enters sleep mode, the backend:
+
+1. switches the robot state back to `idle`,
+2. disables the camera and Vision Module,
+3. sends the dashboard a `dashboard_should_close=true` state flag,
+4. tries to close the browser window using `wmctrl`, and
+5. runs best-effort process cleanup for configured JUNO runtime processes while excluding `roscore`, `rosmaster`, `rosout`, and the current backend process.
+
+The dashboard also attempts `window.close()` when it receives the close flag. If the browser blocks automatic closing, it shows a powered-off overlay and the same page is reused when JUNO powers on again.
+
+Useful settings:
+
+```text
+JUNO_DASHBOARD_REUSE_EXISTING=true
+JUNO_DASHBOARD_CLOSE_ON_SLEEP=true
+JUNO_POWERDOWN_CLEANUP_ENABLED=true
+JUNO_POWERDOWN_CLEANUP_DELAY_SECONDS=2.0
+JUNO_POWERDOWN_CLEANUP_PATTERNS=npm\s+run\s+dev|vite|roslaunch\s+juno_bringup|camera_node\.py|microphone_node\.py|tts_node\.py|transcriber\.py
+JUNO_POWERDOWN_CLEANUP_EXCLUDE_PATTERNS=roscore|rosmaster|rosout|backend/main\.py|uvicorn.*backend|pytest
+```
+
+Useful endpoints:
+
+```text
+POST /api/robot/sleep
+POST /api/dashboard/closed
+POST /api/dashboard/open
+```
 
 ## Quick Start: Dashboard
 

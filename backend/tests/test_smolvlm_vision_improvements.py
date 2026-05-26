@@ -30,7 +30,8 @@ def test_nested_scores_json_selects_highest_emotion():
     assert parsed.emotion == EmotionState.STRESSED
     probs = parsed.probabilities()
     assert np.isclose(probs.sum(), 1.0)
-    assert probs[3] == probs.max()
+    from src.vision.emotion_labels import LABEL_TO_INDEX
+    assert probs[LABEL_TO_INDEX[EmotionState.STRESSED]] == probs.max()
 
 
 class _FakeUnavailableSmol:

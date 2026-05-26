@@ -14,50 +14,69 @@ class SpeechEmotionResult:
 
 
 class SpeechEmotionDetector:
-    """Lightweight transcript-based emotion inference for JUNO.
+    """Transcript-based emotion inference using JUNO's Ekman taxonomy.
 
-    The webcam model is useful for visible expression, but users can state their
-    feelings directly. This detector gives explicit spoken emotion cues higher
-    priority than visual inference, especially when the two conflict.
+    The vision classifier estimates facial expression. When users explicitly say
+    how they feel, speech content is treated as stronger evidence. Non-Ekman
+    everyday words are mapped to the closest Ekman class, e.g. stressed/anxious
+    -> fear, frustrated/annoyed -> anger, tired/drained -> sadness.
     """
 
     _NEGATION_RE = re.compile(r"\b(?:not|no longer|dont|don't|do not|isnt|isn't|am not|ain't|not really)\b")
 
     _PATTERNS: list[tuple[EmotionState, float, str, tuple[str, ...]]] = [
         (
-            EmotionState.STRESSED,
+            EmotionState.FEAR,
             0.96,
-            "explicit stress cue",
+            "explicit stress/anxiety cue mapped to Ekman fear",
             (
-                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:stressed|stress|stressful|overwhelmed|anxious|worried|under pressure|pressured|panicking|panic)\b",
+                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:stressed|stress|stressful|overwhelmed|anxious|worried|under pressure|pressured|panicking|panic|scared|afraid|fearful)\b",
                 r"\b(?:i have|i've got|there is|there's)\s+(?:too much|a lot of)\s+(?:stress|pressure|work)\b",
-                r"\b(?:stressed|overwhelmed|anxious|worried|under pressure|panicking)\b",
+                r"\b(?:stressed|overwhelmed|anxious|worried|under pressure|panicking|scared|afraid|fearful)\b",
             ),
         ),
         (
-            EmotionState.FRUSTRATED,
+            EmotionState.ANGER,
             0.94,
-            "explicit frustration cue",
+            "explicit anger/frustration cue mapped to Ekman anger",
             (
-                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:frustrated|annoyed|angry|irritated|fed up|stuck)\b",
-                r"\b(?:frustrated|annoyed|angry|irritated|fed up|this is annoying|this is frustrating)\b",
+                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:frustrated|annoyed|angry|irritated|fed up|mad|furious|stuck)\b",
+                r"\b(?:frustrated|annoyed|angry|irritated|fed up|this is annoying|this is frustrating|mad|furious)\b",
             ),
         ),
         (
-            EmotionState.TIRED,
+            EmotionState.SADNESS,
             0.93,
-            "explicit tiredness cue",
+            "explicit tiredness/sadness cue mapped to Ekman sadness",
             (
-                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:tired|sleepy|exhausted|drained|fatigued|burnt out|burned out)\b",
-                r"\b(?:tired|sleepy|exhausted|drained|fatigued|burnt out|burned out)\b",
+                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:tired|sleepy|exhausted|drained|fatigued|burnt out|burned out|sad|down|upset)\b",
+                r"\b(?:tired|sleepy|exhausted|drained|fatigued|burnt out|burned out|sad|upset|down)\b",
             ),
         ),
         (
-            EmotionState.HAPPY,
-            0.88,
-            "positive spoken cue",
+            EmotionState.DISGUST,
+            0.90,
+            "explicit disgust/discomfort cue",
             (
-                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:happy|good|great|excited|motivated|calm|relaxed|okay|fine|better)\b",
+                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:disgusted|grossed out|repulsed|uncomfortable)\b",
+                r"\b(?:disgusted|grossed out|repulsed|that is gross|this is gross)\b",
+            ),
+        ),
+        (
+            EmotionState.SURPRISE,
+            0.88,
+            "explicit surprise cue",
+            (
+                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:surprised|shocked|startled|amazed)\b",
+                r"\b(?:surprised|shocked|startled|amazed|unexpected)\b",
+            ),
+        ),
+        (
+            EmotionState.HAPPINESS,
+            0.88,
+            "positive spoken cue mapped to Ekman happiness",
+            (
+                r"\bi\s*(?:am|'m|feel|feeling|felt)\s+(?:very\s+|really\s+|so\s+|quite\s+)?(?:happy|good|great|excited|motivated|calm|relaxed|okay|fine|better|joyful)\b",
                 r"\b(?:i'm good|i am good|feeling good|feeling great|doing well|all good|pretty good)\b",
             ),
         ),
@@ -87,7 +106,5 @@ class SpeechEmotionDetector:
 
     @classmethod
     def _is_negated(cls, text: str, match_start: int) -> bool:
-        # Only inspect a short window before the emotion word so phrases such as
-        # "not stressed" do not override the visual/emotional state as stressed.
         window = text[max(0, match_start - 24):match_start]
         return bool(cls._NEGATION_RE.search(window))

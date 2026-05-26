@@ -13,6 +13,22 @@ def _env_bool(name: str, default: bool = False) -> bool:
 class Settings:
     app_name: str = "JUNO Assist"
     dashboard_url: str = os.getenv("JUNO_DASHBOARD_URL", "http://localhost:5173")
+    dashboard_window_title: str = os.getenv("JUNO_DASHBOARD_WINDOW_TITLE", "JUNO Assist Dashboard")
+    dashboard_reuse_existing: bool = _env_bool("JUNO_DASHBOARD_REUSE_EXISTING", True)
+    dashboard_close_on_sleep: bool = _env_bool("JUNO_DASHBOARD_CLOSE_ON_SLEEP", True)
+    # Best-effort runtime cleanup when JUNO powers down. The backend and roscore
+    # are excluded so the robot can still be woken again in the same run.
+    powerdown_cleanup_enabled: bool = _env_bool("JUNO_POWERDOWN_CLEANUP_ENABLED", True)
+    powerdown_cleanup_grace_seconds: float = float(os.getenv("JUNO_POWERDOWN_CLEANUP_GRACE_SECONDS", "1.0"))
+    powerdown_cleanup_delay_seconds: float = float(os.getenv("JUNO_POWERDOWN_CLEANUP_DELAY_SECONDS", "2.0"))
+    powerdown_cleanup_patterns: str = os.getenv(
+        "JUNO_POWERDOWN_CLEANUP_PATTERNS",
+        r"npm\s+run\s+dev|vite|roslaunch\s+juno_bringup|camera_node\.py|microphone_node\.py|tts_node\.py|transcriber\.py|camera_listener_node\.py|microphone_listener_node\.py"
+    )
+    powerdown_cleanup_exclude_patterns: str = os.getenv(
+        "JUNO_POWERDOWN_CLEANUP_EXCLUDE_PATTERNS",
+        r"roscore|rosmaster|rosout|backend/main\.py|uvicorn.*backend|pytest"
+    )
     database_path: str = os.getenv("JUNO_DATABASE_PATH", "juno_assist.db")
     wake_phrase: str = os.getenv("JUNO_WAKE_PHRASE", "hey john")
     confirmation_phrase: str = os.getenv("JUNO_CONFIRMATION_PHRASE", "yes")
@@ -45,13 +61,18 @@ class Settings:
     camera_jpeg_quality: int = int(os.getenv("JUNO_CAMERA_JPEG_QUALITY", "80"))
     camera_enabled_default: bool = _env_bool("JUNO_CAMERA_ENABLED_DEFAULT", False)
     vision_model_enabled_default: bool = _env_bool("JUNO_VISION_MODEL_ENABLED_DEFAULT", False)
+    vision_emotion_mode_default: str = os.getenv("JUNO_VISION_EMOTION_MODE_DEFAULT", "juno").strip().lower()
 
-    # Core vision-language model. SmolVLM is loaded lazily when the dashboard
-    # Vision Module is switched on and a camera frame is available. Use
-    # JUNO_VISION_BACKEND=mock for demos without Hugging Face/torch installed,
-    # or legacy_cnn if you still want to experiment with the older Mini-Xception path.
-    vision_backend: str = os.getenv("JUNO_VISION_BACKEND", "smolvlm").strip().lower()
-    vision_model_id: str = os.getenv("JUNO_VISION_MODEL_ID", "HuggingFaceTB/SmolVLM-256M-Instruct")
+    # Core face-emotion model. The default is a lightweight Hugging Face image
+    # classifier fine-tuned for FER2013/Ekman-style facial expressions. The
+    # dashboard can switch between the original JUNO labels and native Ekman labels
+    # without reloading this model. SmolVLM remains available only as
+    # JUNO_VISION_BACKEND=smolvlm for experiments.
+    vision_backend: str = os.getenv("JUNO_VISION_BACKEND", "face_expression").strip().lower()
+    vision_model_id: str = os.getenv("JUNO_VISION_MODEL_ID", "mo-thecreator/vit-Facial-Expression-Recognition")
+    # Optional comma-separated override for image-classification models with numeric labels.
+    # Leave blank for Hugging Face id2label strings; set e.g. angry,disgust,fear,happy,sad,surprise,neutral only if your model lacks id2label.
+    vision_label_order: str = os.getenv("JUNO_VISION_LABEL_ORDER", "").strip()
     vision_device: str = os.getenv("JUNO_VISION_DEVICE", "auto")
     vision_max_new_tokens: int = int(os.getenv("JUNO_VISION_MAX_NEW_TOKENS", "96"))
     vision_min_confidence: float = float(os.getenv("JUNO_VISION_MIN_CONFIDENCE", "0.30"))
@@ -61,17 +82,22 @@ class Settings:
     # the previous neutral EMA state.
     vision_neutral_uncertain_confidence: float = float(os.getenv("JUNO_VISION_NEUTRAL_UNCERTAIN_CONFIDENCE", "0.45"))
     vision_fast_switch_confidence: float = float(os.getenv("JUNO_VISION_FAST_SWITCH_CONFIDENCE", "0.52"))
+    # If true, return UNKNOWN when no face crop is found. Default false keeps the
+    # robot demo forgiving by using a centre crop fallback when Haar detection is weak.
+    vision_require_face: bool = _env_bool("JUNO_VISION_REQUIRE_FACE", False)
 
     # Emotion-aware music. The dashboard uses Spotify embeds by default because
     # they do not require storing API secrets in this student prototype. Direct
     # Spotify playback through the Web Playback SDK can be layered later with
     # OAuth and a Premium account. Each URL can be overridden in .env.
     music_provider: str = os.getenv("JUNO_MUSIC_PROVIDER", "spotify")
-    spotify_happy_url: str = os.getenv("JUNO_SPOTIFY_HAPPY_URL", "https://open.spotify.com/playlist/37i9dQZF1DXdPec7aLTmlC")
+    spotify_happiness_url: str = os.getenv("JUNO_SPOTIFY_HAPPINESS_URL", os.getenv("JUNO_SPOTIFY_HAPPY_URL", "https://open.spotify.com/playlist/37i9dQZF1DXdPec7aLTmlC"))
     spotify_neutral_url: str = os.getenv("JUNO_SPOTIFY_NEUTRAL_URL", "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ")
-    spotify_tired_url: str = os.getenv("JUNO_SPOTIFY_TIRED_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4sWSpwq3LiO")
-    spotify_stressed_url: str = os.getenv("JUNO_SPOTIFY_STRESSED_URL", "https://open.spotify.com/playlist/37i9dQZF1DWWQRwui0ExPn")
-    spotify_frustrated_url: str = os.getenv("JUNO_SPOTIFY_FRUSTRATED_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6")
+    spotify_sadness_url: str = os.getenv("JUNO_SPOTIFY_SADNESS_URL", os.getenv("JUNO_SPOTIFY_TIRED_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4sWSpwq3LiO"))
+    spotify_fear_url: str = os.getenv("JUNO_SPOTIFY_FEAR_URL", os.getenv("JUNO_SPOTIFY_STRESSED_URL", "https://open.spotify.com/playlist/37i9dQZF1DWWQRwui0ExPn"))
+    spotify_anger_url: str = os.getenv("JUNO_SPOTIFY_ANGER_URL", os.getenv("JUNO_SPOTIFY_FRUSTRATED_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6"))
+    spotify_disgust_url: str = os.getenv("JUNO_SPOTIFY_DISGUST_URL", "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ")
+    spotify_surprise_url: str = os.getenv("JUNO_SPOTIFY_SURPRISE_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6")
     spotify_unknown_url: str = os.getenv("JUNO_SPOTIFY_UNKNOWN_URL", "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ")
 
     # ROS text-to-speech publishing configuration. The backend publishes responses
