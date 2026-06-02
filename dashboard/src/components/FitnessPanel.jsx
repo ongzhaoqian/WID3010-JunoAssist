@@ -3,7 +3,7 @@ import { getJson, postJson } from "../lib/api";
 import Card from "./Card";
 
 function formatCalories(value) {
-  if (value == null || Number.isNaN(Number(value))) return "Add weight to estimate";
+  if (value == null || Number.isNaN(Number(value))) return "0";
   return `${Number(value).toFixed(2)} kcal`;
 }
 
