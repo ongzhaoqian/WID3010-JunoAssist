@@ -165,8 +165,8 @@ class PhraseBank:
             "Based on the current state, {suggestion}",
         ],
         "fallback": [
-            "I am not sure how to help with that yet. Could you try phrasing it as a schedule, timer, music, or reminder request?",
-            "I am not sure how to help with that yet, but I can handle schedules, timers, music, reminders, and other tasks, if you may then.",
+            "I am not sure how to help with that yet. Could you try phrasing it as a schedule, timer, music, reminder, or break request?",
+            "I am not sure how to help with that yet, but I can handle schedules, timers, music, reminders, and breaks.",
         ],
         "direct_sleep": [
             "JUNO is now in sleep mode.",
