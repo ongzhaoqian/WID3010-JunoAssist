@@ -21,9 +21,17 @@ export default function StatusPanel({ status }) {
           <p className="text-sm text-slate-300/75">Current Emotion Estimate</p>
           <p className="mt-1 text-3xl font-bold capitalize text-white">{emotion}</p>
           <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-300/70">
-            Mode: {emotionMode} · Source: {emotionSource}{confidence > 0 ? ` · ${Math.round(confidence * 100)}% confidence` : ""}
+            Mode: {emotionMode}
           </p>
-          <p className="mt-2 text-xs text-slate-300/65">Raw Ekman: <span className="capitalize text-white/85">{rawEkmanEmotion}</span> · JUNO: <span className="capitalize text-white/85">{junoEmotion}</span></p>
+          <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-300/70">
+            Source: {emotionSource} {confidence > 0 ? ` · ${Math.round(confidence * 100)}% confidence` : ""}
+          </p>
+          <p className="mt-2 text-xs text-slate-300/65">
+            Raw Ekman: <span className="capitalize text-white/85">{rawEkmanEmotion}</span>
+          </p>
+          <p className="mt-2 text-xs text-slate-300/65">
+            JUNO: <span className="capitalize text-white/85">{junoEmotion}</span>
+          </p>
         </div>
       </div>
     </Card>
