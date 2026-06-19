@@ -687,8 +687,20 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": intent, "response": response, "reminders": calendar_service.list_reminders(include_completed=False), "status": robot_state.snapshot()}
             elif intent == Intent.PLAY_MUSIC:
-                music_result = music_service.play_for_emotion(snapshot.get("current_emotion", EmotionState.UNKNOWN))
-                response = music_result["message"]
+                genre = intent_classifier.extract_genre(raw_text)
+                if genre:
+                    music_result = music_service.play_for_genre(genre)
+                    response = music_result["message"]
+                    # TTS for genre play is handled by the frontend via /api/robot/speak.
+                    robot_state.set_response(response)
+                    return {"intent": intent, "response": response, "status": robot_state.snapshot()}
+                else:
+                    # No genre specified — ask user to pick one (no emotion mentioned).
+                    response = response_generator.generate(
+                        intent=intent,
+                        emotion=snapshot["current_emotion"],
+                        user_text=raw_text,
+                    )
             else:
                 response = response_generator.generate(
                     intent=intent,
@@ -1082,10 +1094,15 @@ def create_app() -> FastAPI:
     @app.post("/api/music/play")
     def play_music(request: Optional[MusicPlayRequest] = None):
         snapshot = robot_state.snapshot()
-        selected_emotion = request.emotion if request and request.emotion else snapshot.get("current_emotion")
-        result = music_service.play_for_emotion(selected_emotion)
-        robot_state.set_response(result["message"])
-        tts.speak(result["message"])
+        if request and request.genre:
+            # Genre explicitly chosen by user — frontend handles TTS announcement.
+            result = music_service.play_for_genre(request.genre)
+            robot_state.set_response(result["message"])
+        else:
+            selected_emotion = request.emotion if request and request.emotion else snapshot.get("current_emotion")
+            result = music_service.play_for_emotion(selected_emotion)
+            robot_state.set_response(result["message"])
+            # tts.speak(result["message"])  # emotion-based music TTS disabled
         return result
 
     @app.post("/api/music/stop")

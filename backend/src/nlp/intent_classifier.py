@@ -72,6 +72,9 @@ class IntentClassifier:
         if any(word in t for word in ["music", "song", "songs", "sound", "relaxing", "calming"]):
             return Intent.PLAY_MUSIC
 
+        if any(word in t for word in ["lo-fi", "lofi", "upbeat", "instrumental", "cool down", "cooldown"]):
+            return Intent.PLAY_MUSIC
+
         if any(word in t for word in ["break", "tired", "stress", "stressed", "frustrated"]):
             return Intent.REQUEST_BREAK
 
@@ -79,6 +82,21 @@ class IntentClassifier:
             return Intent.ASK_STATUS
 
         return Intent.UNKNOWN
+
+    _GENRE_KEYWORDS: list[str] = [
+        "calm", "calming", "relax", "relaxing", "peaceful", "soothing", "anxiety", "stress relief",
+        "happy", "upbeat", "energetic", "positive", "cheerful", "motivating",
+        "focus", "study", "concentration", "lofi", "lo-fi", "instrumental", "deep work",
+        "sad", "gentle", "soft", "chill", "mellow",
+        "cool down", "cooldown", "reset",
+    ]
+
+    def extract_genre(self, text: str) -> str | None:
+        t = text.lower().strip()
+        for genre in self._GENRE_KEYWORDS:
+            if genre in t:
+                return genre
+        return None
 
     def is_stop_command(self, text: str) -> bool:
         """Detect immediate interruption commands for TTS and music.
