@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { deleteJson, getJson, postJson } from "../lib/api";
+import { deleteJson, getJson, postJson, putJson } from "../lib/api";
 import Card from "./Card";
 
 const PRIORITIES = ["low", "medium", "high"];
@@ -22,14 +22,12 @@ function buildQuickOptions(now) {
     { id: "3h", label: "In 3 hours", date: new Date(now.getTime() + 3 * 60 * 60000) },
   ];
 
-  // "Tonight" — only makes sense if 8pm hasn't passed yet today
   const tonight = new Date(now);
   tonight.setHours(20, 0, 0, 0);
   if (tonight > now) {
     candidates.push({ id: "tonight", label: "Tonight, 8:00 PM", date: tonight });
   }
 
-  // "Tomorrow morning" — only offer if it actually lands within the 24h window
   const tomorrowMorning = new Date(now);
   tomorrowMorning.setDate(tomorrowMorning.getDate() + 1);
   tomorrowMorning.setHours(9, 0, 0, 0);
@@ -40,6 +38,8 @@ function buildQuickOptions(now) {
 
   return candidates;
 }
+
+const EMPTY_FORM = { title: "", type: "reminder", priority: "medium" };
 
 export default function ReminderPanel() {
   const [reminders, setReminders] = useState([]);
@@ -53,6 +53,8 @@ export default function ReminderPanel() {
   const [quickId, setQuickId] = useState(null);
   const [customTime, setCustomTime] = useState("");
   const [customDay, setCustomDay] = useState("today"); // "today" | "tomorrow"
+
+  const [editingId, setEditingId] = useState(null); // null = creating, otherwise editing this id
 
   const now = useMemo(() => new Date(), []);
   const quickOptions = useMemo(() => buildQuickOptions(now), [now]);
@@ -82,7 +84,42 @@ export default function ReminderPanel() {
     return candidate;
   }
 
-  async function addReminder(event) {
+  function resetForm() {
+    setTitle(EMPTY_FORM.title);
+    setType(EMPTY_FORM.type);
+    setPriority(EMPTY_FORM.priority);
+    setMode("quick");
+    setQuickId(null);
+    setCustomTime("");
+    setCustomDay("today");
+    setEditingId(null);
+    setError("");
+  }
+
+  function startEditing(reminder) {
+    setEditingId(reminder.id);
+    setTitle(reminder.title ?? "");
+    setType(reminder.type ?? "reminder");
+    setPriority(reminder.priority ?? "medium");
+    setError("");
+
+    // Quick-picks are relative to "now," so an existing reminder always
+    // goes into custom mode, pre-filled with its actual date/time.
+    setMode("custom");
+    setCustomTime(reminder.time ?? "");
+
+    if (reminder.date) {
+      const todayParts = toDateTimeParts(now);
+      setCustomDay(reminder.date === todayParts.date ? "today" : "tomorrow");
+    } else {
+      setCustomDay("today");
+    }
+
+    // Scroll the form into view so editing an item lower in the list is obvious
+    document.getElementById("reminder-title")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  async function submitReminder(event) {
     event.preventDefault();
     setError("");
 
@@ -96,7 +133,9 @@ export default function ReminderPanel() {
       setError("Pick when this reminder should fire.");
       return;
     }
-    if (selectedDate <= now) {
+    // Only enforce "must be in the future" when creating — an existing
+    // reminder being edited may legitimately keep a time that's already close.
+    if (!editingId && selectedDate <= now) {
       setError("That time has already passed — pick something later.");
       return;
     }
@@ -106,20 +145,16 @@ export default function ReminderPanel() {
     }
 
     const { date, time } = toDateTimeParts(selectedDate);
+    const payload = { title: title.trim(), date, time, type, priority };
 
     setSaving(true);
     try {
-      await postJson("/api/reminders", {
-        title: title.trim(),
-        date,
-        time,
-        type,
-        priority,
-      });
-      setTitle("");
-      setQuickId(null);
-      setCustomTime("");
-      setMode("quick");
+      if (editingId) {
+        await putJson(`/api/reminders/${editingId}`, payload);
+      } else {
+        await postJson("/api/reminders", payload);
+      }
+      resetForm();
       await loadReminders();
     } finally {
       setSaving(false);
@@ -128,13 +163,27 @@ export default function ReminderPanel() {
 
   async function removeReminder(itemId) {
     await deleteJson(`/api/reminders/${itemId}`);
+    if (editingId === itemId) resetForm();
     await loadReminders();
   }
 
   return (
     <Card title="Reminders">
-      <form onSubmit={addReminder} className="mb-5 rounded-[1.75rem] border border-white/20 bg-white/[0.08] p-4">
-        <p className="mb-3 text-sm font-medium text-slate-200">Add a new reminder</p>
+      <form onSubmit={submitReminder} className="mb-5 rounded-[1.75rem] border border-white/20 bg-white/[0.08] p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-sm font-medium text-slate-200">
+            {editingId ? "Edit reminder" : "Add a new reminder"}
+          </p>
+          {editingId && (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="text-xs font-medium text-slate-300/80 hover:text-white"
+            >
+              Cancel edit
+            </button>
+          )}
+        </div>
 
         <label htmlFor="reminder-title" className="sr-only">Reminder title</label>
         <input
@@ -264,7 +313,7 @@ export default function ReminderPanel() {
           disabled={saving}
           className="btn-primary mt-3 px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
         >
-          {saving ? "Adding..." : "Add Reminder"}
+          {saving ? "Saving..." : editingId ? "Update Reminder" : "Add Reminder"}
         </button>
       </form>
 
@@ -273,19 +322,34 @@ export default function ReminderPanel() {
           <p className="text-slate-300/75">No reminders added yet.</p>
         ) : (
           reminders.map((reminder) => (
-            <div key={reminder.id} className="flex items-start justify-between gap-3 rounded-2xl border border-white/20 bg-white/[0.08] p-3">
+            <div
+              key={reminder.id}
+              className={`flex items-start justify-between gap-3 rounded-2xl border p-3 ${
+                editingId === reminder.id
+                  ? "border-cyan-300/50 bg-cyan-400/[0.08]"
+                  : "border-white/20 bg-white/[0.08]"
+              }`}
+            >
               <div>
                 <p className="font-semibold text-white">{reminder.title}</p>
                 <p className="text-sm capitalize text-slate-300/75">
                   {reminder.formatted_date || reminder.date || "No date"} · {reminder.time || "No time"} · {reminder.type || "reminder"} · {reminder.priority} priority
                 </p>
               </div>
-              <button
-                onClick={() => removeReminder(reminder.id)}
-                className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-1.5 text-sm font-medium text-rose-100 hover:bg-rose-400/20"
-              >
-                Remove
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  onClick={() => startEditing(reminder)}
+                  className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1.5 text-sm font-medium text-cyan-100 hover:bg-cyan-400/20"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => removeReminder(reminder.id)}
+                  className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-1.5 text-sm font-medium text-rose-100 hover:bg-rose-400/20"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           ))
         )}

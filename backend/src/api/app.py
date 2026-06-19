@@ -992,6 +992,30 @@ def create_app() -> FastAPI:
             )
         )
         return reminder
+    
+    @app.put("/api/reminders/{item_id}")
+    def update_reminder(item_id: int, request: ReminderRequest, user: dict = Depends(_require_user)):
+        reminder = calendar_service.update_reminder(
+            item_id,
+            request.title.strip(),
+            date=request.date,
+            time=request.time,
+            type=request.type or "reminder",
+            priority=request.priority or "medium",
+            user_id=user["id"],
+        )
+        if not reminder:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        robot_state.set_response(
+            phrase_bank.say(
+                "reminder_updated",
+                title=reminder["title"],
+                date=reminder.get("formatted_date") or reminder.get("date") or "not specified",
+                time=reminder.get("time") or "not specified",
+                priority=reminder.get("priority") or "medium",
+            )
+        )
+        return reminder
 
     @app.delete("/api/reminders/{item_id}")
     def delete_reminder(item_id: int, user: dict = Depends(_require_user)):

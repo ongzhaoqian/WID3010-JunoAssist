@@ -181,6 +181,11 @@ class PhraseBank:
             "Reminder removed.",
             "Done. I have removed that reminder.",
         ],
+        "reminder_updated": [
+        "Reminder updated: {title} is now set for {date} at {time}, with {priority} priority.",
+        "Done. I have updated the reminder: {title}. Date {date}, time {time}, priority {priority}.",
+        "I have changed {title} to {date} at {time}, {priority} priority.",
+        ],
     })
 
     def __post_init__(self) -> None:

@@ -80,11 +80,12 @@ class CalendarService:
             "priority": "TEXT",
             "completed": "INTEGER DEFAULT 0",
             "user_id": "INTEGER",
+            "notified_30min": "INTEGER DEFAULT 0",
+            "notified_due": "INTEGER DEFAULT 0",
         }
         for column, definition in required.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE reminders ADD COLUMN {column} {definition}")
-
         refreshed_columns = {row[1] for row in conn.execute("PRAGMA table_info(reminders)").fetchall()}
         if "due_date" in refreshed_columns:
             conn.execute("UPDATE reminders SET date = COALESCE(date, due_date)")
@@ -206,6 +207,57 @@ class CalendarService:
             "type": item_type,
             "priority": priority,
             "completed": False,
+            # Backwards-compatible aliases for older dashboard/test code.
+            "due_date": date,
+            "due_time": time,
+            "user_id": resolved_user_id,
+        }
+    
+    def update_reminder(
+        self,
+        item_id: int,
+        title: str,
+        date: str | None = None,
+        time: str | None = None,
+        type: str = "reminder",
+        priority: str = "medium",
+        user_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        resolved_user_id = self._resolve_user_id(user_id)
+        if resolved_user_id is None:
+            raise ValueError("A logged-in user is required to update a reminder.")
+
+        title = title.strip()
+        item_type = (type or "reminder").strip().lower()
+        priority = (priority or "medium").strip().lower()
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE reminders
+                SET title = ?, date = ?, time = ?, type = ?, priority = ?,
+                    notified_30min = 0, notified_due = 0
+                WHERE id = ? AND user_id = ?
+                """,
+                (title, date, time, item_type, priority, item_id, resolved_user_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+
+            row = conn.execute(
+                "SELECT completed FROM reminders WHERE id = ?", (item_id,)
+            ).fetchone()
+            completed = bool(row[0]) if row else False
+
+        return {
+            "id": item_id,
+            "title": title,
+            "date": date,
+            "formatted_date": self.format_display_date(date),
+            "time": time,
+            "type": item_type,
+            "priority": priority,
+            "completed": completed,
             # Backwards-compatible aliases for older dashboard/test code.
             "due_date": date,
             "due_time": time,
