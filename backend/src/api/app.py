@@ -17,7 +17,7 @@ from src.activation.wake_word_detector import WakeWordDetector
 from src.auth.user_service import AuthError, AuthService
 from src.calendar_module.calendar_service import CalendarService
 from src.core.config import settings
-from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
+from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -963,6 +963,30 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Schedule item not found")
         robot_state.set_response("Schedule item removed.")
         return {"deleted": True, "id": item_id}
+
+    @app.put("/api/schedule/{item_id}")
+    def update_schedule_item(item_id: int, request: ScheduleItemUpdateRequest, user: dict = Depends(_require_user)):
+        item = calendar_service.update_schedule_item(
+            item_id,
+            title=request.title,
+            date=request.date,
+            time=request.time,
+            type=request.type,
+            priority=request.priority,
+            user_id=user["id"],
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Schedule item not found")
+        robot_state.set_response(
+            phrase_bank.say(
+                "schedule_added",
+                purpose=item["title"],
+                date=item.get("formatted_date") or item.get("date") or "not specified",
+                time=item.get("time") or "not specified",
+                priority=item.get("priority") or "medium",
+            )
+        )
+        return item
 
     @app.get("/api/deadlines")
     def get_deadlines(user: dict = Depends(_require_user)):

@@ -150,3 +150,56 @@ def test_notification_skips_items_without_date_or_time(tmp_path):
     due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
 
     assert due_items == []
+
+
+def test_schedule_full_crud_cycle(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(tmp_path / "juno_test.db"))
+    client = authenticated_client(create_app())
+
+    created = client.post(
+        "/api/schedule",
+        json={"title": "Deep Learning revision", "date": "2026-06-20", "time": "14:00", "type": "study", "priority": "medium"},
+    )
+    assert created.status_code == 200
+    item_id = created.json()["id"]
+
+    today_items = client.get("/api/schedule/today").json()
+    assert any(i["id"] == item_id for i in today_items)
+
+    updated = client.put(f"/api/schedule/{item_id}", json={"time": "16:00", "priority": "high"})
+    assert updated.status_code == 200
+    assert updated.json()["time"] == "16:00"
+    assert updated.json()["priority"] == "high"
+    assert updated.json()["title"] == "Deep Learning revision"
+
+    deleted = client.delete(f"/api/schedule/{item_id}")
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+
+    assert client.get("/api/schedule/today").json() == []
+
+
+def test_schedule_update_and_delete_reject_other_users_item(tmp_path, monkeypatch):
+    db_path = tmp_path / "juno_test.db"
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(db_path))
+    app = create_app()
+
+    owner_client = authenticated_client(app)
+    created = owner_client.post(
+        "/api/schedule",
+        json={"title": "Owner's task", "date": "2026-06-20", "time": "09:00"},
+    )
+    item_id = created.json()["id"]
+
+    other_client = TestClient(app)
+    signup = other_client.post(
+        "/api/auth/signup", json={"username": "intruder@example.com", "password": "password123"}
+    )
+    assert signup.status_code == 200
+    other_client.headers.update({"Authorization": f"Bearer {signup.json()['token']}"})
+
+    update_attempt = other_client.put(f"/api/schedule/{item_id}", json={"priority": "high"})
+    assert update_attempt.status_code == 404
+
+    delete_attempt = other_client.delete(f"/api/schedule/{item_id}")
+    assert delete_attempt.status_code == 404
