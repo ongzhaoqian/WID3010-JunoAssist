@@ -146,6 +146,14 @@ class ScheduleItemRequest(BaseModel):
     priority: str = Field(default="medium", max_length=20)
 
 
+class ScheduleItemUpdateRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    date: Optional[str] = None
+    time: Optional[str] = None
+    type: Optional[str] = Field(default=None, max_length=40)
+    priority: Optional[str] = Field(default=None, max_length=20)
+
+
 class TimerRequest(BaseModel):
     # Keep minutes for backwards compatibility, but allow seconds too so the
     # dashboard and voice flow can start timers such as 1 minute 30 seconds.
