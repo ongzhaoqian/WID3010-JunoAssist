@@ -225,3 +225,28 @@ def test_notification_check_reflects_items_created_through_the_api(tmp_path, mon
 
     due_items_again = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
     assert due_items_again == []
+
+
+def test_concurrent_schedule_writes_do_not_raise_locked_error(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    errors: list[Exception] = []
+
+    def worker(index: int) -> None:
+        try:
+            for i in range(10):
+                item = service.add_schedule_item(f"Task {index}-{i}", date="2026-06-19", time="08:00", user_id=1)
+                service.update_schedule_item(item["id"], priority="high", user_id=1)
+                service.get_today_schedule(user_id=1)
+        except Exception as exc:  # pragma: no cover - failure path under test
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert len(service.get_today_schedule(user_id=1)) == 80
