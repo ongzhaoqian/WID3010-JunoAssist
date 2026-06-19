@@ -1,43 +1,125 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { deleteJson, getJson, postJson } from "../lib/api";
 import Card from "./Card";
 
 const PRIORITIES = ["low", "medium", "high"];
 const TYPES = ["reminder", "study", "assignment", "test", "quiz", "meeting", "personal"];
+const MAX_HOURS_AHEAD = 24;
+
+function toDateTimeParts(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
+}
+
+function buildQuickOptions(now) {
+  const candidates = [
+    { id: "15m", label: "In 15 min", date: new Date(now.getTime() + 15 * 60000) },
+    { id: "30m", label: "In 30 min", date: new Date(now.getTime() + 30 * 60000) },
+    { id: "1h", label: "In 1 hour", date: new Date(now.getTime() + 60 * 60000) },
+    { id: "3h", label: "In 3 hours", date: new Date(now.getTime() + 3 * 60 * 60000) },
+  ];
+
+  // "Tonight" — only makes sense if 8pm hasn't passed yet today
+  const tonight = new Date(now);
+  tonight.setHours(20, 0, 0, 0);
+  if (tonight > now) {
+    candidates.push({ id: "tonight", label: "Tonight, 8:00 PM", date: tonight });
+  }
+
+  // "Tomorrow morning" — only offer if it actually lands within the 24h window
+  const tomorrowMorning = new Date(now);
+  tomorrowMorning.setDate(tomorrowMorning.getDate() + 1);
+  tomorrowMorning.setHours(9, 0, 0, 0);
+  const maxAhead = new Date(now.getTime() + MAX_HOURS_AHEAD * 60 * 60000);
+  if (tomorrowMorning <= maxAhead) {
+    candidates.push({ id: "tomorrow_am", label: "Tomorrow, 9:00 AM", date: tomorrowMorning });
+  }
+
+  return candidates;
+}
 
 export default function ReminderPanel() {
   const [reminders, setReminders] = useState([]);
-  const [form, setForm] = useState({
-    title: "",
-    date: "",
-    time: "",
-    type: "reminder",
-    priority: "medium"
-  });
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState("reminder");
+  const [priority, setPriority] = useState("medium");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  function updateField(field, value) {
-    setForm((current) => ({ ...current, [field]: value }));
-  }
+  const [mode, setMode] = useState("quick"); // "quick" | "custom"
+  const [quickId, setQuickId] = useState(null);
+  const [customTime, setCustomTime] = useState("");
+  const [customDay, setCustomDay] = useState("today"); // "today" | "tomorrow"
+
+  const now = useMemo(() => new Date(), []);
+  const quickOptions = useMemo(() => buildQuickOptions(now), [now]);
+  const maxAhead = useMemo(() => new Date(now.getTime() + MAX_HOURS_AHEAD * 60 * 60000), [now]);
 
   async function loadReminders() {
     const data = await getJson("/api/reminders");
     setReminders(data);
   }
 
+  useEffect(() => {
+    loadReminders();
+    const interval = window.setInterval(loadReminders, 4000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  function resolveSelectedDate() {
+    if (mode === "quick") {
+      const option = quickOptions.find((o) => o.id === quickId);
+      return option ? option.date : null;
+    }
+    if (!customTime) return null;
+    const [hours, minutes] = customTime.split(":").map(Number);
+    const candidate = new Date();
+    if (customDay === "tomorrow") candidate.setDate(candidate.getDate() + 1);
+    candidate.setHours(hours, minutes, 0, 0);
+    return candidate;
+  }
+
   async function addReminder(event) {
     event.preventDefault();
-    if (!form.title.trim()) return;
+    setError("");
+
+    if (!title.trim()) {
+      setError("Give the reminder a title first.");
+      return;
+    }
+
+    const selectedDate = resolveSelectedDate();
+    if (!selectedDate) {
+      setError("Pick when this reminder should fire.");
+      return;
+    }
+    if (selectedDate <= now) {
+      setError("That time has already passed — pick something later.");
+      return;
+    }
+    if (selectedDate > maxAhead) {
+      setError("Reminders can only be set up to 24 hours ahead.");
+      return;
+    }
+
+    const { date, time } = toDateTimeParts(selectedDate);
 
     setSaving(true);
     try {
       await postJson("/api/reminders", {
-        ...form,
-        title: form.title.trim(),
-        date: form.date || null,
-        time: form.time || null
+        title: title.trim(),
+        date,
+        time,
+        type,
+        priority,
       });
-      setForm({ title: "", date: "", time: "", type: "reminder", priority: "medium" });
+      setTitle("");
+      setQuickId(null);
+      setCustomTime("");
+      setMode("quick");
       await loadReminders();
     } finally {
       setSaving(false);
@@ -49,56 +131,134 @@ export default function ReminderPanel() {
     await loadReminders();
   }
 
-  useEffect(() => {
-    loadReminders();
-    // Voice-created reminders arrive through the backend/ROS loop, so poll
-    // lightly to keep the dashboard list aligned with spoken commands.
-    const interval = window.setInterval(loadReminders, 4000);
-    return () => window.clearInterval(interval);
-  }, []);
-
   return (
     <Card title="Reminders">
       <form onSubmit={addReminder} className="mb-5 rounded-[1.75rem] border border-white/20 bg-white/[0.08] p-4">
         <p className="mb-3 text-sm font-medium text-slate-200">Add a new reminder</p>
+
+        <label htmlFor="reminder-title" className="sr-only">Reminder title</label>
+        <input
+          id="reminder-title"
+          className="input-glass mb-3 w-full rounded-2xl px-3 py-2 text-sm"
+          placeholder="e.g. Submit lab report"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+
+        <fieldset className="mb-3">
+          <legend className="mb-2 text-sm font-medium text-slate-300/85">When (within 24 hours)</legend>
+
+          <div role="radiogroup" aria-label="Quick time options" className="flex flex-wrap gap-2">
+            {quickOptions.map((option) => {
+              const selected = mode === "quick" && quickId === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => {
+                    setMode("quick");
+                    setQuickId(option.id);
+                  }}
+                  className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                    selected
+                      ? "border-cyan-300/60 bg-cyan-400/20 text-white"
+                      : "border-white/20 bg-white/[0.06] text-slate-200 hover:bg-white/[0.12]"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === "custom"}
+              onClick={() => setMode("custom")}
+              className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                mode === "custom"
+                  ? "border-cyan-300/60 bg-cyan-400/20 text-white"
+                  : "border-white/20 bg-white/[0.06] text-slate-200 hover:bg-white/[0.12]"
+              }`}
+            >
+              Custom time…
+            </button>
+          </div>
+
+          {mode === "custom" && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <div role="radiogroup" aria-label="Day" className="flex gap-2">
+                {[
+                  { id: "today", label: "Today" },
+                  { id: "tomorrow", label: "Tomorrow" },
+                ].map((day) => (
+                  <button
+                    key={day.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={customDay === day.id}
+                    onClick={() => setCustomDay(day.id)}
+                    className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+                      customDay === day.id
+                        ? "border-cyan-300/60 bg-cyan-400/20 text-white"
+                        : "border-white/20 bg-white/[0.06] text-slate-200"
+                    }`}
+                  >
+                    {day.label}
+                  </button>
+                ))}
+              </div>
+
+              <label htmlFor="reminder-custom-time" className="sr-only">Custom time</label>
+              <input
+                id="reminder-custom-time"
+                type="time"
+                className="input-glass rounded-2xl px-3 py-2 text-sm"
+                value={customTime}
+                onChange={(event) => setCustomTime(event.target.value)}
+                aria-describedby="reminder-time-hint"
+              />
+              <span id="reminder-time-hint" className="text-xs text-slate-300/70">
+                Must be within the next 24 hours.
+              </span>
+            </div>
+          )}
+        </fieldset>
+
         <div className="grid gap-3 md:grid-cols-2">
-          <input
-            className="input-glass rounded-2xl px-3 py-2 text-sm md:col-span-2"
-            placeholder="e.g. Submit lab report"
-            value={form.title}
-            onChange={(event) => updateField("title", event.target.value)}
-          />
-          <input
-            type="date"
-            className="input-glass rounded-2xl px-3 py-2 text-sm"
-            value={form.date}
-            onChange={(event) => updateField("date", event.target.value)}
-          />
-          <input
-            type="time"
-            className="input-glass rounded-2xl px-3 py-2 text-sm"
-            value={form.time}
-            onChange={(event) => updateField("time", event.target.value)}
-          />
-          <select
-            className="input-glass rounded-2xl px-3 py-2 text-sm"
-            value={form.type}
-            onChange={(event) => updateField("type", event.target.value)}
-          >
-            {TYPES.map((type) => (
-              <option key={type} value={type}>{type}</option>
-            ))}
-          </select>
-          <select
-            className="input-glass rounded-2xl px-3 py-2 text-sm"
-            value={form.priority}
-            onChange={(event) => updateField("priority", event.target.value)}
-          >
-            {PRIORITIES.map((priority) => (
-              <option key={priority} value={priority}>{priority} priority</option>
-            ))}
-          </select>
+          <label className="text-sm text-slate-300/85">
+            Type
+            <select
+              className="input-glass mt-1 w-full rounded-2xl px-3 py-2 text-sm"
+              value={type}
+              onChange={(event) => setType(event.target.value)}
+            >
+              {TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm text-slate-300/85">
+            Priority
+            <select
+              className="input-glass mt-1 w-full rounded-2xl px-3 py-2 text-sm"
+              value={priority}
+              onChange={(event) => setPriority(event.target.value)}
+            >
+              {PRIORITIES.map((p) => (
+                <option key={p} value={p}>{p} priority</option>
+              ))}
+            </select>
+          </label>
         </div>
+
+        {error && (
+          <p role="alert" className="mt-3 text-sm font-medium text-rose-300">
+            {error}
+          </p>
+        )}
+
         <button
           type="submit"
           disabled={saving}
