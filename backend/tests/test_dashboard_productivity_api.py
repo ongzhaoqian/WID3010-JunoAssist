@@ -472,7 +472,7 @@ def test_fitness_session_without_profile_marks_calories_pending(tmp_path, monkey
 
 
 
-def test_database_refresh_on_start_clears_runtime_tables(tmp_path, monkeypatch):
+def test_schedule_persists_while_reminders_reset_on_restart(tmp_path, monkeypatch):
     db_path = tmp_path / "juno_test.db"
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(db_path))
 
@@ -484,9 +484,19 @@ def test_database_refresh_on_start_clears_runtime_tables(tmp_path, monkeypatch):
     assert created.status_code == 200
     assert client.get("/api/schedule/today").json()
 
-    # A fresh app startup should clear previous runtime rows by default.
+    reminder = client.post(
+        "/api/reminders",
+        json={"title": "Old reminder", "date": "2026-05-20", "time": "10:00"},
+    )
+    assert reminder.status_code == 200
+    assert client.get("/api/reminders").json()
+
+    # A fresh app startup intentionally keeps schedule items (action plan
+    # requirement: "Schedule persists across restarts") but still clears
+    # reminders, matching the existing demo-reset behavior for that table.
     refreshed_client = authenticated_client(create_app())
-    assert refreshed_client.get("/api/schedule/today").json() == []
+    assert refreshed_client.get("/api/schedule/today").json()
+    assert refreshed_client.get("/api/reminders").json() == []
 
 
 def test_startup_does_not_load_sample_schedule_dataset(tmp_path, monkeypatch):
