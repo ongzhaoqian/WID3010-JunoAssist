@@ -25,6 +25,7 @@ from src.nlp.llm_client import MalaysianLlamaClient
 from src.nlp.response_generator import ResponseGenerator
 from src.nlp.phrase_bank import PhraseBank
 from src.productivity.music_service import MusicService
+from src.productivity.playwright_music import playwright_music
 from src.productivity.timer_service import TimerService
 from src.productivity.fitness_service import FitnessService, FITNESS_GAME_URL
 from src.robot.jupiter_interface import get_robot_interface
@@ -1092,12 +1093,13 @@ def create_app() -> FastAPI:
         return music_service.status()
 
     @app.post("/api/music/play")
-    def play_music(request: Optional[MusicPlayRequest] = None):
+    async def play_music(request: Optional[MusicPlayRequest] = None):
         snapshot = robot_state.snapshot()
         if request and request.genre:
             # Genre explicitly chosen by user — frontend handles TTS announcement.
             result = music_service.play_for_genre(request.genre)
             robot_state.set_response(result["message"])
+            asyncio.create_task(playwright_music.play(result["embed_url"]))
         else:
             selected_emotion = request.emotion if request and request.emotion else snapshot.get("current_emotion")
             result = music_service.play_for_emotion(selected_emotion)
@@ -1106,9 +1108,10 @@ def create_app() -> FastAPI:
         return result
 
     @app.post("/api/music/stop")
-    def stop_music():
+    async def stop_music():
         result = music_service.stop()
         robot_state.set_response(result["message"])
+        await playwright_music.stop()
         return result
 
     @app.post("/api/robot/stop")
