@@ -250,3 +250,19 @@ def test_concurrent_schedule_writes_do_not_raise_locked_error(tmp_path):
 
     assert errors == []
     assert len(service.get_today_schedule(user_id=1)) == 80
+
+
+def test_schedule_persists_across_app_restart(tmp_path, monkeypatch):
+    db_path = tmp_path / "juno_test.db"
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(db_path))
+
+    first_client = authenticated_client(create_app())
+    created = first_client.post(
+        "/api/schedule",
+        json={"title": "Persisted task", "date": "2026-06-21", "time": "11:00"},
+    )
+    assert created.status_code == 200
+
+    second_client = authenticated_client(create_app())
+    items = second_client.get("/api/schedule/today").json()
+    assert any(i["title"] == "Persisted task" for i in items)
