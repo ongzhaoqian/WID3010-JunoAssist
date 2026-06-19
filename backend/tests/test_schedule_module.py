@@ -203,3 +203,25 @@ def test_schedule_update_and_delete_reject_other_users_item(tmp_path, monkeypatc
 
     delete_attempt = other_client.delete(f"/api/schedule/{item_id}")
     assert delete_attempt.status_code == 404
+
+
+def test_notification_check_reflects_items_created_through_the_api(tmp_path, monkeypatch):
+    db_path = tmp_path / "juno_test.db"
+    monkeypatch.setenv("JUNO_DATABASE_PATH", str(db_path))
+
+    client = authenticated_client(create_app())
+    created = client.post(
+        "/api/schedule",
+        json={"title": "Lab session", "date": "2026-06-19", "time": "09:00", "type": "study", "priority": "medium"},
+    )
+    item_id = created.json()["id"]
+
+    service = CalendarService(str(db_path))
+    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+    assert any(d["id"] == item_id and d["stage"] == "due" for d in due_items)
+
+    for d in due_items:
+        service.mark_notified(d["id"], d["stage"])
+
+    due_items_again = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+    assert due_items_again == []
