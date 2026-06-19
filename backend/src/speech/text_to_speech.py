@@ -7,3 +7,6 @@ class TextToSpeech:
 
     def speak(self, text: str) -> None:
         self.robot.speak(text)
+
+    def stop(self) -> None:
+        self.robot.stop_speaking()

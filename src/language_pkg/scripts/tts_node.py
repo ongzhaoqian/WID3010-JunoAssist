@@ -42,6 +42,7 @@ class JunoTTSNode:
         rospy.init_node('juno_tts_node', anonymous=True)
 
         self.tts_topic = rospy.get_param('~tts_topic', os.getenv('JUNO_TTS_TOPIC', '/juno/tts'))
+        self.stop_topic = rospy.get_param('~tts_stop_topic', os.getenv('JUNO_TTS_STOP_TOPIC', '/juno/tts_stop'))
         self.done_topic = rospy.get_param('~tts_done_topic', os.getenv('JUNO_TTS_DONE_TOPIC', '/juno/tts_done'))
         self.voice_locale = rospy.get_param('~voice_locale', os.getenv('JUNO_TTS_VOICE_LOCALE', 'en_GB'))
         self.rate = int(rospy.get_param('~rate', _env_int('JUNO_TTS_RATE', 165)))
@@ -52,6 +53,9 @@ class JunoTTSNode:
         self.engine = None
         self.queue = queue.Queue()
         self.done_pub = rospy.Publisher(self.done_topic, String, queue_size=1, latch=True)
+        self._stop_event = threading.Event()
+        self._current_process = None
+        self._process_lock = threading.Lock()
 
         if self.backend not in {'auto', 'pyttsx3', 'espeak'}:
             rospy.logwarn('Invalid JUNO_TTS_BACKEND=%s. Falling back to auto.', self.backend)
@@ -61,12 +65,14 @@ class JunoTTSNode:
             self._init_pyttsx3()
 
         rospy.Subscriber(self.tts_topic, String, self.callback, queue_size=10)
+        rospy.Subscriber(self.stop_topic, String, self.stop_callback, queue_size=10)
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker.start()
 
         rospy.loginfo(
-            'JUNO TTS node subscribed to %s, done topic=%s, backend=%s, rate=%s',
+            'JUNO TTS node subscribed to %s, stop topic=%s, done topic=%s, backend=%s, rate=%s',
             self.tts_topic,
+            self.stop_topic,
             self.done_topic,
             self.backend,
             self.rate,
@@ -131,6 +137,33 @@ class JunoTTSNode:
         rospy.loginfo('Queued JUNO speech from %s: %s', self.tts_topic, text)
         self.queue.put(text)
 
+    def stop_callback(self, _msg):
+        """Interrupt the current TTS utterance and discard queued speech."""
+        rospy.loginfo('Received JUNO TTS stop request on %s', self.stop_topic)
+        self._stop_event.set()
+        self._clear_speech_queue()
+        try:
+            if self.engine is not None:
+                self.engine.stop()
+        except Exception as exc:
+            rospy.logwarn('Could not stop pyttsx3 cleanly: %s', exc)
+        with self._process_lock:
+            process = self._current_process
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+            except Exception as exc:
+                rospy.logwarn('Could not terminate espeak process cleanly: %s', exc)
+        self.done_pub.publish(String(data='stopped'))
+
+    def _clear_speech_queue(self):
+        while True:
+            try:
+                self.queue.get_nowait()
+                self.queue.task_done()
+            except queue.Empty:
+                break
+
     def _worker_loop(self):
         while not rospy.is_shutdown():
             try:
@@ -143,12 +176,17 @@ class JunoTTSNode:
             except Exception as exc:
                 rospy.logerr('JUNO TTS failed for text %r: %s', text, exc)
             finally:
-                rospy.sleep(self.done_delay)
+                rospy.sleep(0.05 if self._stop_event.is_set() else self.done_delay)
                 self.done_pub.publish(String(data='done'))
                 rospy.loginfo('Published %s after TTS attempt', self.done_topic)
+                self._stop_event.clear()
                 self.queue.task_done()
 
     def _speak(self, text):
+        if self._stop_event.is_set():
+            rospy.loginfo('Skipping queued speech because a stop request is active.')
+            return
+
         rospy.loginfo('JUNO says in British English: %s', text)
 
         if self.backend in {'auto', 'pyttsx3'} and self.engine is not None:
@@ -195,10 +233,26 @@ class JunoTTSNode:
             for voice in self._candidate_voices():
                 args = [command, '-v', voice, '-s', str(self.rate), text]
                 rospy.loginfo('Trying TTS command: %s -v %s', command, voice)
-                completed = subprocess.run(args, check=False)
-                if completed.returncode == 0:
+                process = subprocess.Popen(args)
+                with self._process_lock:
+                    self._current_process = process
+                while process.poll() is None:
+                    if self._stop_event.is_set() or rospy.is_shutdown():
+                        process.terminate()
+                        try:
+                            process.wait(timeout=1.0)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                        rospy.loginfo('Interrupted TTS command for voice %s', voice)
+                        with self._process_lock:
+                            self._current_process = None
+                        return
+                    rospy.sleep(0.05)
+                with self._process_lock:
+                    self._current_process = None
+                if process.returncode == 0:
                     return
-                last_error = '{} exited with code {} for voice {}'.format(command, completed.returncode, voice)
+                last_error = '{} exited with code {} for voice {}'.format(command, process.returncode, voice)
                 rospy.logwarn('%s', last_error)
 
         raise RuntimeError(last_error or 'No espeak-compatible command available')

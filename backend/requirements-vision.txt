@@ -1,0 +1,9 @@
+# Optional vision-module dependencies for Ekman-style facial emotion recognition.
+# Default model: mo-thecreator/vit-Facial-Expression-Recognition (lightweight FER image classifier).
+numpy>=1.24,<2.0
+opencv-python-headless>=4.8
+pillow>=10.0
+torch>=2.2
+transformers>=4.49
+accelerate>=0.33
+safetensors>=0.4
