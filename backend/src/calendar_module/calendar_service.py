@@ -177,6 +177,55 @@ class CalendarService:
             "user_id": resolved_user_id,
         }
 
+    def update_schedule_item(
+        self,
+        item_id: int,
+        *,
+        title: str | None = None,
+        date: str | None = None,
+        time: str | None = None,
+        type: str | None = None,
+        priority: str | None = None,
+        user_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        resolved_user_id = self._resolve_user_id(user_id)
+        if resolved_user_id is None:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT title, date, time, type, priority FROM schedule_items WHERE id = ? AND user_id = ?",
+                (item_id, resolved_user_id),
+            ).fetchone()
+            if row is None:
+                return None
+
+            updated_title = title.strip() if title is not None else row[0]
+            updated_date = date if date is not None else row[1]
+            updated_time = time if time is not None else row[2]
+            updated_type = (type.strip().lower() if type else row[3]) if type is not None else row[3]
+            updated_priority = (priority.strip().lower() if priority else row[4]) if priority is not None else row[4]
+
+            conn.execute(
+                """
+                UPDATE schedule_items
+                SET title = ?, date = ?, time = ?, type = ?, priority = ?,
+                    notified_30 = 0, notified_due = 0
+                WHERE id = ? AND user_id = ?
+                """,
+                (updated_title, updated_date, updated_time, updated_type, updated_priority, item_id, resolved_user_id),
+            )
+
+        return {
+            "id": item_id,
+            "title": updated_title,
+            "date": updated_date,
+            "formatted_date": self.format_display_date(updated_date),
+            "time": updated_time,
+            "type": updated_type,
+            "priority": updated_priority,
+            "user_id": resolved_user_id,
+        }
+
     def delete_schedule_item(self, item_id: int, user_id: int | None = None) -> bool:
         resolved_user_id = self._resolve_user_id(user_id)
         if resolved_user_id is None:
