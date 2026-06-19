@@ -17,7 +17,15 @@ class CalendarService:
         return int(user_id) if user_id else self.current_user_id
 
     def _connect(self):
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path)
+        # WAL mode lets readers and writers proceed concurrently instead of
+        # blocking each other; busy_timeout makes any remaining brief
+        # contention retry instead of immediately raising "database is
+        # locked" (relevant now that the notification loop polls this same
+        # database from a background asyncio task alongside API requests).
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
 
     def _initialise(self) -> None:
         with self._connect() as conn:
