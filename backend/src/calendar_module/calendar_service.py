@@ -1,6 +1,6 @@
 from __future__ import annotations
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 
@@ -225,6 +225,64 @@ class CalendarService:
             "priority": updated_priority,
             "user_id": resolved_user_id,
         }
+
+    def get_items_needing_notification(
+        self, now: datetime, tolerance_seconds: float = 15.0
+    ) -> list[dict[str, Any]]:
+        """Return every (item, stage) pair currently due for a spoken notification.
+
+        Each schedule item can independently need a "30 minutes before" and/or
+        "at the due time" notification; both are returned as separate entries
+        so the caller can announce and mark each one without one blocking the
+        other when several items are due in the same check tick.
+
+        The trigger condition is one-sided (now >= target - tolerance, with no
+        upper bound) rather than a tight window. This means a delayed check
+        tick still eventually surfaces every pending notification exactly
+        once; the notified_30/notified_due flags (set via mark_notified) are
+        what make each stage fire only once per item.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, user_id, title, date, time, type, priority, notified_30, notified_due
+                FROM schedule_items
+                WHERE date IS NOT NULL AND date != ''
+                  AND time IS NOT NULL AND time != ''
+                  AND (notified_30 = 0 OR notified_due = 0)
+                """
+            ).fetchall()
+
+        tolerance = timedelta(seconds=tolerance_seconds)
+        due_items: list[dict[str, Any]] = []
+        for row in rows:
+            item_id, user_id, title, date, time_value, item_type, priority, notified_30, notified_due = row
+            try:
+                due_at = datetime.strptime(f"{date} {time_value}", "%Y-%m-%d %H:%M")
+            except ValueError:
+                continue
+
+            base = {
+                "id": item_id,
+                "user_id": user_id,
+                "title": title,
+                "date": date,
+                "time": time_value,
+                "type": item_type,
+                "priority": priority,
+            }
+
+            if not notified_30 and now >= (due_at - timedelta(minutes=30) - tolerance):
+                due_items.append({**base, "stage": "30"})
+            if not notified_due and now >= (due_at - tolerance):
+                due_items.append({**base, "stage": "due"})
+
+        return due_items
+
+    def mark_notified(self, item_id: int, stage: str) -> None:
+        column = "notified_30" if stage == "30" else "notified_due"
+        with self._connect() as conn:
+            conn.execute(f"UPDATE schedule_items SET {column} = 1 WHERE id = ?", (item_id,))
 
     def delete_schedule_item(self, item_id: int, user_id: int | None = None) -> bool:
         resolved_user_id = self._resolve_user_id(user_id)

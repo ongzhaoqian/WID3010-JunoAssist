@@ -87,3 +87,66 @@ def test_update_schedule_item_resets_notification_flags(tmp_path):
             "SELECT notified_30, notified_due FROM schedule_items WHERE id = ?", (item["id"],)
         ).fetchone()
     assert row == (0, 0)
+
+
+def test_notification_fires_30_minutes_before_and_at_due_time_once_each(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Deep Learning revision", date="2026-06-19", time="10:00", user_id=1)
+
+    due_at = datetime(2026, 6, 19, 10, 0)
+    just_before_30 = due_at - timedelta(minutes=30, seconds=5)
+
+    due_items = service.get_items_needing_notification(just_before_30, tolerance_seconds=15)
+    assert any(d["id"] == item["id"] and d["stage"] == "30" for d in due_items)
+    for d in due_items:
+        service.mark_notified(d["id"], d["stage"])
+
+    due_items_again = service.get_items_needing_notification(just_before_30, tolerance_seconds=15)
+    assert not any(d["stage"] == "30" for d in due_items_again)
+
+    due_items_at_due = service.get_items_needing_notification(due_at, tolerance_seconds=15)
+    assert any(d["id"] == item["id"] and d["stage"] == "due" for d in due_items_at_due)
+    for d in due_items_at_due:
+        service.mark_notified(d["id"], d["stage"])
+
+    due_items_final = service.get_items_needing_notification(due_at, tolerance_seconds=15)
+    assert due_items_final == []
+
+
+def test_notification_handles_multiple_consecutive_schedules_in_same_tick(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    first = service.add_schedule_item("Morning class", date="2026-06-19", time="09:00", user_id=1)
+    second = service.add_schedule_item("Group meeting", date="2026-06-19", time="09:00", user_id=1)
+    third = service.add_schedule_item("Lab session", date="2026-06-19", time="09:05", user_id=1)
+
+    now = datetime(2026, 6, 19, 9, 0)
+    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    fired_ids = {d["id"] for d in due_items if d["stage"] == "due"}
+
+    assert first["id"] in fired_ids
+    assert second["id"] in fired_ids
+    assert third["id"] not in fired_ids
+
+    for d in due_items:
+        service.mark_notified(d["id"], d["stage"])
+
+    later = now + timedelta(minutes=5)
+    due_items_later = service.get_items_needing_notification(later, tolerance_seconds=15)
+    fired_ids_later = {d["id"] for d in due_items_later if d["stage"] == "due"}
+
+    assert fired_ids_later == {third["id"]}
+
+
+def test_notification_skips_items_without_date_or_time(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    service.add_schedule_item("No date set", user_id=1)
+
+    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+
+    assert due_items == []
