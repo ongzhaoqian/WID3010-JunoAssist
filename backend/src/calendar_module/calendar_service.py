@@ -70,7 +70,12 @@ class CalendarService:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(schedule_items)").fetchall()}
         if "user_id" not in columns:
             conn.execute("ALTER TABLE schedule_items ADD COLUMN user_id INTEGER")
+        if "notified_30" not in columns:
+            conn.execute("ALTER TABLE schedule_items ADD COLUMN notified_30 INTEGER DEFAULT 0")
+        if "notified_due" not in columns:
+            conn.execute("ALTER TABLE schedule_items ADD COLUMN notified_due INTEGER DEFAULT 0")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_items_user ON schedule_items(user_id, date, time, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_items_notify ON schedule_items(notified_30, notified_due)")
 
     def _migrate_reminder_columns(self, conn: sqlite3.Connection) -> None:
         """Bring old reminder tables up to the schedule-like schema.

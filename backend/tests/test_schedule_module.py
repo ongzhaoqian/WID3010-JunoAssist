@@ -27,3 +27,14 @@ def test_connections_use_wal_journal_mode(tmp_path):
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
 
     assert mode.lower() == "wal"
+
+
+def test_schedule_items_table_has_notification_columns(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+
+    with service._connect() as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(schedule_items)").fetchall()}
+
+    assert "notified_30" in columns
+    assert "notified_due" in columns
