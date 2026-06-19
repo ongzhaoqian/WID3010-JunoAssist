@@ -181,6 +181,14 @@ class PhraseBank:
             "Reminder removed.",
             "Done. I have removed that reminder.",
         ],
+        "schedule_reminder_30": [
+            "Upcoming: {title} in 30 minutes.",
+            "Heads up, {title} starts in 30 minutes.",
+        ],
+        "schedule_reminder_due": [
+            "{title} starts now.",
+            "It is time for {title}.",
+        ],
     })
 
     def __post_init__(self) -> None:
