@@ -66,6 +66,18 @@ export async function deleteJson(path) {
   return parseJsonResponse(response);
 }
 
+export async function putJson(path, data = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    headers: authHeaders({
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(data)
+  });
+
+  return parseJsonResponse(response);
+}
+
 export function statusSocket() {
   return new WebSocket(`${WS_BASE}/ws/status`);
 }
