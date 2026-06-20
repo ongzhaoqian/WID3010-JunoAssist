@@ -389,6 +389,29 @@ class RobotState:
             elapsed = time.monotonic() - self.stress_started_at
             return elapsed >= threshold_seconds
 
+    def _stash_study_timer_locked(self) -> None:
+        """Freeze a running study timer into the break-question stash. Caller holds the lock."""
+        if (
+            self.active_timer_type == "study"
+            and self.timer_remaining_seconds > 0
+            and not self.timer_paused
+            and not self.study_timer_stashed
+        ):
+            self.study_timer_stashed = True
+            self.stashed_study_remaining = self.timer_remaining_seconds
+            self.stashed_study_label = self.active_timer_label
+            self.timer_remaining_seconds = 0
+
+    def stash_study_timer_if_running(self) -> None:
+        """Freeze a running study timer ahead of asking an unrelated yes/no question.
+
+        Unlike `request_break_confirmation`, this does not touch
+        `awaiting_break_confirmation` — for flows (like the voice-triggered
+        break offer) that use their own awaiting-flag and yes/no handling.
+        """
+        with self._lock:
+            self._stash_study_timer_locked()
+
     def request_break_confirmation(self, reason: str) -> None:
         """Ask the user whether they want a break, freezing a running study timer.
 
@@ -402,17 +425,8 @@ class RobotState:
         with self._lock:
             self.awaiting_break_confirmation = True
             self.break_confirmation_reason = reason
-            if (
-                reason == "stress"
-                and self.active_timer_type == "study"
-                and self.timer_remaining_seconds > 0
-                and not self.timer_paused
-                and not self.study_timer_stashed
-            ):
-                self.study_timer_stashed = True
-                self.stashed_study_remaining = self.timer_remaining_seconds
-                self.stashed_study_label = self.active_timer_label
-                self.timer_remaining_seconds = 0
+            if reason == "stress":
+                self._stash_study_timer_locked()
 
     def clear_break_confirmation(self) -> None:
         with self._lock:

@@ -406,9 +406,7 @@ def create_app() -> FastAPI:
         if not is_running and not is_paused:
             return None
 
-        _OUTPUT_CONTEXT_WORDS = ("music", "song", "songs", "audio", "speech", "voice", "talking", "speaking", "tts")
         has_timer_context = any(_fuzzy_matches(w, _TIMER_CONTEXT_WORDS, threshold=0.74) for w in words)
-        has_output_context = any(_fuzzy_matches(w, _OUTPUT_CONTEXT_WORDS, threshold=0.74) for w in words)
         has_stop = any(_fuzzy_matches(w, _STOP_WORDS, threshold=0.73) for w in words)
         has_pause = any(_fuzzy_matches(w, _PAUSE_WORDS, threshold=0.76) for w in words)
         has_resume = any(_fuzzy_matches(w, _RESUME_WORDS, threshold=0.76) for w in words)
@@ -427,11 +425,10 @@ def create_app() -> FastAPI:
         explicit_pause_phrase = any(phrase in joined for phrase in pause_phrases)
         explicit_resume_phrase = any(phrase in joined for phrase in resume_phrases)
 
-        # Stop/delete takes priority when the user explicitly mentions a timer
-        # context, or when the command is a short bare stop-like command while
-        # a timer is the only active countdown on the dashboard.
-        short_bare_stop = has_stop and len(words) <= 3 and not has_pause and not has_resume and not has_output_context
-        if explicit_stop_phrase or (has_stop and has_timer_context) or short_bare_stop:
+        # Stop/delete only fires when the user explicitly mentions a timer
+        # context (e.g. "stop timer", "cancel countdown"). A bare "stop" should
+        # only interrupt music/game/speech, not delete the timer.
+        if explicit_stop_phrase or (has_stop and has_timer_context):
             timer_service.delete_timer()
             response = phrase_bank.say("timer_deleted")
             robot_state.set_response(response)
@@ -469,14 +466,12 @@ def create_app() -> FastAPI:
             asyncio.run_coroutine_threadsafe(playwright_music.stop(), _event_loop)
             asyncio.run_coroutine_threadsafe(playwright_game.stop(), _event_loop)
 
-        # If a timer is currently visible and the spoken command is stop-like,
-        # honour it as a timer stop as well. This makes bare "stop" useful while
-        # the countdown is running, while still supporting explicit "stop music"
-        # / "stop speaking" through the same endpoint.
+        # Only delete the timer when the command explicitly mentions it
+        # ("stop timer", "cancel countdown"). A bare "stop" should only
+        # interrupt music/game/speech, never the running timer.
         lowered = text.lower().strip()
-        music_or_speech_only = bool(re.search(r"\b(music|song|songs|audio|speech|voice|talking|speaking|tts)\b", lowered))
         timer_related = bool(re.search(r"\b(timer|countdown|pomodoro|focus|study|session|clock)\b", lowered))
-        if _timer_is_active_or_paused() and (timer_related or not music_or_speech_only):
+        if _timer_is_active_or_paused() and timer_related:
             timer_service.delete_timer()
             response = phrase_bank.say("timer_deleted")
         else:
@@ -657,17 +652,20 @@ def create_app() -> FastAPI:
                 words = set(re.sub(r"[^a-z0-9 ]", "", text.lower()).split())
                 if words & _break_offer_yes:
                     robot_state.set_awaiting_break_offer(False)
+                    robot_state.accept_break(5 * 60, "Break timer")
                     robot_state.set_awaiting_game_or_music(True)
-                    response = phrase_bank.say("game_or_music_offer")
+                    response = f"{phrase_bank.say('break_confirmed')} {phrase_bank.say('game_or_music_offer')}"
                     robot_state.set_response(response)
                     tts.speak(response)
                     return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
                 if words & _break_offer_no:
                     robot_state.set_awaiting_break_offer(False)
-                    response = phrase_bank.say("break_offer_declined")
+                    resumed = robot_state.decline_break()
+                    response = phrase_bank.say("break_offer_declined_resume_study" if resumed else "break_offer_declined")
                     robot_state.set_response(response)
                     tts.speak(response)
                     return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
+                robot_state.set_awaiting_break_offer(False)
                 response = phrase_bank.say("break_offer_unclear")
                 robot_state.set_response(response)
                 tts.speak(response)
@@ -692,6 +690,7 @@ def create_app() -> FastAPI:
                     robot_state.set_response(response)
                     tts.speak(response)
                     return {"intent": Intent.REQUEST_BREAK, "response": response, "game_url": FITNESS_GAME_URL, "status": robot_state.snapshot()}
+                robot_state.set_awaiting_game_or_music(False)
                 response = phrase_bank.say("game_or_music_unclear")
                 robot_state.set_response(response)
                 tts.speak(response)
@@ -800,6 +799,7 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": intent, "response": response, "reminders": calendar_service.list_reminders(include_completed=False), "status": robot_state.snapshot()}
             elif intent == Intent.REQUEST_BREAK:
+                robot_state.stash_study_timer_if_running()
                 response = f"{phrase_bank.say('stress_acknowledgment')} {phrase_bank.say('break_offer_ask')}"
                 robot_state.set_awaiting_break_offer(True)
                 robot_state.set_response(response)

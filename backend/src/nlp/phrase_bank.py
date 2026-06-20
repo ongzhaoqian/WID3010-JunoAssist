@@ -164,6 +164,9 @@ class PhraseBank:
         "break_offer_declined": [
             "No problem. Let me know if you change your mind.",
         ],
+        "break_offer_declined_resume_study": [
+            "No problem. Resuming your study timer.",
+        ],
         "break_offer_unclear": [
             "Sorry, I did not catch that. Do you want a break?",
         ],
