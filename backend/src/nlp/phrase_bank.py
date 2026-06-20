@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from typing import Any
+from datetime import datetime, timedelta
 
 
 @dataclass
@@ -123,9 +124,9 @@ class PhraseBank:
             "Your current scheduled items are: {items}.",
         ],
         "schedule_added": [
-            "Added {purpose} to your schedule for {date} at {time}, with {priority} priority.",
-            "Done. I have scheduled {purpose} on {date} at {time}. Priority is {priority}.",
-            "I have added {purpose} to the dashboard schedule: {date}, {time}, {priority} priority.",
+            "Added {purpose} to your schedule for {when}, with {priority} priority.",
+            "Done. I have scheduled {purpose} for {when}. Priority is {priority}.",
+            "I have added {purpose} to the dashboard schedule: {when}, {priority} priority.",
         ],
         "schedule_missing": [
             "I can add that to your schedule, but I need the purpose first. For example, say: add schedule date 2026-05-20 time 15:30 purpose revision priority high.",
@@ -136,8 +137,8 @@ class PhraseBank:
             "There are no upcoming deadlines in the current list.",
         ],
         "deadline_nearest": [
-            "Your nearest academic task is {title} on {date} at {time}.",
-            "The closest task I found is {title}, scheduled for {date} at {time}.",
+            "Your nearest academic task is {title}, due {when}.",
+            "The closest task I found is {title}, scheduled for {when}.",
         ],
         "reminder_empty": [
             "You do not have any active reminders in the current list.",
@@ -173,28 +174,83 @@ class PhraseBank:
             "JUNO has returned to sleep mode.",
         ],
         "reminder_added": [
-            "Reminder added: {title} on {date} at {time}, with {priority} priority.",
-            "Done. I have added the reminder: {title}. Date {date}, time {time}, priority {priority}.",
-            "I have added {title} to your reminders for {date} at {time}.",
+            "Reminder added: {title}, {when}, with {priority} priority.",
+            "Done. I have added the reminder: {title}. That's {when}, priority {priority}.",
+            "I have added {title} to your reminders for {when}.",
         ],
         "reminder_removed": [
             "Reminder removed.",
             "Done. I have removed that reminder.",
         ],
         "reminder_updated": [
-        "Reminder updated: {title} is now set for {date} at {time}, with {priority} priority.",
-        "Done. I have updated the reminder: {title}. Date {date}, time {time}, priority {priority}.",
-        "I have changed {title} to {date} at {time}, {priority} priority.",
+            "Reminder updated: {title} is now set for {when}, with {priority} priority.",
+            "Done. I have updated the reminder: {title}. That's {when} now, priority {priority}.",
+            "I have changed {title} to {when}, {priority} priority.",
         ],
     })
 
     def __post_init__(self) -> None:
         self._random = random.Random(self.seed)
 
+    @staticmethod
+    def _humanize_when(date_str: str | None, time_str: str | None) -> str:
+        """Convert a date/time pair into natural speech phrasing.
+
+        Examples: "today at 5:38 PM", "tomorrow at 9:00 AM", "in about 3 hours",
+        "next Monday at 9:00 AM", "a week from now at 2:00 PM",
+        "two weeks from now at 2:00 PM", "on June 25 at 2:00 PM".
+        """
+        if not date_str or not time_str:
+            return "not specified"
+        try:
+            due_at = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            return f"{date_str} at {time_str}"
+
+        now = datetime.now()
+        delta_minutes = (due_at - now).total_seconds() / 60
+        time_label = due_at.strftime("%-I:%M %p")
+
+        same_day = due_at.date() == now.date()
+        is_tomorrow = due_at.date() == (now + timedelta(days=1)).date()
+        days_ahead = (due_at.date() - now.date()).days
+
+        if same_day and 0 <= delta_minutes < 60:
+            minutes = round(delta_minutes)
+            return "in about a minute" if minutes <= 1 else f"in about {minutes} minutes"
+        if same_day and 60 <= delta_minutes < 6 * 60:
+            hours = round(delta_minutes / 60)
+            return "in about an hour" if hours <= 1 else f"in about {hours} hours"
+        if same_day:
+            return f"today at {time_label}"
+        if is_tomorrow:
+            return f"tomorrow at {time_label}"
+
+        # Exact one/two-week marks, same weekday as today
+        if days_ahead == 7:
+            return f"a week from now at {time_label}"
+        if days_ahead == 14:
+            return f"two weeks from now at {time_label}"
+
+        # Within the next ~3 weeks, refer to it by weekday name where natural
+        if 2 <= days_ahead <= 13:
+            weekday_name = due_at.strftime("%A")
+            if days_ahead <= 6:
+                return f"this {weekday_name} at {time_label}"
+            return f"next {weekday_name} at {time_label}"
+
+        return f"on {due_at.strftime('%B %d')} at {time_label}"
+
     def say(self, key: str, **values: Any) -> str:
         options = self.templates.get(key)
         if not options:
             return key.format(**values)
+
+        # Auto-derive a natural "{when}" phrase whenever both date and time
+        # are supplied, so call sites don't need to compute it themselves.
+        if "date" in values and "time" in values and "when" not in values:
+            values["when"] = self._humanize_when(values.get("date"), values.get("time"))
+
         template = self._random.choice(options)
         safe_values = {name: ("not specified" if value in (None, "") else value) for name, value in values.items()}
         return template.format(**safe_values)

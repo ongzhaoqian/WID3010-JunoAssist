@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from src.activation.confirmation_handler import ConfirmationHandler
 from src.activation.wake_word_detector import WakeWordDetector
 from src.auth.user_service import AuthError, AuthService
-from src.calendar_module.calendar_service import CalendarService
+from src.calendar_module.calendar_service import CalendarService 
 from src.core.config import settings
 from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
@@ -986,8 +986,8 @@ def create_app() -> FastAPI:
             phrase_bank.say(
                 "reminder_added",
                 title=reminder["title"],
-                date=reminder.get("formatted_date") or reminder.get("date") or "not specified",
-                time=reminder.get("time") or "not specified",
+                date=reminder.get("date"),
+                time=reminder.get("time"),
                 priority=reminder.get("priority") or "medium",
             )
         )
@@ -1010,8 +1010,8 @@ def create_app() -> FastAPI:
             phrase_bank.say(
                 "reminder_updated",
                 title=reminder["title"],
-                date=reminder.get("formatted_date") or reminder.get("date") or "not specified",
-                time=reminder.get("time") or "not specified",
+                date=reminder.get("date"),
+                time=reminder.get("time"),
                 priority=reminder.get("priority") or "medium",
             )
         )
