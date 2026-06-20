@@ -5,6 +5,15 @@ from datetime import datetime, timedelta
 from src.core.models import Intent
 
 
+def _fuzzy_word_match(text: str, candidates: tuple[str, ...], threshold: float = 0.78) -> bool:
+    """True if any whitespace-split token in text is close enough to a candidate word."""
+    for word in re.sub(r"[^a-z0-9 ]", " ", text.lower()).split():
+        for candidate in candidates:
+            if difflib.SequenceMatcher(None, word, candidate).ratio() >= threshold:
+                return True
+    return False
+
+
 class IntentClassifier:
     """Rule-based intent classifier for an undergraduate-scope prototype."""
 
@@ -72,7 +81,10 @@ class IntentClassifier:
         if any(word in t for word in ["music", "song", "songs", "sound", "relaxing", "calming"]):
             return Intent.PLAY_MUSIC
 
-        if any(word in t for word in ["lo-fi", "lofi", "upbeat", "instrumental", "cool down", "cooldown"]):
+        if any(word in t for word in ["lo-fi", "lofi", "upbeat", "instrumental", "cool down", "cooldown", "calm down", "focus"]):
+            return Intent.PLAY_MUSIC
+
+        if _fuzzy_word_match(t, ("gentle", "gental", "jentle", "gentile", "gender")):
             return Intent.PLAY_MUSIC
 
         if any(word in t for word in ["break", "tired", "stress", "stressed", "frustrated"]):
@@ -96,6 +108,8 @@ class IntentClassifier:
         for genre in self._GENRE_KEYWORDS:
             if genre in t:
                 return genre
+        if _fuzzy_word_match(t, ("gentle", "gental", "jentle", "gentile", "gender")):
+            return "gentle"
         return None
 
     def is_stop_command(self, text: str) -> bool:

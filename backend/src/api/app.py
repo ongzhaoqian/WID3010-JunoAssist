@@ -51,6 +51,15 @@ def _fuzzy_matches(word: str, candidates: list[str] | tuple[str, ...], threshold
     return False
 
 
+_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _fire_playwright(embed_url: str) -> None:
+    """Schedule Playwright playback from a sync context (thread pool or ROS loop)."""
+    if _event_loop and embed_url:
+        asyncio.run_coroutine_threadsafe(playwright_music.play(embed_url), _event_loop)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name)
 
@@ -437,6 +446,8 @@ def create_app() -> FastAPI:
         robot_state.set_awaiting_timer_duration(False)
         tts.stop()
         music_result = music_service.stop()
+        if _event_loop:
+            asyncio.run_coroutine_threadsafe(playwright_music.stop(), _event_loop)
 
         # If a timer is currently visible and the spoken command is stop-like,
         # honour it as a timer stop as well. This makes bare "stop" useful while
@@ -600,6 +611,42 @@ def create_app() -> FastAPI:
             return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.ACTIVE:
+            # --- awaiting game-or-music choice ---
+            if snapshot.get("awaiting_game_or_music"):
+                words = re.findall(r"[a-z0-9']+", text.lower())
+                wants_music = any(_fuzzy_matches(w, ("music", "song", "songs"), threshold=0.75) for w in words)
+                wants_game = any(_fuzzy_matches(w, ("game", "games"), threshold=0.75) for w in words)
+                if wants_music and not wants_game:
+                    robot_state.set_awaiting_game_or_music(False)
+                    robot_state.set_awaiting_music_genre(True)
+                    response = phrase_bank.say("music_requested")
+                    robot_state.set_response(response)
+                    tts.speak(response)
+                    return {"intent": Intent.PLAY_MUSIC, "response": response, "status": robot_state.snapshot()}
+                if wants_game and not wants_music:
+                    robot_state.set_awaiting_game_or_music(False)
+                    response = "Opening the fitness game for you."
+                    robot_state.set_response(response)
+                    tts.speak(response)
+                    return {"intent": Intent.REQUEST_BREAK, "response": response, "game_url": FITNESS_GAME_URL, "status": robot_state.snapshot()}
+                response = phrase_bank.say("game_or_music_unclear")
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
+
+            # --- awaiting music genre response ---
+            if snapshot.get("awaiting_music_genre"):
+                genre = intent_classifier.extract_genre(text)
+                if genre:
+                    robot_state.set_awaiting_music_genre(False)
+                    music_result = music_service.play_for_genre(genre)
+                    _fire_playwright(music_result.get("embed_url", ""))
+                    response = f"Playing {music_result['title']} for you."
+                    robot_state.set_response(response)
+                    tts.speak(response)
+                    return {"intent": Intent.PLAY_MUSIC, "response": response, "music": music_result, "status": robot_state.snapshot()}
+                robot_state.set_awaiting_music_genre(False)
+
             # --- step 1: awaiting minutes ---
             if snapshot.get("awaiting_timer_minutes"):
                 if intent_classifier.is_timer_duration_cancel(text):
@@ -687,21 +734,29 @@ def create_app() -> FastAPI:
                 robot_state.set_response(response)
                 tts.speak(response)
                 return {"intent": intent, "response": response, "reminders": calendar_service.list_reminders(include_completed=False), "status": robot_state.snapshot()}
+            elif intent == Intent.REQUEST_BREAK:
+                response = phrase_bank.say("game_or_music_offer")
+                robot_state.set_awaiting_game_or_music(True)
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": intent, "response": response, "status": robot_state.snapshot()}
             elif intent == Intent.PLAY_MUSIC:
                 genre = intent_classifier.extract_genre(raw_text)
                 if genre:
                     music_result = music_service.play_for_genre(genre)
-                    response = music_result["message"]
-                    # TTS for genre play is handled by the frontend via /api/robot/speak.
+                    _fire_playwright(music_result.get("embed_url", ""))
+                    response = f"Playing {music_result['title']} for you."
                     robot_state.set_response(response)
-                    return {"intent": intent, "response": response, "status": robot_state.snapshot()}
+                    tts.speak(response)
+                    return {"intent": intent, "response": response, "music": music_result, "status": robot_state.snapshot()}
                 else:
-                    # No genre specified — ask user to pick one (no emotion mentioned).
+                    # No genre specified — ask and wait for follow-up utterance.
                     response = response_generator.generate(
                         intent=intent,
                         emotion=snapshot["current_emotion"],
                         user_text=raw_text,
                     )
+                    robot_state.set_awaiting_music_genre(True)
             else:
                 response = response_generator.generate(
                     intent=intent,
@@ -721,6 +776,8 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup_event():
+        global _event_loop
+        _event_loop = asyncio.get_event_loop()
         # Start each backend run from an empty operational database. This removes
         # stale rows and avoids loading hardcoded/sample schedule data.
         if _database_refresh_on_start_enabled():
