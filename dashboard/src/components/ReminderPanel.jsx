@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { deleteJson, getJson, postJson } from "../lib/api";
+import { deleteJson, getJson, postJson, putJson } from "../lib/api";
 import Card from "./Card";
 
 const PRIORITIES = ["low", "medium", "high"];
@@ -49,6 +49,11 @@ export default function ReminderPanel() {
     await loadReminders();
   }
 
+  async function toggleCompleted(reminder) {
+    await putJson(`/api/reminders/${reminder.id}`, { completed: !reminder.completed });
+    await loadReminders();
+  }
+
   useEffect(() => {
     loadReminders();
     // Voice-created reminders arrive through the backend/ROS loop, so poll
@@ -56,6 +61,8 @@ export default function ReminderPanel() {
     const interval = window.setInterval(loadReminders, 4000);
     return () => window.clearInterval(interval);
   }, []);
+
+  const sortedReminders = [...reminders].sort((a, b) => Number(Boolean(a.completed)) - Number(Boolean(b.completed)));
 
   return (
     <Card title="Reminders">
@@ -109,23 +116,34 @@ export default function ReminderPanel() {
       </form>
 
       <div className="space-y-3">
-        {reminders.length === 0 ? (
+        {sortedReminders.length === 0 ? (
           <p className="text-slate-300/75">No reminders added yet.</p>
         ) : (
-          reminders.map((reminder) => (
-            <div key={reminder.id} className="flex items-start justify-between gap-3 rounded-2xl border border-white/20 bg-white/[0.08] p-3">
+          sortedReminders.map((reminder) => (
+            <div
+              key={reminder.id}
+              className={`flex items-start justify-between gap-3 rounded-2xl border border-white/20 p-3 ${reminder.completed ? "bg-white/[0.04] opacity-60" : "bg-white/[0.08]"}`}
+            >
               <div>
-                <p className="font-semibold text-white">{reminder.title}</p>
-                <p className="text-sm capitalize text-slate-300/75">
+                <p className={`font-semibold text-white ${reminder.completed ? "line-through" : ""}`}>{reminder.title}</p>
+                <p className={`text-sm capitalize text-slate-300/75 ${reminder.completed ? "line-through" : ""}`}>
                   {reminder.formatted_date || reminder.date || "No date"} · {reminder.time || "No time"} · {reminder.type || "reminder"} · {reminder.priority} priority
                 </p>
               </div>
-              <button
-                onClick={() => removeReminder(reminder.id)}
-                className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-1.5 text-sm font-medium text-rose-100 hover:bg-rose-400/20"
-              >
-                Remove
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  onClick={() => toggleCompleted(reminder)}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-medium ${reminder.completed ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/20" : "border-white/20 bg-white/[0.08] text-slate-200 hover:bg-white/[0.15]"}`}
+                >
+                  {reminder.completed ? "Completed ✓" : "Mark done"}
+                </button>
+                <button
+                  onClick={() => removeReminder(reminder.id)}
+                  className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-1.5 text-sm font-medium text-rose-100 hover:bg-rose-400/20"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           ))
         )}

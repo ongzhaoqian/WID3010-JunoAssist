@@ -381,16 +381,23 @@ class CalendarService:
             cursor = conn.execute("DELETE FROM reminders WHERE id = ? AND user_id = ?", (item_id, resolved_user_id))
             return cursor.rowcount > 0
 
-    def set_reminder_completed(self, item_id: int, completed: bool = True, user_id: int | None = None) -> bool:
+    def set_reminder_completed(self, item_id: int, completed: bool = True, user_id: int | None = None) -> dict[str, Any] | None:
         resolved_user_id = self._resolve_user_id(user_id)
         if resolved_user_id is None:
-            return False
+            return None
         with self._connect() as conn:
             cursor = conn.execute(
                 "UPDATE reminders SET completed = ? WHERE id = ? AND user_id = ?",
                 (1 if completed else 0, item_id, resolved_user_id),
             )
-            return cursor.rowcount > 0
+            if cursor.rowcount == 0:
+                return None
+            row = conn.execute(
+                "SELECT id, title, date, time, type, priority, completed FROM reminders WHERE id = ? AND user_id = ?",
+                (item_id, resolved_user_id),
+            ).fetchone()
+
+        return self._reminder_row_to_dict(row)
 
     @staticmethod
     def format_display_date(value: str | None) -> str | None:

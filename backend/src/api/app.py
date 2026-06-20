@@ -18,7 +18,7 @@ from src.activation.wake_word_detector import WakeWordDetector
 from src.auth.user_service import AuthError, AuthService
 from src.calendar_module.calendar_service import CalendarService
 from src.core.config import settings
-from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
+from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ReminderUpdateRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -1077,6 +1077,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Reminder not found")
         robot_state.set_response(phrase_bank.say("reminder_removed"))
         return {"deleted": True, "id": item_id}
+
+    @app.put("/api/reminders/{item_id}")
+    def update_reminder(item_id: int, request: ReminderUpdateRequest, user: dict = Depends(_require_user)):
+        reminder = calendar_service.set_reminder_completed(item_id, completed=request.completed, user_id=user["id"])
+        if reminder is None:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        return reminder
 
     @app.post("/api/timer/start")
     def start_timer(request: TimerRequest):

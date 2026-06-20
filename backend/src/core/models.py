@@ -138,6 +138,10 @@ class ReminderRequest(BaseModel):
         return self
 
 
+class ReminderUpdateRequest(BaseModel):
+    completed: bool
+
+
 class ScheduleItemRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
     date: Optional[str] = None
