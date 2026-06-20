@@ -34,8 +34,8 @@ class PlaywrightMusicPlayer:
                 await self._page.wait_for_selector(PLAY_BUTTON_SELECTOR, timeout=10000)
                 await self._page.locator(PLAY_BUTTON_SELECTOR).first.click()
                 _log.info("Playwright clicked Spotify play button for: %s", embed_url)
-            except Exception as exc:
-                _log.error("Playwright music play failed: %s", exc)
+            except Exception:
+                _log.exception("Playwright music play failed")
                 await self._close_browser()
 
     async def stop(self) -> None:

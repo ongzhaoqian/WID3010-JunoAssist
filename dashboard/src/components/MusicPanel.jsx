@@ -59,16 +59,17 @@ export default function MusicPanel({ status }) {
   // const currentEmotion = status?.display_emotion ?? status?.current_emotion ?? "unknown";
 
   useEffect(() => {
-    // Only sync backend music state when no genre button is active.
-    if (!activeGenreButton && status?.music) {
-      setMusic(status.music);
+    if (!status?.music) return;
+    setMusic(status.music);
+    // A backend-side stop (e.g. via voice) should clear an active genre button
+    // too, so the panel doesn't stay stuck showing "playing" after a stop.
+    if (status.music.status === "stopped" && activeGenreButton) {
+      setActiveGenreButton(null);
     }
   }, [status?.music, activeGenreButton]);
 
   useEffect(() => {
-    getJson("/api/music/status").then((m) => {
-      if (!activeGenreButton) setMusic(m);
-    }).catch(() => {});
+    getJson("/api/music/status").then(setMusic).catch(() => {});
   }, []);
 
   // Emotion-based play disabled — genre buttons replace this.
@@ -144,7 +145,7 @@ export default function MusicPanel({ status }) {
         </div>
 
         <p className="mt-3 text-sm leading-6 text-slate-300/80">
-          {displayDesc ?? "Ask JUNO to play music by voice, pick a mood below, or press \"Play by Emotion\" to match your current detected emotion."}
+          {displayDesc ?? "Ask JUNO to play music by voice, or pick a mood below."}
         </p>
 
         <div className="mt-3">

@@ -87,7 +87,7 @@ class IntentClassifier:
         if _fuzzy_word_match(t, ("gentle", "gental", "jentle", "gentile", "gender")):
             return Intent.PLAY_MUSIC
 
-        if any(word in t for word in ["break", "tired", "stress", "stressed", "frustrated"]):
+        if any(word in t for word in ["break", "tired", "stress", "stressed", "frustrated", "angry"]):
             return Intent.REQUEST_BREAK
 
         if any(phrase in t for phrase in ["what should i do", "how am i", "status"]):

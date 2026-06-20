@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 import asyncio
+import logging
 import os
 import re
 import json
@@ -54,10 +55,16 @@ def _fuzzy_matches(word: str, candidates: list[str] | tuple[str, ...], threshold
 _event_loop: asyncio.AbstractEventLoop | None = None
 
 
+_log = logging.getLogger("juno.app")
+
+
 def _fire_playwright(embed_url: str) -> None:
     """Schedule Playwright playback from a sync context (thread pool or ROS loop)."""
     if _event_loop and embed_url:
-        asyncio.run_coroutine_threadsafe(playwright_music.play(embed_url), _event_loop)
+        future = asyncio.run_coroutine_threadsafe(playwright_music.play(embed_url), _event_loop)
+        future.add_done_callback(
+            lambda f: f.exception() and _log.error("Playwright play task failed: %s", f.exception())
+        )
 
 
 def create_app() -> FastAPI:
@@ -777,7 +784,7 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup_event():
         global _event_loop
-        _event_loop = asyncio.get_event_loop()
+        _event_loop = asyncio.get_running_loop()
         # Start each backend run from an empty operational database. This removes
         # stale rows and avoids loading hardcoded/sample schedule data.
         if _database_refresh_on_start_enabled():
@@ -821,16 +828,15 @@ def create_app() -> FastAPI:
 
     async def _ros_speech_command_loop():
         """Consumes transcripts published by language_pkg/transcriber.py."""
-        import logging
-        _log = logging.getLogger("juno.ros_loop")
-        loop = asyncio.get_event_loop()
+        ros_log = logging.getLogger("juno.ros_loop")
+        loop = asyncio.get_running_loop()
         while True:
             try:
                 transcript = await loop.run_in_executor(None, robot.listen)
                 if transcript:
                     process_command_text(transcript)
             except Exception as exc:
-                _log.error("ROS speech loop error (continuing): %s", exc)
+                ros_log.error("ROS speech loop error (continuing): %s", exc)
             await asyncio.sleep(0.05)
 
     @app.post("/api/auth/signup")
