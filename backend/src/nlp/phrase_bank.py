@@ -183,8 +183,8 @@ class PhraseBank:
             "Done. I have removed that reminder.",
         ],
         "schedule_reminder_30": [
-            "Upcoming: {title} in 30 minutes.",
-            "Heads up, {title} starts in 30 minutes.",
+            "Upcoming: {title} in {minutes_until} minutes.",
+            "Heads up, {title} starts in {minutes_until} minutes.",
         ],
         "schedule_reminder_due": [
             "{title} starts now.",
@@ -248,6 +248,19 @@ class PhraseBank:
             return f"next {weekday_name} at {time_label}"
 
         return f"on {due_at.strftime('%B %d')} at {time_label}"
+    
+    @staticmethod
+    def _minutes_until(date_str: str | None, time_str: str | None) -> str:
+        """Compute whole minutes remaining until a date/time, for templates
+        that want an exact countdown rather than a fixed '30 minutes' label."""
+        if not date_str or not time_str:
+            return "a few"
+        try:
+            due_at = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            return "a few"
+        minutes = round((due_at - datetime.now()).total_seconds() / 60)
+        return str(max(minutes, 0))
 
     def say(self, key: str, **values: Any) -> str:
         options = self.templates.get(key)
@@ -258,6 +271,11 @@ class PhraseBank:
         # are supplied, so call sites don't need to compute it themselves.
         if "date" in values and "time" in values and "when" not in values:
             values["when"] = self._humanize_when(values.get("date"), values.get("time"))
+
+        # Auto-derive "{minutes_until}" the same way, for templates that want
+        # an exact countdown rather than a fixed threshold label.
+        if "date" in values and "time" in values and "minutes_until" not in values:
+            values["minutes_until"] = self._minutes_until(values.get("date"), values.get("time"))
 
         template = self._random.choice(options)
         safe_values = {name: ("not specified" if value in (None, "") else value) for name, value in values.items()}
