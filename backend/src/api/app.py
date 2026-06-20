@@ -975,8 +975,8 @@ def create_app() -> FastAPI:
                 "Pragma": "no-cache",
                 "Expires": "0",
             },
-        )
-
+        )    
+    
     @app.get("/api/schedule/today")
     def get_today_schedule(user: dict = Depends(_require_user)):
         return calendar_service.get_today_schedule(user_id=user["id"])
