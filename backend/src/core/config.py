@@ -105,6 +105,13 @@ class Settings:
     spotify_disgust_url: str = os.getenv("JUNO_SPOTIFY_DISGUST_URL", "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ")
     spotify_surprise_url: str = os.getenv("JUNO_SPOTIFY_SURPRISE_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6")
     spotify_unknown_url: str = os.getenv("JUNO_SPOTIFY_UNKNOWN_URL", "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ")
+    # Genre-specific playlist URLs for the dashboard mood buttons.
+    # Each defaults to the closest emotion URL but can be set independently.
+    spotify_genre_focus_url: str = os.getenv("JUNO_SPOTIFY_GENRE_FOCUS_URL", os.getenv("JUNO_SPOTIFY_NEUTRAL_URL", "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ"))
+    spotify_genre_calm_url: str = os.getenv("JUNO_SPOTIFY_GENRE_CALM_URL", os.getenv("JUNO_SPOTIFY_FEAR_URL", "https://open.spotify.com/playlist/37i9dQZF1DWWQRwui0ExPn"))
+    spotify_genre_happy_url: str = os.getenv("JUNO_SPOTIFY_GENRE_HAPPY_URL", os.getenv("JUNO_SPOTIFY_HAPPINESS_URL", "https://open.spotify.com/playlist/37i9dQZF1DXdPec7aLTmlC"))
+    spotify_genre_gentle_url: str = os.getenv("JUNO_SPOTIFY_GENRE_GENTLE_URL", os.getenv("JUNO_SPOTIFY_SADNESS_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4sWSpwq3LiO"))
+    spotify_genre_cooldown_url: str = os.getenv("JUNO_SPOTIFY_GENRE_COOLDOWN_URL", os.getenv("JUNO_SPOTIFY_ANGER_URL", "https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6"))
 
     # ROS text-to-speech publishing configuration. The backend publishes responses
     # to /juno/tts and waits briefly for the ROS TTS subscriber so speech messages

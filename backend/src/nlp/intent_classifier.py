@@ -5,6 +5,15 @@ from datetime import datetime, timedelta
 from src.core.models import Intent
 
 
+def _fuzzy_word_match(text: str, candidates: tuple[str, ...], threshold: float = 0.78) -> bool:
+    """True if any whitespace-split token in text is close enough to a candidate word."""
+    for word in re.sub(r"[^a-z0-9 ]", " ", text.lower()).split():
+        for candidate in candidates:
+            if difflib.SequenceMatcher(None, word, candidate).ratio() >= threshold:
+                return True
+    return False
+
+
 class IntentClassifier:
     """Rule-based intent classifier for an undergraduate-scope prototype."""
 
@@ -72,13 +81,36 @@ class IntentClassifier:
         if any(word in t for word in ["music", "song", "songs", "sound", "relaxing", "calming"]):
             return Intent.PLAY_MUSIC
 
-        if any(word in t for word in ["break", "tired", "stress", "stressed", "frustrated"]):
+        if any(word in t for word in ["lo-fi", "lofi", "upbeat", "instrumental", "cool down", "cooldown", "calm down", "focus"]):
+            return Intent.PLAY_MUSIC
+
+        if _fuzzy_word_match(t, ("gentle", "gental", "jentle", "gentile", "gender")):
+            return Intent.PLAY_MUSIC
+
+        if any(word in t for word in ["break", "tired", "stress", "stressed", "frustrated", "angry"]):
             return Intent.REQUEST_BREAK
 
         if any(phrase in t for phrase in ["what should i do", "how am i", "status"]):
             return Intent.ASK_STATUS
 
         return Intent.UNKNOWN
+
+    _GENRE_KEYWORDS: list[str] = [
+        "calm", "calming", "relax", "relaxing", "peaceful", "soothing", "anxiety", "stress relief",
+        "happy", "upbeat", "energetic", "positive", "cheerful", "motivating",
+        "focus", "study", "concentration", "lofi", "lo-fi", "instrumental", "deep work",
+        "sad", "gentle", "soft", "chill", "mellow",
+        "cool down", "cooldown", "reset",
+    ]
+
+    def extract_genre(self, text: str) -> str | None:
+        t = text.lower().strip()
+        for genre in self._GENRE_KEYWORDS:
+            if genre in t:
+                return genre
+        if _fuzzy_word_match(t, ("gentle", "gental", "jentle", "gentile", "gender")):
+            return "gentle"
+        return None
 
     def is_stop_command(self, text: str) -> bool:
         """Detect immediate interruption commands for TTS and music.
