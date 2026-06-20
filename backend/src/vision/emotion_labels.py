@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
-
 from src.core.models import EmotionState, VisionEmotionMode
 
 # Ekman's six basic facial emotions plus neutral. UNKNOWN is intentionally kept
@@ -139,14 +137,16 @@ def format_emotion_for_mode(
 LABEL_TO_INDEX: dict[EmotionState, int] = {emotion: idx for idx, emotion in enumerate(EKMAN_EMOTIONS)}
 
 
-def empty_distribution(neutral: bool = True) -> np.ndarray:
+def empty_distribution(neutral: bool = True):
+    import numpy as np
     probs = np.zeros(len(EKMAN_EMOTIONS), dtype=np.float32)
     if neutral:
         probs[LABEL_TO_INDEX[EmotionState.NEUTRAL]] = 1.0
     return probs
 
 
-def one_hot(emotion: EmotionState, confidence: float = 1.0) -> np.ndarray:
+def one_hot(emotion: EmotionState, confidence: float = 1.0):
+    import numpy as np
     confidence = float(max(0.0, min(1.0, confidence)))
     probs = np.full(len(EKMAN_EMOTIONS), (1.0 - confidence) / max(1, len(EKMAN_EMOTIONS) - 1), dtype=np.float32)
     if emotion not in LABEL_TO_INDEX:
@@ -166,7 +166,8 @@ def normalise_emotion_label(value: object) -> EmotionState:
         return EmotionState.UNKNOWN
 
 
-def normalise_distribution(scores: dict[EmotionState, float]) -> np.ndarray:
+def normalise_distribution(scores: dict[EmotionState, float]):
+    import numpy as np
     probs = np.zeros(len(EKMAN_EMOTIONS), dtype=np.float32)
     for emotion, raw_score in scores.items():
         if emotion in LABEL_TO_INDEX:

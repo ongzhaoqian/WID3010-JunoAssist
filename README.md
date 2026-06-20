@@ -32,11 +32,11 @@ The project is built for the WID3010 Autonomous Robots alternative assessment an
 | Speech input | ROS microphone stream with Whisper Tiny transcription; manual dashboard text-based command fallback |
 | Speech output | ROS TTS bridge with configurable British English eSpeak profile and stop control |
 | Vision | Jupiter camera stream, user-controlled camera toggle, optional facial-emotion model |
-| Emotion modes | Switchable **JUNO Mode** and **Ekman Mode** using one internal Ekman evidence pipeline |
+| Emotion modes | Switchable **JUNO Mode** and **Ekman Mode** using one internal Ekman evidence pipeline, with a large colour-coded dashboard emotion indicator |
 | Schedules/reminders | User-scoped CRUD from dashboard and voice commands |
 | Study timer | Flexible spoken duration parsing, pause/resume/stop buttons, fuzzy voice stop commands, completion bell |
 | Music | Spotify dashboard embed selected by current displayed emotion |
-| Fitness game | 67speed.com popup workflow, 6-7 score capture/manual entry, calories calculation estimate, latest/cumulative statistics |
+| Movement break / fitness game | 67speed.com popup workflow, stress-relief movement-break prompt, 6-7 score saving, calories estimate, latest/cumulative statistics |
 | Date/time | Dashboard clock with timezone/location selector and local storage persistence |
 | Power lifecycle | Sleep/power-off closes dashboard or shows fallback overlay, stops runtime services, and preserves ROS Core |
 | Testing | Pytest backend tests and Vite frontend production build |
@@ -404,11 +404,13 @@ JUNO_SPOTIFY_ANGER_URL=...
 JUNO_SPOTIFY_UNKNOWN_URL=...
 ```
 
-### 12. Fitness Game Feature
+### 12. Movement Break and Fitness Game Feature
 
 The Quick Actions panel includes a **Play Fitness Game** button. The game workflow prioritises opening `https://67speed.com/` in a separate popup/window so the dashboard stays open. If the popup is blocked, the user can open the game in a new tab.
 
-The Fitness panel supports the following features.
+The former fitness statistics panel is now presented as **Movement Break** to position the game as a short focus-reset and stress-relief activity. When the backend WebSocket state exposes `break_suggested: true`, the dashboard shows a highlighted prompt: **“JUNO recommends a movement break — try the destress game!”** The prompt button scrolls to the Movement Break panel, where the user can open the destress game and save the resulting 6-7 count.
+
+The Movement Break panel supports the following features.
 
 - score saving for the 6-7 count,
 - manual score entry fallback,
@@ -420,6 +422,17 @@ The Fitness panel supports the following features.
 - per-user fitness profile and sessions.
 
 Automatic score extraction from the third-party game page is best-effort only because cross-origin browser restrictions may prevent reliable access to the game DOM.
+
+### 12.1 Prominent Emotion Indicator
+
+The **Robot Status** panel now places the current emotion estimate in a large, centred badge for clearer video demonstration. The badge is colour-coded as follows.
+
+- Red `#ef4444` for stress-class states such as stressed, fearful/scared, angry, frustrated, disgusted.
+- Blue `#60a5fa` for low-energy states such as tired and sad.
+- Green `#4ade80` for positive/focused states such as happy, calm, and focused.
+- Grey `#94a3b8` for neutral and unknown.
+
+Stress-class states add a pulse animation and set `break_suggested` in the status payload so the dashboard can recommend a movement break.
 
 ### 13. System Lifecycle and Duplicate Backend Prevention
 
@@ -523,12 +536,15 @@ POST /api/dashboard/open
 ## Quick Start: Backend
 
 ```bash
+# From the repository root:
 cd backend
 python -m venv .venv
 source .venv/bin/activate        # macOS / Linux
 # .venv\Scripts\activate         # Windows
 
 pip install -r requirements.txt
+# Optional, only when using the Vision Module:
+# pip install -r requirements-vision.txt
 python main.py
 ```
 
@@ -717,3 +733,8 @@ JUNO Assist currently integrates the following features within its system archit
 - study timer, schedule, reminders, music, fitness game, and power lifecycle management.
 
 This README documents the current combined system state after the authentication, database refresh, power lifecycle, dual emotion mode, date/time panel, fitness game, and dashboard/robot interaction updates.
+
+
+### Backend startup note
+
+If your terminal prompt already ends with `backend %`, do not run `cd backend` again. Run the backend commands from the current folder. The base backend now starts with `requirements.txt` only; install `requirements-vision.txt` only when you want to use the camera Vision Module.

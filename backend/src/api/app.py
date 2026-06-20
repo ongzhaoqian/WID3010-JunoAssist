@@ -29,7 +29,6 @@ from src.productivity.timer_service import TimerService
 from src.productivity.fitness_service import FitnessService, FITNESS_GAME_URL
 from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
-from src.vision.emotion_detector import EmotionDetector
 from src.vision.speech_emotion import SpeechEmotionDetector
 from src.system.dashboard_lifecycle import DashboardLifecycleManager
 
@@ -131,7 +130,7 @@ def create_app() -> FastAPI:
     speech_emotion_detector = SpeechEmotionDetector()
     # The emotion model is created only when the operator explicitly enables
     # the Vision Module. This keeps the dashboard camera lightweight by default.
-    emotion_detector: Optional[EmotionDetector] = None
+    emotion_detector: Optional[object] = None
     dashboard_lifecycle = DashboardLifecycleManager(
         dashboard_title=settings.dashboard_window_title,
         reuse_existing=settings.dashboard_reuse_existing,
@@ -206,6 +205,7 @@ def create_app() -> FastAPI:
             "vision_emotion_mode": snapshot.get("vision_emotion_mode", "juno"),
             "emotion_source": snapshot.get("emotion_source"),
             "emotion_confidence": snapshot.get("emotion_confidence"),
+            "break_suggested": snapshot.get("break_suggested", False),
             "vision_backend": detector.backend_name if detector is not None else settings.vision_backend,
             "model_id": detector.model_id if detector is not None else settings.vision_model_id,
             "model_loaded": bool(detector.model_loaded) if detector is not None else False,
@@ -213,9 +213,13 @@ def create_app() -> FastAPI:
             "analysis_error": detector.last_error if detector is not None else None,
         }
 
-    def _ensure_emotion_detector() -> EmotionDetector:
+    def _ensure_emotion_detector():
+        # Import lazily so the normal backend can start with requirements.txt only.
+        # Vision dependencies such as numpy/torch/opencv are required only when the
+        # dashboard Vision Module is actually switched on.
         nonlocal emotion_detector
         if emotion_detector is None:
+            from src.vision.emotion_detector import EmotionDetector
             emotion_detector = EmotionDetector(use_real=True)
         return emotion_detector
 

@@ -19,7 +19,7 @@ function formatDate(value) {
   }
 }
 
-export default function FitnessPanel({ refreshKey = 0, onProfileSaved }) {
+export default function FitnessPanel({ refreshKey = 0, onProfileSaved, onPlayGame }) {
   const [scope, setScope] = useState("latest");
   const [stats, setStats] = useState(null);
   const [profile, setProfile] = useState({ height_m: "", weight_kg: "" });
@@ -76,7 +76,17 @@ export default function FitnessPanel({ refreshKey = 0, onProfileSaved }) {
   const latestSession = stats?.latest_session;
 
   return (
-    <Card title="Fitness Game Statistics">
+    <Card title="Movement Break">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="max-w-3xl text-sm leading-6 text-slate-300/80">
+          A short movement break helps reset focus and reduce stress. Play the destress game, save your 6-7 count, and review one-off or cumulative movement statistics.
+        </p>
+        {onPlayGame && (
+          <button onClick={onPlayGame} className="btn-primary shrink-0 px-5 py-2.5 text-sm font-semibold" type="button">
+            Play Destress Game
+          </button>
+        )}
+      </div>
       <div className="grid gap-4 lg:grid-cols-[1fr_0.8fr]">
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">

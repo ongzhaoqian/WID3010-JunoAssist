@@ -5,6 +5,31 @@ from .models import RobotMode, EmotionState, VisionEmotionMode
 from src.vision.emotion_labels import format_emotion_for_mode, normalise_vision_mode
 
 
+BREAK_SUGGESTION_EMOTIONS = {
+    "stress",
+    "stressed",
+    "fear",
+    "fearful",
+    "scared",
+    "anger",
+    "angry",
+    "frustrated",
+    "frustration",
+    "disgust",
+    "disgusted",
+}
+
+
+def is_break_suggested_from_labels(*labels: object) -> bool:
+    """Return True when the current emotion estimate should trigger a movement break prompt."""
+    for label in labels:
+        value = getattr(label, "value", label)
+        normalised = str(value or "unknown").strip().lower().replace("_", "-")
+        if normalised in BREAK_SUGGESTION_EMOTIONS:
+            return True
+    return False
+
+
 class RobotState:
     def __init__(self) -> None:
         self._lock = Lock()
@@ -79,6 +104,12 @@ class RobotState:
                 "last_timer_completed_at": self.last_timer_completed_at,
                 "emotion_source": self.last_emotion_source,
                 "emotion_confidence": self.emotion_confidence,
+                "break_suggested": is_break_suggested_from_labels(
+                    self.display_emotion,
+                    self.juno_emotion,
+                    self.raw_ekman_emotion,
+                    self.current_emotion,
+                ),
                 "last_speech_emotion_text": self.last_speech_emotion_text,
                 "last_speech_emotion_at": self.last_speech_emotion_at,
                 "camera_enabled": self.camera_enabled,
