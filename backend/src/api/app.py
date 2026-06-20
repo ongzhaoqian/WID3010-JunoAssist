@@ -288,13 +288,6 @@ def create_app() -> FastAPI:
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "timer": result, "status": robot_state.snapshot()}
 
-    def _ask_for_timer_minutes() -> dict:
-        response = phrase_bank.say("timer_ask_minutes")
-        robot_state.set_awaiting_timer_minutes(True)
-        robot_state.set_response(response)
-        tts.speak(response)
-        return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
-
     def _ask_for_timer_seconds(minutes: int) -> dict:
         response = phrase_bank.say("timer_ask_seconds", minutes=minutes)
         robot_state.set_awaiting_timer_seconds(True, pending_minutes=minutes)
@@ -599,6 +592,25 @@ def create_app() -> FastAPI:
             return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.ACTIVE:
+            # --- awaiting yes/no for a break offer (after stress or study completion) ---
+            if snapshot.get("awaiting_break_confirmation"):
+                reason = snapshot.get("break_confirmation_reason")
+                _break_yes = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "please", "affirmative"}
+                _break_no = {"no", "nope", "nah", "not", "cancel", "negative"}
+                words = set(re.sub(r"[^a-z0-9 ]", "", text.lower()).split())
+                if words & _break_yes:
+                    robot_state.accept_break(5 * 60, "Break timer")
+                    response = phrase_bank.say("break_confirmed")
+                elif words & _break_no:
+                    robot_state.decline_break()
+                    key = "break_declined_after_study" if reason == "study_complete" else "break_declined_after_stress"
+                    response = phrase_bank.say(key)
+                else:
+                    response = phrase_bank.say("break_confirmation_unclear")
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
             # --- step 1: awaiting minutes ---
             if snapshot.get("awaiting_timer_minutes"):
                 if intent_classifier.is_timer_duration_cancel(text):
@@ -672,7 +684,9 @@ def create_app() -> FastAPI:
                 duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
                 if duration_seconds:
                     return _start_study_timer_from_seconds(duration_seconds)
-                return _ask_for_timer_minutes()
+                # No duration spoken: default to the 25-minute Pomodoro session
+                # instead of asking, matching the dashboard's default duration.
+                return _start_study_timer_from_seconds(25 * 60)
             elif intent == Intent.ADD_SCHEDULE:
                 return _add_schedule_from_transcript(text)
             elif intent == Intent.ADD_REMINDER:
@@ -721,6 +735,8 @@ def create_app() -> FastAPI:
         if settings.use_ros_robot:
             asyncio.create_task(_ros_speech_command_loop())
 
+    _STRESS_CLASS = {EmotionState.FEAR, EmotionState.SADNESS}
+
     async def _emotion_monitor_loop():
         while True:
             snapshot = robot_state.snapshot()
@@ -737,13 +753,28 @@ def create_app() -> FastAPI:
                             confidence=detector.last_confidence,
                             scores=scores,
                         )
+                        should_ask = robot_state.update_stress_tracking(
+                            emotion in _STRESS_CLASS,
+                            settings.stress_break_threshold_seconds,
+                        )
+                        if should_ask:
+                            robot_state.request_break_confirmation("stress")
+                            response = phrase_bank.say("break_ask_after_stress")
+                            robot_state.set_response(response)
+                            tts.speak(response)
             await asyncio.sleep(settings.emotion_update_seconds)
 
     async def _timer_loop():
         while True:
             completed = robot_state.decrement_timer()
             if completed:
-                response = phrase_bank.say("timer_finished", label=completed.get("label") or "study timer")
+                if completed.get("resumed_study"):
+                    response = phrase_bank.say("break_resumed_study")
+                elif completed.get("timer_type") == "study":
+                    robot_state.request_break_confirmation("study_complete")
+                    response = phrase_bank.say("break_ask_after_study")
+                else:
+                    response = phrase_bank.say("timer_finished", label=completed.get("label") or "study timer")
                 robot_state.set_response(response)
                 robot.set_led_state("timer_complete")
                 tts.speak(response)

@@ -181,6 +181,27 @@ class PhraseBank:
             "Reminder removed.",
             "Done. I have removed that reminder.",
         ],
+        "break_ask_after_study": [
+            "Your study timer is up. Would you like to take a short break?",
+        ],
+        "break_ask_after_stress": [
+            "You have been stressed for a while. Would you like to take a short break?",
+        ],
+        "break_confirmed": [
+            "Sounds good. Starting a 5-minute break timer now.",
+        ],
+        "break_declined_after_study": [
+            "Understood. Let me know when you're ready for your next session.",
+        ],
+        "break_declined_after_stress": [
+            "Understood, continuing your study timer.",
+        ],
+        "break_resumed_study": [
+            "Break's over. Resuming your study timer.",
+        ],
+        "break_confirmation_unclear": [
+            "Sorry, I did not catch that. Would you like a short break? Please say yes or no.",
+        ],
     })
 
     def __post_init__(self) -> None:

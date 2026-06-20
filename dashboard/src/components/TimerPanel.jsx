@@ -51,6 +51,7 @@ export default function TimerPanel({ status }) {
   const displayRemaining = isPaused ? pausedRemaining : runningRemaining;
   const hasTimer = runningRemaining > 0 || isPaused;
   const completedCounter = status?.timer_completed_counter ?? 0;
+  const isBreak = status?.active_timer_type === "break";
 
   async function runTimerAction(path, payload = {}) {
     try {
@@ -95,7 +96,9 @@ export default function TimerPanel({ status }) {
       <div className="rounded-[1.75rem] border border-white/20 bg-slate-950/60 p-5 text-white shadow-inner">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="section-kicker text-xs font-semibold">Focus countdown</p>
+            <p className="section-kicker text-xs font-semibold">
+              {isBreak ? "Break countdown" : "Study countdown"}
+            </p>
             <p className="mt-2 text-5xl font-black tabular-nums">
               {formatSeconds(displayRemaining)}
             </p>
