@@ -334,7 +334,9 @@ export default function CalendarPanel() {
                   {selectedItems.map((entry) => (
                     <div
                       key={`${entry.source}-${entry.id}`}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/[0.06] px-3 py-2.5"
+                      className={`flex items-center justify-between gap-3 rounded-2xl border border-white/15 px-3 py-2.5 ${
+                        entry.completed ? "bg-white/[0.03] opacity-60" : "bg-white/[0.06]"
+                      }`}
                     >
                       <div className="flex min-w-0 items-center gap-2.5">
                         <span
@@ -342,8 +344,10 @@ export default function CalendarPanel() {
                           className={`h-2 w-2 shrink-0 rounded-full ${TYPE_COLOR[entry.type] ?? "bg-slate-400"}`}
                         />
                         <div className="min-w-0">
-                          <p className="truncate font-medium text-white">{entry.title}</p>
-                          <p className="text-xs text-slate-300/65">
+                          <p className={`truncate font-medium text-white ${entry.completed ? "line-through" : ""}`}>
+                            {entry.title}
+                          </p>
+                          <p className={`text-xs text-slate-300/65 ${entry.completed ? "line-through" : ""}`}>
                             {formatTime(entry._when)} · {entry.source === "reminder" ? "Reminder" : entry.type || "Schedule"}
                           </p>
                         </div>
