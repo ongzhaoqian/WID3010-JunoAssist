@@ -31,6 +31,7 @@ def reset_robot_state():
     robot_state.update_stress_tracking(False, 30.0)
     robot_state.set_awaiting_music_genre(False)
     robot_state.set_awaiting_game_or_music(False)
+    robot_state.set_awaiting_break_offer(False)
     yield
     robot_state.delete_timer()  # also clears the break-confirmation stash fields
     robot_state.clear_break_confirmation()
@@ -209,7 +210,13 @@ def test_speech_emotion_overrides_visual_emotion_for_break_request():
     payload = response.json()
     assert payload["status"]["current_emotion"] == "fear"
     assert payload["status"]["emotion_source"] == "speech"
-    assert "game" in payload["response"].lower() and "music" in payload["response"].lower()
+    assert "stressed" in payload["response"].lower() and "break" in payload["response"].lower()
+    assert payload["status"]["awaiting_break_offer"] is True
+
+    confirm = client.post("/api/command", json={"text": "yes"})
+    confirm_payload = confirm.json()
+    assert "game" in confirm_payload["response"].lower() and "music" in confirm_payload["response"].lower()
+    assert confirm_payload["status"]["awaiting_game_or_music"] is True
 
 
 def test_dashboard_reminder_uses_schedule_like_columns_and_can_be_deleted(tmp_path, monkeypatch):

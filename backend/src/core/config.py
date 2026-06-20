@@ -41,7 +41,7 @@ class Settings:
     speech_emotion_override_seconds: float = float(os.getenv("JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS", "45.0"))
     # How long a stress-class emotion (fear/sadness) must be detected
     # continuously by vision before JUNO offers a break.
-    stress_break_threshold_seconds: float = float(os.getenv("JUNO_STRESS_BREAK_THRESHOLD_SECONDS", "30.0"))
+    stress_break_threshold_seconds: float = float(os.getenv("JUNO_STRESS_BREAK_THRESHOLD_SECONDS", "10.0"))
 
     # Set JUNO_ROBOT_INTERFACE=ros when running on the Jupiter/ROS machine.
     robot_interface: str = os.getenv("JUNO_ROBOT_INTERFACE", "mock").lower()

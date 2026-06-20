@@ -26,6 +26,7 @@ class RobotState:
         self.awaiting_timer_seconds = False
         self.awaiting_music_genre = False
         self.awaiting_game_or_music = False
+        self.awaiting_break_offer = False
         self.timer_pending_minutes = 0
         self.timer_paused = False
         self.timer_paused_remaining = 0
@@ -81,6 +82,7 @@ class RobotState:
                 "awaiting_timer_seconds": self.awaiting_timer_seconds,
                 "awaiting_music_genre": self.awaiting_music_genre,
                 "awaiting_game_or_music": self.awaiting_game_or_music,
+                "awaiting_break_offer": self.awaiting_break_offer,
                 "timer_pending_minutes": self.timer_pending_minutes,
                 "timer_paused": self.timer_paused,
                 "timer_paused_remaining": self.timer_paused_remaining,
@@ -298,6 +300,10 @@ class RobotState:
     def set_awaiting_game_or_music(self, awaiting: bool) -> None:
         with self._lock:
             self.awaiting_game_or_music = bool(awaiting)
+
+    def set_awaiting_break_offer(self, awaiting: bool) -> None:
+        with self._lock:
+            self.awaiting_break_offer = bool(awaiting)
 
     def increment_timer_duration_attempts(self) -> int:
         with self._lock:

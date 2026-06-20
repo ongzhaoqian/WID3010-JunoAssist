@@ -155,6 +155,18 @@ class PhraseBank:
             "Which mood would you like? I can play Focus, Calm, Happy, Gentle, or Cool Down.",
             "Sure. Tell me what mood you want — Focus, Calm, Happy, Gentle, or Cool Down.",
         ],
+        "stress_acknowledgment": [
+            "You seem stressed.",
+        ],
+        "break_offer_ask": [
+            "Do you want a break?",
+        ],
+        "break_offer_declined": [
+            "No problem. Let me know if you change your mind.",
+        ],
+        "break_offer_unclear": [
+            "Sorry, I did not catch that. Do you want a break?",
+        ],
         "game_or_music_offer": [
             "Would you like to play a game, or play music?",
             "Do you want to play a game, or would you rather play music?",

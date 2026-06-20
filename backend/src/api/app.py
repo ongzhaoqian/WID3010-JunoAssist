@@ -27,6 +27,7 @@ from src.nlp.response_generator import ResponseGenerator
 from src.nlp.phrase_bank import PhraseBank
 from src.productivity.music_service import MusicService
 from src.productivity.playwright_music import playwright_music
+from src.productivity.playwright_game import playwright_game
 from src.productivity.timer_service import TimerService
 from src.productivity.fitness_service import FitnessService, FITNESS_GAME_URL
 from src.robot.jupiter_interface import get_robot_interface
@@ -45,7 +46,13 @@ def _fuzzy_matches(word: str, candidates: list[str] | tuple[str, ...], threshold
         target = re.sub(r"[^a-z0-9]", "", candidate.lower())
         if not target:
             continue
-        if clean == target or clean.startswith(target) or target.startswith(clean):
+        if clean == target:
+            return True
+        # The prefix shortcut below is meant for noisy multi-letter ASR
+        # variants (e.g. "stoppp" vs "stop"), not short common words like
+        # "a" or "i" that trivially prefix-match longer candidates (e.g.
+        # "a" vs "abort"). Require a minimum length before it applies.
+        if len(clean) >= 3 and (clean.startswith(target) or target.startswith(clean)):
             return True
         if difflib.SequenceMatcher(None, clean, target).ratio() >= threshold:
             return True
@@ -64,6 +71,15 @@ def _fire_playwright(embed_url: str) -> None:
         future = asyncio.run_coroutine_threadsafe(playwright_music.play(embed_url), _event_loop)
         future.add_done_callback(
             lambda f: f.exception() and _log.error("Playwright play task failed: %s", f.exception())
+        )
+
+
+def _fire_playwright_game(game_url: str) -> None:
+    """Schedule Playwright game launch from a sync context (thread pool or ROS loop)."""
+    if _event_loop and game_url:
+        future = asyncio.run_coroutine_threadsafe(playwright_game.play(game_url), _event_loop)
+        future.add_done_callback(
+            lambda f: f.exception() and _log.error("Playwright game task failed: %s", f.exception())
         )
 
 
@@ -377,7 +393,10 @@ def create_app() -> FastAPI:
             "study", "time", "alarm",
         )
 
-        cleaned = re.sub(r"[^a-z0-9 ]", " ", text.lower())
+        # Strip apostrophes first so contractions ("that's", "don't") collapse
+        # into one token instead of leaving an orphan "s"/"t" letter that the
+        # fuzzy startswith check below can mismatch against short stop words.
+        cleaned = re.sub(r"[^a-z0-9 ]", " ", text.lower().replace("'", ""))
         words = cleaned.split()
         joined = " ".join(words)
         snap = robot_state.snapshot()
@@ -448,6 +467,7 @@ def create_app() -> FastAPI:
         music_result = music_service.stop()
         if _event_loop:
             asyncio.run_coroutine_threadsafe(playwright_music.stop(), _event_loop)
+            asyncio.run_coroutine_threadsafe(playwright_game.stop(), _event_loop)
 
         # If a timer is currently visible and the spoken command is stop-like,
         # honour it as a timer stop as well. This makes bare "stop" useful while
@@ -630,6 +650,29 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
+            # --- awaiting yes/no for "do you want a break?" ---
+            if snapshot.get("awaiting_break_offer"):
+                _break_offer_yes = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "please", "affirmative"}
+                _break_offer_no = {"no", "nope", "nah", "not", "cancel", "negative"}
+                words = set(re.sub(r"[^a-z0-9 ]", "", text.lower()).split())
+                if words & _break_offer_yes:
+                    robot_state.set_awaiting_break_offer(False)
+                    robot_state.set_awaiting_game_or_music(True)
+                    response = phrase_bank.say("game_or_music_offer")
+                    robot_state.set_response(response)
+                    tts.speak(response)
+                    return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
+                if words & _break_offer_no:
+                    robot_state.set_awaiting_break_offer(False)
+                    response = phrase_bank.say("break_offer_declined")
+                    robot_state.set_response(response)
+                    tts.speak(response)
+                    return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
+                response = phrase_bank.say("break_offer_unclear")
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
+
             # --- awaiting game-or-music choice ---
             if snapshot.get("awaiting_game_or_music"):
                 words = re.findall(r"[a-z0-9']+", text.lower())
@@ -644,7 +687,8 @@ def create_app() -> FastAPI:
                     return {"intent": Intent.PLAY_MUSIC, "response": response, "status": robot_state.snapshot()}
                 if wants_game and not wants_music:
                     robot_state.set_awaiting_game_or_music(False)
-                    response = "Opening the fitness game for you."
+                    response = "Opening the destressing game for you."
+                    _fire_playwright_game(FITNESS_GAME_URL)
                     robot_state.set_response(response)
                     tts.speak(response)
                     return {"intent": Intent.REQUEST_BREAK, "response": response, "game_url": FITNESS_GAME_URL, "status": robot_state.snapshot()}
@@ -756,8 +800,8 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": intent, "response": response, "reminders": calendar_service.list_reminders(include_completed=False), "status": robot_state.snapshot()}
             elif intent == Intent.REQUEST_BREAK:
-                response = phrase_bank.say("game_or_music_offer")
-                robot_state.set_awaiting_game_or_music(True)
+                response = f"{phrase_bank.say('stress_acknowledgment')} {phrase_bank.say('break_offer_ask')}"
+                robot_state.set_awaiting_break_offer(True)
                 robot_state.set_response(response)
                 tts.speak(response)
                 return {"intent": intent, "response": response, "status": robot_state.snapshot()}
