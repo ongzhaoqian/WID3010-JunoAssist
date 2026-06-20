@@ -79,8 +79,8 @@ def test_update_schedule_item_resets_notification_flags(tmp_path):
     service = CalendarService(str(db_path))
     service.set_active_user(1)
     item = service.add_schedule_item("Group meeting", date="2026-06-20", time="09:00", user_id=1)
-    service.mark_notified(item["id"], "30")
-    service.mark_notified(item["id"], "due")
+    service.mark_notified(item["id"], "30", "schedule_items")
+    service.mark_notified(item["id"], "due", "schedule_items")
 
     service.update_schedule_item(item["id"], time="10:00", user_id=1)
 
@@ -100,20 +100,20 @@ def test_notification_fires_30_minutes_before_and_at_due_time_once_each(tmp_path
     due_at = datetime(2026, 6, 19, 10, 0)
     just_before_30 = due_at - timedelta(minutes=30, seconds=5)
 
-    due_items = service.get_items_needing_notification(just_before_30, tolerance_seconds=15)
+    due_items = service.get_items_needing_notification(just_before_30, "schedule_items", tolerance_seconds=15)
     assert any(d["id"] == item["id"] and d["stage"] == "30" for d in due_items)
     for d in due_items:
-        service.mark_notified(d["id"], d["stage"])
+        service.mark_notified(d["id"], d["stage"], "schedule_items")
 
-    due_items_again = service.get_items_needing_notification(just_before_30, tolerance_seconds=15)
+    due_items_again = service.get_items_needing_notification(just_before_30, "schedule_items", tolerance_seconds=15)
     assert not any(d["stage"] == "30" for d in due_items_again)
 
-    due_items_at_due = service.get_items_needing_notification(due_at, tolerance_seconds=15)
+    due_items_at_due = service.get_items_needing_notification(due_at, "schedule_items", tolerance_seconds=15)
     assert any(d["id"] == item["id"] and d["stage"] == "due" for d in due_items_at_due)
     for d in due_items_at_due:
-        service.mark_notified(d["id"], d["stage"])
+        service.mark_notified(d["id"], d["stage"], "schedule_items")
 
-    due_items_final = service.get_items_needing_notification(due_at, tolerance_seconds=15)
+    due_items_final = service.get_items_needing_notification(due_at, "schedule_items", tolerance_seconds=15)
     assert due_items_final == []
 
 
@@ -124,7 +124,7 @@ def test_notification_speaks_actual_remaining_minutes_for_short_lead_time(tmp_pa
     item = service.add_schedule_item("Quick standup", date="2026-06-19", time="09:10", user_id=1)
 
     now = datetime(2026, 6, 19, 9, 0)  # only 10 minutes of lead time, not 30
-    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    due_items = service.get_items_needing_notification(now, "schedule_items", tolerance_seconds=15)
 
     thirty_stage = [d for d in due_items if d["id"] == item["id"] and d["stage"] == "30"]
     assert len(thirty_stage) == 1
@@ -138,7 +138,7 @@ def test_notification_fires_only_due_stage_when_item_is_due_now(tmp_path):
     item = service.add_schedule_item("Standup", date="2026-06-19", time="09:00", user_id=1)
 
     now = datetime(2026, 6, 19, 9, 0)
-    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    due_items = service.get_items_needing_notification(now, "schedule_items", tolerance_seconds=15)
     stages = [d["stage"] for d in due_items if d["id"] == item["id"]]
 
     assert stages == ["due"]
@@ -151,7 +151,7 @@ def test_notification_fires_only_due_stage_for_already_overdue_item(tmp_path):
     item = service.add_schedule_item("Missed task", date="2026-06-19", time="09:00", user_id=1)
 
     now = datetime(2026, 6, 19, 9, 5)  # 5 minutes overdue
-    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    due_items = service.get_items_needing_notification(now, "schedule_items", tolerance_seconds=15)
     stages = [d["stage"] for d in due_items if d["id"] == item["id"]]
 
     assert stages == ["due"]
@@ -166,7 +166,7 @@ def test_notification_handles_multiple_consecutive_schedules_in_same_tick(tmp_pa
     third = service.add_schedule_item("Lab session", date="2026-06-19", time="09:05", user_id=1)
 
     now = datetime(2026, 6, 19, 9, 0)
-    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    due_items = service.get_items_needing_notification(now, "schedule_items", tolerance_seconds=15)
     fired_ids = {d["id"] for d in due_items if d["stage"] == "due"}
 
     assert first["id"] in fired_ids
@@ -174,10 +174,10 @@ def test_notification_handles_multiple_consecutive_schedules_in_same_tick(tmp_pa
     assert third["id"] not in fired_ids
 
     for d in due_items:
-        service.mark_notified(d["id"], d["stage"])
+        service.mark_notified(d["id"], d["stage"], "schedule_items")
 
     later = now + timedelta(minutes=5)
-    due_items_later = service.get_items_needing_notification(later, tolerance_seconds=15)
+    due_items_later = service.get_items_needing_notification(later, "schedule_items", tolerance_seconds=15)
     fired_ids_later = {d["id"] for d in due_items_later if d["stage"] == "due"}
 
     assert fired_ids_later == {third["id"]}
@@ -189,7 +189,7 @@ def test_notification_skips_items_without_date_or_time(tmp_path):
     service.set_active_user(1)
     service.add_schedule_item("No date set", user_id=1)
 
-    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), "schedule_items", tolerance_seconds=15)
 
     assert due_items == []
 
@@ -259,13 +259,13 @@ def test_notification_check_reflects_items_created_through_the_api(tmp_path, mon
     item_id = created.json()["id"]
 
     service = CalendarService(str(db_path))
-    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), "schedule_items", tolerance_seconds=15)
     assert any(d["id"] == item_id and d["stage"] == "due" for d in due_items)
 
     for d in due_items:
-        service.mark_notified(d["id"], d["stage"])
+        service.mark_notified(d["id"], d["stage"], "schedule_items")
 
-    due_items_again = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+    due_items_again = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), "schedule_items", tolerance_seconds=15)
     assert due_items_again == []
 
 
@@ -386,6 +386,6 @@ def test_completed_schedule_items_are_excluded_from_notifications(tmp_path):
     item = service.add_schedule_item("Group meeting", date="2026-06-19", time="09:00", user_id=1)
     service.update_schedule_item(item["id"], completed=True, user_id=1)
 
-    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), "schedule_items", tolerance_seconds=15)
 
     assert due_items == []

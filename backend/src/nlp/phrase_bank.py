@@ -183,12 +183,24 @@ class PhraseBank:
             "Done. I have removed that reminder.",
         ],
         "schedule_reminder_30": [
-            "Upcoming: {title} in {minutes_until} minutes.",
-            "Heads up, {title} starts in {minutes_until} minutes.",
+            "Upcoming: {title} in {remaining_label}.",
+            "Heads up, {title} starts in {remaining_label}.",
         ],
         "schedule_reminder_due": [
             "{title} starts now.",
             "It is time for {title}.",
+        ],
+        "schedule_reminder_overdue": [
+            "{title} is overdue by {overdue_label}.",
+            "Heads up, {title} is now overdue by {overdue_label}.",
+        ],
+        "schedule_marked_complete": [
+            "Marked {title} as complete.",
+            "Done. {title} is now marked complete.",
+        ],
+        "schedule_marked_incomplete": [
+            "Marked {title} as not complete.",
+            "Got it. {title} is back on your list.",
         ],
         "reminder_updated": [
             "Reminder updated: {title} is now set for {when}, with {priority} priority.",
@@ -196,12 +208,24 @@ class PhraseBank:
             "I have changed {title} to {when}, {priority} priority.",
         ],
         "reminder_alert_30": [
-            "Reminder: {title} is in {minutes_until} minutes.",
-            "Don't forget — {title} is coming up in {minutes_until} minutes.",
+            "Reminder: {title} is in {remaining_label}.",
+            "Don't forget — {title} is coming up in {remaining_label}.",
         ],
         "reminder_alert_due": [
             "Reminder: {title} is due now.",
             "{title} is due now.",
+        ],
+        "reminder_alert_overdue": [
+            "Reminder: {title} is overdue by {overdue_label}.",
+            "{title} is overdue by {overdue_label}.",
+        ],
+        "reminder_marked_complete": [
+            "Marked {title} as complete.",
+            "Done. {title} is now marked complete.",
+        ],
+        "reminder_marked_incomplete": [
+            "Marked {title} as not complete.",
+            "Got it. {title} is back on your list.",
         ],
     })
 

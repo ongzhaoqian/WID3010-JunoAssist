@@ -18,7 +18,7 @@ from src.activation.wake_word_detector import WakeWordDetector
 from src.auth.user_service import AuthError, AuthService
 from src.calendar_module.calendar_service import CalendarService 
 from src.core.config import settings
-from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ReminderUpdateRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
+from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -51,12 +51,33 @@ def _fuzzy_matches(word: str, candidates: list[str] | tuple[str, ...], threshold
     return False
 
 
-def _build_schedule_notification_message(due_item: dict, phrase_bank: PhraseBank) -> str:
+def _build_notification_message(
+    due_item: dict,
+    phrase_bank: PhraseBank,
+    alert_30_key: str = "schedule_reminder_30",
+    alert_due_key: str = "schedule_reminder_due",
+    alert_overdue_key: str = "schedule_reminder_overdue",
+) -> str:
+    """Shared phrasing for both the live notification loop and the
+    test-exercised _run_schedule_notification_tick helper, so the two never
+    drift out of sync on how a due_item's stage/overdue fields are read."""
     if due_item["stage"] == "30":
-        minutes = due_item.get("remaining_minutes", 30)
-        minutes_label = "1 minute" if minutes == 1 else f"{minutes} minutes"
-        return phrase_bank.say("schedule_reminder_30", title=due_item["title"], minutes_label=minutes_label)
-    return phrase_bank.say("schedule_reminder_due", title=due_item["title"])
+        return phrase_bank.say(
+            alert_30_key,
+            title=due_item["title"],
+            remaining_label=due_item.get("remaining_label", "30 minutes"),
+        )
+    if due_item.get("overdue"):
+        return phrase_bank.say(
+            alert_overdue_key,
+            title=due_item["title"],
+            overdue_label=due_item.get("overdue_label", "a moment"),
+        )
+    return phrase_bank.say(alert_due_key, title=due_item["title"])
+
+
+def _build_schedule_notification_message(due_item: dict, phrase_bank: PhraseBank) -> str:
+    return _build_notification_message(due_item, phrase_bank)
 
 
 def _run_schedule_notification_tick(calendar_service, tts, phrase_bank, robot_state, now, tolerance_seconds) -> list[dict]:
@@ -71,7 +92,9 @@ def _run_schedule_notification_tick(calendar_service, tts, phrase_bank, robot_st
     set_response; every other caller of set_response is untouched.
     """
     try:
-        due_items = calendar_service.get_items_needing_notification(now, tolerance_seconds=tolerance_seconds)
+        due_items = calendar_service.get_items_needing_notification(
+            now, "schedule_items", tolerance_seconds=tolerance_seconds
+        )
     except Exception:
         due_items = []
 
@@ -80,7 +103,7 @@ def _run_schedule_notification_tick(calendar_service, tts, phrase_bank, robot_st
         try:
             message = _build_schedule_notification_message(due_item, phrase_bank)
             tts.speak(message)
-            calendar_service.mark_notified(due_item["id"], due_item["stage"])
+            calendar_service.mark_notified(due_item["id"], due_item["stage"], "schedule_items")
             messages.append(message)
         except Exception:
             # One item's failure (e.g. a TTS error) must not block or skip
@@ -795,9 +818,9 @@ def create_app() -> FastAPI:
 
     async def _schedule_notification_loop():
         while True:
-            for table_name, alert_30_key, alert_due_key in [
-                ("schedule_items", "schedule_reminder_30", "schedule_reminder_due"),
-                ("reminders", "reminder_alert_30", "reminder_alert_due"),
+            for table_name, alert_30_key, alert_due_key, alert_overdue_key in [
+                ("schedule_items", "schedule_reminder_30", "schedule_reminder_due", "schedule_reminder_overdue"),
+                ("reminders", "reminder_alert_30", "reminder_alert_due", "reminder_alert_overdue"),
             ]:
                 try:
                     due_items = calendar_service.get_items_needing_notification(
@@ -810,15 +833,9 @@ def create_app() -> FastAPI:
 
                 for due_item in due_items:
                     try:
-                        if due_item["stage"] == "30":
-                            message = phrase_bank.say(
-                                alert_30_key,
-                                title=due_item["title"],
-                                date=due_item["date"],
-                                time=due_item["time"],
-                            )
-                        else:
-                            message = phrase_bank.say(alert_due_key, title=due_item["title"])
+                        message = _build_notification_message(
+                            due_item, phrase_bank, alert_30_key, alert_due_key, alert_overdue_key
+                        )
                         robot_state.set_response(message)
                         tts.speak(message)
                         calendar_service.mark_notified(due_item["id"], due_item["stage"], table_name)
@@ -1046,6 +1063,7 @@ def create_app() -> FastAPI:
 
     @app.put("/api/schedule/{item_id}")
     def update_schedule_item(item_id: int, request: ScheduleItemUpdateRequest, user: dict = Depends(_require_user)):
+        previous = calendar_service.get_schedule_item(item_id, user_id=user["id"])
         item = calendar_service.update_schedule_item(
             item_id,
             title=request.title,
@@ -1058,15 +1076,24 @@ def create_app() -> FastAPI:
         )
         if item is None:
             raise HTTPException(status_code=404, detail="Schedule item not found")
-        robot_state.set_response(
-            phrase_bank.say(
-                "schedule_added",
-                purpose=item["title"],
-                date=item.get("formatted_date") or item.get("date") or "not specified",
-                time=item.get("time") or "not specified",
-                priority=item.get("priority") or "medium",
-            )
+
+        completed_only_change = previous is not None and item["completed"] != previous["completed"] and all(
+            item[field] == previous[field] for field in ("title", "date", "time", "type", "priority")
         )
+        if completed_only_change:
+            robot_state.set_response(
+                phrase_bank.say("schedule_marked_complete" if item["completed"] else "schedule_marked_incomplete", title=item["title"])
+            )
+        else:
+            robot_state.set_response(
+                phrase_bank.say(
+                    "schedule_added",
+                    purpose=item["title"],
+                    date=item.get("formatted_date") or item.get("date") or "not specified",
+                    time=item.get("time") or "not specified",
+                    priority=item.get("priority") or "medium",
+                )
+            )
         return item
 
     @app.get("/api/deadlines")
@@ -1100,6 +1127,7 @@ def create_app() -> FastAPI:
     
     @app.put("/api/reminders/{item_id}")
     def update_reminder(item_id: int, request: ReminderRequest, user: dict = Depends(_require_user)):
+        previous = calendar_service.get_reminder(item_id, user_id=user["id"])
         reminder = calendar_service.update_reminder(
             item_id,
             request.title.strip(),
@@ -1112,15 +1140,27 @@ def create_app() -> FastAPI:
         )
         if not reminder:
             raise HTTPException(status_code=404, detail="Reminder not found")
-        robot_state.set_response(
-            phrase_bank.say(
-                "reminder_updated",
-                title=reminder["title"],
-                date=reminder.get("date"),
-                time=reminder.get("time"),
-                priority=reminder.get("priority") or "medium",
-            )
+
+        completed_only_change = previous is not None and reminder["completed"] != previous["completed"] and all(
+            reminder[field] == previous[field] for field in ("title", "date", "time", "type", "priority")
         )
+        if completed_only_change:
+            robot_state.set_response(
+                phrase_bank.say(
+                    "reminder_marked_complete" if reminder["completed"] else "reminder_marked_incomplete",
+                    title=reminder["title"],
+                )
+            )
+        else:
+            robot_state.set_response(
+                phrase_bank.say(
+                    "reminder_updated",
+                    title=reminder["title"],
+                    date=reminder.get("date"),
+                    time=reminder.get("time"),
+                    priority=reminder.get("priority") or "medium",
+                )
+            )
         return reminder
 
     @app.delete("/api/reminders/{item_id}")

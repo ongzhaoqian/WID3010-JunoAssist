@@ -127,6 +127,17 @@ class CalendarService:
 
         return [self._schedule_row_to_dict(row) for row in rows]
 
+    def get_schedule_item(self, item_id: int, user_id: int | None = None) -> dict[str, Any] | None:
+        resolved_user_id = self._resolve_user_id(user_id)
+        if resolved_user_id is None:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, title, date, time, type, priority, completed FROM schedule_items WHERE id = ? AND user_id = ?",
+                (item_id, resolved_user_id),
+            ).fetchone()
+        return self._schedule_row_to_dict(row) if row else None
+
     def get_upcoming_deadlines(self, user_id: int | None = None) -> list[dict[str, Any]]:
         resolved_user_id = self._resolve_user_id(user_id)
         if resolved_user_id is None:
@@ -237,6 +248,42 @@ class CalendarService:
             "user_id": resolved_user_id,
         }
 
+    # Below this many seconds of lead time, firing a separate "30 minutes
+    # before" notification would land essentially back-to-back with the due
+    # notification, so it is skipped entirely and the item just waits for
+    # the due-time stage instead.
+    SHORT_LEAD_SECONDS = 30
+
+    @staticmethod
+    def _format_remaining(seconds: float) -> tuple[int, str]:
+        """Whole minutes remaining plus a human label, with a "less than a
+        minute" phrasing for the 30s-60s band instead of rounding to 0 or 1."""
+        seconds = max(0.0, seconds)
+        minutes = int(seconds // 60)
+        if seconds < 60:
+            return 0, "less than a minute"
+        if minutes == 1:
+            return 1, "1 minute"
+        return minutes, f"{minutes} minutes"
+
+    @staticmethod
+    def _format_overdue(seconds: float) -> str:
+        """Human label for how long an item has been overdue, scaling the
+        unit up from minutes to hours and days as it grows. Sub-minute
+        overdue durations are phrased as "less than a minute" rather than
+        being called out in seconds."""
+        total = int(round(abs(seconds)))
+        if total < 60:
+            return "less than a minute"
+        minutes = total // 60
+        if minutes < 60:
+            return f"{minutes} minute" + ("" if minutes == 1 else "s")
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours} hour" + ("" if hours == 1 else "s")
+        days = hours // 24
+        return f"{days} day" + ("" if days == 1 else "s")
+
     def get_items_needing_notification(
         self, now: datetime, table_name: str, tolerance_seconds: float = 15.0
     ) -> list[dict[str, Any]]:
@@ -244,10 +291,18 @@ class CalendarService:
         for either 'schedule_items' or 'reminders' — both tables share the same
         date/time/notified_30/notified_due shape, so one method covers both.
 
-        Each item can independently need a "30 minutes before" and/or "at the due
-        time" notification; both are returned as separate entries so the caller
-        can announce and mark each one without one blocking the other when
-        several items are due in the same check tick.
+        Each item gets at most one of "30" (upcoming) or "due" (due-now /
+        overdue) per call - the two are mutually exclusive based on how much
+        lead time is left, which also covers four creation-time cases:
+          - created >30 min before due: "30" fires when lead crosses the
+            30-minute mark, "due" fires later at the due time.
+          - created with 30s-30min of lead: "30" fires immediately with the
+            real remaining time (e.g. "12 minutes", or "less than a minute"
+            for the 30s-60s band); "due" still fires later at the due time.
+          - created with <=30s of lead (SHORT_LEAD_SECONDS): "30" is skipped
+            entirely; only "due" fires, once the due time is reached.
+          - created at or after the due time: only "due" fires immediately,
+            tagged overdue=True with an overdue_label when already overdue.
 
         The trigger condition is one-sided (now >= target - tolerance, with no
         upper bound) rather than a tight window. This means a delayed check tick
@@ -258,10 +313,8 @@ class CalendarService:
         if table_name not in {"schedule_items", "reminders"}:
             raise ValueError(f"Unsupported table for notifications: {table_name}")
 
-        # Reminders can be marked completed and shouldn't fire after that;
-        # schedule_items has no such column, so the clause is conditional.
-        completed_clause = "AND completed = 0" if table_name == "reminders" else ""
-
+        # Both schedule_items and reminders carry a completed column (see the
+        # migrations above) and neither should fire notifications once done.
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
@@ -270,7 +323,7 @@ class CalendarService:
                 WHERE date IS NOT NULL AND date != ''
                 AND time IS NOT NULL AND time != ''
                 AND (notified_30 = 0 OR notified_due = 0)
-                {completed_clause}
+                AND completed = 0
                 """
             ).fetchall()
 
@@ -291,10 +344,25 @@ class CalendarService:
                 "type": item_type,
                 "priority": priority,
             }
-            if not notified_30 and now >= (due_at - timedelta(minutes=30) - tolerance):
-                due_items.append({**base, "stage": "30"})
-            if not notified_due and now >= (due_at - tolerance):
-                due_items.append({**base, "stage": "due"})
+            lead_seconds = (due_at - now).total_seconds()
+
+            is_due_now = lead_seconds <= tolerance_seconds
+            if not notified_due and is_due_now:
+                overdue = lead_seconds < -tolerance_seconds
+                entry = {**base, "stage": "due", "overdue": overdue}
+                if overdue:
+                    entry["overdue_label"] = self._format_overdue(lead_seconds)
+                due_items.append(entry)
+
+            is_upcoming_window = tolerance_seconds < lead_seconds <= (30 * 60 + tolerance_seconds)
+            if not notified_30 and is_upcoming_window and lead_seconds > self.SHORT_LEAD_SECONDS:
+                remaining_minutes, remaining_label = self._format_remaining(lead_seconds)
+                due_items.append({
+                    **base,
+                    "stage": "30",
+                    "remaining_minutes": remaining_minutes,
+                    "remaining_label": remaining_label,
+                })
         return due_items
 
 
@@ -367,48 +435,49 @@ class CalendarService:
         if resolved_user_id is None:
             raise ValueError("A logged-in user is required to update a reminder.")
 
-        title = title.strip()
-        item_type = (type or "reminder").strip().lower()
-        priority = (priority or "medium").strip().lower()
-
         with self._connect() as conn:
-            if completed is None:
-                cursor = conn.execute(
-                    """
-                    UPDATE reminders
-                    SET title = ?, date = ?, time = ?, type = ?, priority = ?,
-                        notified_30 = 0, notified_due = 0
-                    WHERE id = ? AND user_id = ?
-                    """,
-                    (title, date, time, item_type, priority, item_id, resolved_user_id),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    UPDATE reminders
-                    SET title = ?, date = ?, time = ?, type = ?, priority = ?, completed = ?,
-                        notified_30 = 0, notified_due = 0
-                    WHERE id = ? AND user_id = ?
-                    """,
-                    (title, date, time, item_type, priority, int(completed), item_id, resolved_user_id),
-                )
-            if cursor.rowcount == 0:
+            row = conn.execute(
+                "SELECT title, date, time, type, priority, completed FROM reminders WHERE id = ? AND user_id = ?",
+                (item_id, resolved_user_id),
+            ).fetchone()
+            if row is None:
                 return None
 
-            row = conn.execute("SELECT completed FROM reminders WHERE id = ?", (item_id,)).fetchone()
-            actual_completed = bool(row[0]) if row else False
+            # Mirrors update_schedule_item: any field left as None keeps the
+            # existing stored value instead of being overwritten/cleared, so a
+            # partial update (e.g. only toggling completed) can't accidentally
+            # null out date/time and silently drop the item from notifications.
+            updated_title = title.strip() if title is not None else row[0]
+            updated_date = date if date is not None else row[1]
+            updated_time = time if time is not None else row[2]
+            updated_type = (type.strip().lower() if type else row[3]) if type is not None else row[3]
+            updated_priority = (priority.strip().lower() if priority else row[4]) if priority is not None else row[4]
+            updated_completed = completed if completed is not None else bool(row[5])
+
+            conn.execute(
+                """
+                UPDATE reminders
+                SET title = ?, date = ?, time = ?, type = ?, priority = ?, completed = ?,
+                    notified_30 = 0, notified_due = 0
+                WHERE id = ? AND user_id = ?
+                """,
+                (
+                    updated_title, updated_date, updated_time, updated_type, updated_priority,
+                    1 if updated_completed else 0, item_id, resolved_user_id,
+                ),
+            )
 
         return {
             "id": item_id,
-            "title": title,
-            "date": date,
-            "formatted_date": self.format_display_date(date),
-            "time": time,
-            "type": item_type,
-            "priority": priority,
-            "completed": actual_completed,
-            "due_date": date,
-            "due_time": time,
+            "title": updated_title,
+            "date": updated_date,
+            "formatted_date": self.format_display_date(updated_date),
+            "time": updated_time,
+            "type": updated_type,
+            "priority": updated_priority,
+            "completed": updated_completed,
+            "due_date": updated_date,
+            "due_time": updated_time,
             "user_id": resolved_user_id,
         }
 
@@ -430,6 +499,17 @@ class CalendarService:
 
         return [self._reminder_row_to_dict(row) for row in rows]
 
+    def get_reminder(self, item_id: int, user_id: int | None = None) -> dict[str, Any] | None:
+        resolved_user_id = self._resolve_user_id(user_id)
+        if resolved_user_id is None:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, title, date, time, type, priority, completed FROM reminders WHERE id = ? AND user_id = ?",
+                (item_id, resolved_user_id),
+            ).fetchone()
+        return self._reminder_row_to_dict(row) if row else None
+
     def delete_reminder(self, item_id: int, user_id: int | None = None) -> bool:
         resolved_user_id = self._resolve_user_id(user_id)
         if resolved_user_id is None:
@@ -437,24 +517,6 @@ class CalendarService:
         with self._connect() as conn:
             cursor = conn.execute("DELETE FROM reminders WHERE id = ? AND user_id = ?", (item_id, resolved_user_id))
             return cursor.rowcount > 0
-
-    def set_reminder_completed(self, item_id: int, completed: bool = True, user_id: int | None = None) -> dict[str, Any] | None:
-        resolved_user_id = self._resolve_user_id(user_id)
-        if resolved_user_id is None:
-            return None
-        with self._connect() as conn:
-            cursor = conn.execute(
-                "UPDATE reminders SET completed = ? WHERE id = ? AND user_id = ?",
-                (1 if completed else 0, item_id, resolved_user_id),
-            )
-            if cursor.rowcount == 0:
-                return None
-            row = conn.execute(
-                "SELECT id, title, date, time, type, priority, completed FROM reminders WHERE id = ? AND user_id = ?",
-                (item_id, resolved_user_id),
-            ).fetchone()
-
-        return self._reminder_row_to_dict(row)
 
     @staticmethod
     def format_display_date(value: str | None) -> str | None:
