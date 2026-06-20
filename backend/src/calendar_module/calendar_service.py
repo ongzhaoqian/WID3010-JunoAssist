@@ -81,13 +81,6 @@ class CalendarService:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_items_notify ON schedule_items(notified_30, notified_due)")
 
     def _migrate_reminder_columns(self, conn: sqlite3.Connection) -> None:
-        """Bring old reminder tables up to the schedule-like schema.
-
-        Earlier builds stored reminders as title/due_date/due_time/priority only.
-        The dashboard and speech layer now expect the same logical columns as
-        schedules: title, date, time, type, priority. Existing due_* values are
-        copied into the new fields when present so old reminders remain visible.
-        """
         columns = {row[1] for row in conn.execute("PRAGMA table_info(reminders)").fetchall()}
         required = {
             "date": "TEXT",
@@ -96,13 +89,18 @@ class CalendarService:
             "priority": "TEXT",
             "completed": "INTEGER DEFAULT 0",
             "user_id": "INTEGER",
-            "notified_30min": "INTEGER DEFAULT 0",
+            "notified_30": "INTEGER DEFAULT 0",
             "notified_due": "INTEGER DEFAULT 0",
         }
         for column, definition in required.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE reminders ADD COLUMN {column} {definition}")
+
+        # Carry over from the old column name if it exists from a prior version.
         refreshed_columns = {row[1] for row in conn.execute("PRAGMA table_info(reminders)").fetchall()}
+        if "notified_30min" in refreshed_columns:
+            conn.execute("UPDATE reminders SET notified_30 = COALESCE(notified_30, notified_30min)")
+
         if "due_date" in refreshed_columns:
             conn.execute("UPDATE reminders SET date = COALESCE(date, due_date)")
         if "due_time" in refreshed_columns:
@@ -231,29 +229,39 @@ class CalendarService:
         }
 
     def get_items_needing_notification(
-        self, now: datetime, tolerance_seconds: float = 15.0
+        self, now: datetime, table_name: str, tolerance_seconds: float = 15.0
     ) -> list[dict[str, Any]]:
-        """Return every (item, stage) pair currently due for a spoken notification.
+        """Return every (item, stage) pair currently due for a spoken notification,
+        for either 'schedule_items' or 'reminders' — both tables share the same
+        date/time/notified_30/notified_due shape, so one method covers both.
 
-        Each schedule item can independently need a "30 minutes before" and/or
-        "at the due time" notification; both are returned as separate entries
-        so the caller can announce and mark each one without one blocking the
-        other when several items are due in the same check tick.
+        Each item can independently need a "30 minutes before" and/or "at the due
+        time" notification; both are returned as separate entries so the caller
+        can announce and mark each one without one blocking the other when
+        several items are due in the same check tick.
 
         The trigger condition is one-sided (now >= target - tolerance, with no
-        upper bound) rather than a tight window. This means a delayed check
-        tick still eventually surfaces every pending notification exactly
-        once; the notified_30/notified_due flags (set via mark_notified) are
-        what make each stage fire only once per item.
+        upper bound) rather than a tight window. This means a delayed check tick
+        still eventually surfaces every pending notification exactly once; the
+        notified_30/notified_due flags (set via mark_notified) are what make each
+        stage fire only once per item.
         """
+        if table_name not in {"schedule_items", "reminders"}:
+            raise ValueError(f"Unsupported table for notifications: {table_name}")
+
+        # Reminders can be marked completed and shouldn't fire after that;
+        # schedule_items has no such column, so the clause is conditional.
+        completed_clause = "AND completed = 0" if table_name == "reminders" else ""
+
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT id, user_id, title, date, time, type, priority, notified_30, notified_due
-                FROM schedule_items
+                FROM {table_name}
                 WHERE date IS NOT NULL AND date != ''
-                  AND time IS NOT NULL AND time != ''
-                  AND (notified_30 = 0 OR notified_due = 0)
+                AND time IS NOT NULL AND time != ''
+                AND (notified_30 = 0 OR notified_due = 0)
+                {completed_clause}
                 """
             ).fetchall()
 
@@ -265,7 +273,6 @@ class CalendarService:
                 due_at = datetime.strptime(f"{date} {time_value}", "%Y-%m-%d %H:%M")
             except ValueError:
                 continue
-
             base = {
                 "id": item_id,
                 "user_id": user_id,
@@ -275,19 +282,20 @@ class CalendarService:
                 "type": item_type,
                 "priority": priority,
             }
-
             if not notified_30 and now >= (due_at - timedelta(minutes=30) - tolerance):
                 due_items.append({**base, "stage": "30"})
             if not notified_due and now >= (due_at - tolerance):
                 due_items.append({**base, "stage": "due"})
-
         return due_items
 
-    def mark_notified(self, item_id: int, stage: str) -> None:
+
+    def mark_notified(self, item_id: int, stage: str, table_name: str) -> None:
+        if table_name not in {"schedule_items", "reminders"}:
+            raise ValueError(f"Unsupported table for notifications: {table_name}")
         column = "notified_30" if stage == "30" else "notified_due"
         with self._connect() as conn:
-            conn.execute(f"UPDATE schedule_items SET {column} = 1 WHERE id = ?", (item_id,))
-
+            conn.execute(f"UPDATE {table_name} SET {column} = 1 WHERE id = ?", (item_id,))
+            
     def delete_schedule_item(self, item_id: int, user_id: int | None = None) -> bool:
         resolved_user_id = self._resolve_user_id(user_id)
         if resolved_user_id is None:

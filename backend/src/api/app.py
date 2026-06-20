@@ -753,25 +753,38 @@ def create_app() -> FastAPI:
 
     async def _schedule_notification_loop():
         while True:
-            try:
-                due_items = calendar_service.get_items_needing_notification(
-                    datetime.now(), tolerance_seconds=settings.schedule_notification_check_seconds
-                )
-            except Exception:
-                due_items = []
-            for due_item in due_items:
+            for table_name, alert_30_key, alert_due_key in [
+                ("schedule_items", "schedule_reminder_30", "schedule_reminder_due"),
+                ("reminders", "reminder_alert_30", "reminder_alert_due"),
+            ]:
                 try:
-                    if due_item["stage"] == "30":
-                        message = phrase_bank.say("schedule_reminder_30", title=due_item["title"])
-                    else:
-                        message = phrase_bank.say("schedule_reminder_due", title=due_item["title"])
-                    robot_state.set_response(message)
-                    tts.speak(message)
-                    calendar_service.mark_notified(due_item["id"], due_item["stage"])
+                    due_items = calendar_service.get_items_needing_notification(
+                        datetime.now(),
+                        table_name,
+                        tolerance_seconds=settings.schedule_notification_check_seconds,
+                    )
                 except Exception:
-                    # One item's failure (e.g. a TTS error) must not block or
-                    # skip the next item due in the same tick.
-                    continue
+                    due_items = []
+
+                for due_item in due_items:
+                    try:
+                        if due_item["stage"] == "30":
+                            message = phrase_bank.say(
+                                alert_30_key,
+                                title=due_item["title"],
+                                date=due_item["date"],
+                                time=due_item["time"],
+                            )
+                        else:
+                            message = phrase_bank.say(alert_due_key, title=due_item["title"])
+                        robot_state.set_response(message)
+                        tts.speak(message)
+                        calendar_service.mark_notified(due_item["id"], due_item["stage"], table_name)
+                    except Exception:
+                        # One item's failure (e.g. a TTS error) must not block or
+                        # skip the next item due in the same tick.
+                        continue
+
             await asyncio.sleep(settings.schedule_notification_check_seconds)
 
     async def _ros_speech_command_loop():

@@ -195,6 +195,14 @@ class PhraseBank:
             "Done. I have updated the reminder: {title}. That's {when} now, priority {priority}.",
             "I have changed {title} to {when}, {priority} priority.",
         ],
+        "reminder_alert_30": [
+            "Reminder: {title} is in {minutes_until} minutes.",
+            "Don't forget — {title} is coming up in {minutes_until} minutes.",
+        ],
+        "reminder_alert_due": [
+            "Reminder: {title} is due now.",
+            "{title} is due now.",
+        ],
     })
 
     def __post_init__(self) -> None:
