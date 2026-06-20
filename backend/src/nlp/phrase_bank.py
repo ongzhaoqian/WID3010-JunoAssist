@@ -152,8 +152,15 @@ class PhraseBank:
             "I could not identify the reminder details clearly. Please include the title, date, time, type, and priority where possible.",
         ],
         "music_requested": [
-            "I will play music based on your current emotion estimate.",
-            "Sure. I will choose a playlist that fits your latest emotion estimate.",
+            "Which mood would you like? I can play Focus, Calm, Happy, Gentle, or Cool Down.",
+            "Sure. Tell me what mood you want — Focus, Calm, Happy, Gentle, or Cool Down.",
+        ],
+        "game_or_music_offer": [
+            "Would you like to play a game, or play music?",
+            "Do you want to play a game, or would you rather play music?",
+        ],
+        "game_or_music_unclear": [
+            "Sorry, I did not catch that. Would you like to play a game, or play music?",
         ],
         "stop_acknowledged": [
             "Stopped.",

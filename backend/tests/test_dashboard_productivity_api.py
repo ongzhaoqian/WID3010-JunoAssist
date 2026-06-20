@@ -27,6 +27,8 @@ def reset_robot_state():
     robot_state.set_awaiting_timer_duration(False)
     robot_state.set_awaiting_timer_minutes(False)
     robot_state.set_awaiting_timer_seconds(False)
+    robot_state.set_awaiting_music_genre(False)
+    robot_state.set_awaiting_game_or_music(False)
     yield
     robot_state.delete_timer()
 
@@ -200,7 +202,7 @@ def test_speech_emotion_overrides_visual_emotion_for_break_request():
     payload = response.json()
     assert payload["status"]["current_emotion"] == "fear"
     assert payload["status"]["emotion_source"] == "speech"
-    assert "stressed" in payload["response"].lower()
+    assert "game" in payload["response"].lower() and "music" in payload["response"].lower()
 
 
 def test_dashboard_reminder_uses_schedule_like_columns_and_can_be_deleted(tmp_path, monkeypatch):

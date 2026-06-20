@@ -529,6 +529,7 @@ source .venv/bin/activate        # macOS / Linux
 # .venv\Scripts\activate         # Windows
 
 pip install -r requirements.txt
+playwright install chromium      # one-time, required for automated Spotify playback
 python main.py
 ```
 

@@ -55,7 +55,7 @@ class WhisperTinyTranscriber:
         self.language = os.getenv("JUNO_ASR_LANGUAGE", "").strip() or None
         self.device = self._parse_device(os.getenv("JUNO_ASR_DEVICE", "-1"))
         self.tts_resume_delay = float(os.getenv("JUNO_ASR_TTS_RESUME_DELAY", "0.5"))
-        self.post_tts_silence_gate = float(os.getenv("JUNO_ASR_POST_TTS_SILENCE_GATE", "1.5"))
+        self.post_tts_silence_gate = float(os.getenv("JUNO_ASR_POST_TTS_SILENCE_GATE", "0.8"))
 
         self.moonshine_model = os.getenv("JUNO_ASR_MOONSHINE_MODEL", "moonshine/base")
 
@@ -107,7 +107,7 @@ class WhisperTinyTranscriber:
         self._clear_audio_buffer()
         # Seed the gate so we always wait at least one full silence window.
         self._post_tts_last_loud = _time.monotonic()
-        deadline = _time.monotonic() + 6.0
+        deadline = _time.monotonic() + 2.0
         while _time.monotonic() < deadline:
             if (_time.monotonic() - self._post_tts_last_loud) >= self.post_tts_silence_gate:
                 break
@@ -333,6 +333,13 @@ class WhisperTinyTranscriber:
             "silence", "quiet", "shush", "mute",
             "sleep", "timer", "time", "schedule", "music", "break", "status",
             "confirm", "go", "start", "ready", "okay", "ok",
+            "game", "games",
+            # music mood/genre words — single-word replies to "which mood?"
+            "calm", "calming", "relax", "relaxing", "peaceful", "soothing", "anxiety",
+            "happy", "upbeat", "energetic", "positive", "cheerful", "motivating",
+            "focus", "study", "concentration", "lofi", "instrumental",
+            "sad", "gentle", "gender", "soft", "chill", "mellow",
+            "cooldown", "reset", "angry",
         }
         _VALID_SINGLE_NUMBER_WORDS = {
             "zero", "one", "two", "three", "four", "five", "six", "seven",

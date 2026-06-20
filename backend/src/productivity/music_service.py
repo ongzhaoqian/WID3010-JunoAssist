@@ -58,6 +58,68 @@ class MusicService:
             },
         }
 
+    # Maps normalised genre keywords to one of 5 named genre buckets.
+    _GENRE_BUCKET: dict[str, str] = {
+        "focus": "focus", "study": "focus", "concentration": "focus",
+        "lofi": "focus", "lo-fi": "focus", "instrumental": "focus", "deep work": "focus",
+        "calm": "calm", "calming": "calm", "relax": "calm", "relaxing": "calm",
+        "peaceful": "calm", "soothing": "calm", "anxiety": "calm", "stress relief": "calm",
+        "happy": "happy", "upbeat": "happy", "energetic": "happy", "positive": "happy",
+        "cheerful": "happy", "motivating": "happy",
+        "gentle": "gentle", "sad": "gentle", "soft": "gentle", "chill": "gentle", "mellow": "gentle",
+        "cool down": "cooldown", "cooldown": "cooldown", "reset": "cooldown", "angry": "cooldown",
+    }
+
+    def _genre_presets(self) -> dict[str, dict]:
+        return {
+            "focus": {
+                "title": "Deep Focus Mix",
+                "description": "Lo-fi and instrumental tracks for distraction-free study.",
+                "url": settings.spotify_genre_focus_url,
+            },
+            "calm": {
+                "title": "Calm Study Mix",
+                "description": "Gentle, slow-paced music to help you study with ease.",
+                "url": settings.spotify_genre_calm_url,
+            },
+            "happy": {
+                "title": "Positive Focus Mix",
+                "description": "Upbeat, feel-good songs to keep your study session lively.",
+                "url": settings.spotify_genre_happy_url,
+            },
+            "gentle": {
+                "title": "Gentle Reset Mix",
+                "description": "Soft acoustic and ambient tracks for quiet study time.",
+                "url": settings.spotify_genre_gentle_url,
+            },
+            "cooldown": {
+                "title": "Cool-Down Mix",
+                "description": "Laid-back beats to help you slow down and take a break.",
+                "url": settings.spotify_genre_cooldown_url,
+            },
+        }
+
+    def play_for_genre(self, genre: str) -> dict:
+        key = genre.lower().strip()
+        bucket = self._GENRE_BUCKET.get(key, "focus")
+        presets = self._genre_presets()
+        preset = presets.get(bucket, presets["focus"])
+        external_url = preset["url"]
+        embed_url = self._to_spotify_embed_url(external_url)
+        payload = {
+            "status": "playing",
+            "provider": settings.music_provider,
+            "title": preset["title"],
+            "description": preset["description"],
+            "emotion": bucket,
+            "genre": genre,
+            "embed_url": embed_url,
+            "external_url": external_url,
+            "message": f"Playing {preset['title']} for you.",
+        }
+        robot_state.set_music(payload)
+        return payload
+
     def play_soothing_music(self) -> dict:
         return self.play_for_emotion(EmotionState.UNKNOWN)
 
@@ -74,7 +136,7 @@ class MusicService:
             "emotion": emotion_state.value,
             "embed_url": embed_url,
             "external_url": external_url,
-            "message": f"Selected {preset['title']} for your {emotion_state.value} mood on the dashboard.",
+            "message": f"Playing {preset['title']}.",  # emotion reference removed
         }
         robot_state.set_music(payload)
         return payload
