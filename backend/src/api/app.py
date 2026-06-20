@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime
 from typing import Optional
 import asyncio
 import os
@@ -17,7 +18,7 @@ from src.activation.wake_word_detector import WakeWordDetector
 from src.auth.user_service import AuthError, AuthService
 from src.calendar_module.calendar_service import CalendarService 
 from src.core.config import settings
-from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
+from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -718,6 +719,7 @@ def create_app() -> FastAPI:
         robot_state.set_vision_emotion_mode(settings.vision_emotion_mode_default)
         asyncio.create_task(_emotion_monitor_loop())
         asyncio.create_task(_timer_loop())
+        asyncio.create_task(_schedule_notification_loop())
         if settings.use_ros_robot:
             asyncio.create_task(_ros_speech_command_loop())
 
@@ -748,6 +750,29 @@ def create_app() -> FastAPI:
                 robot.set_led_state("timer_complete")
                 tts.speak(response)
             await asyncio.sleep(1)
+
+    async def _schedule_notification_loop():
+        while True:
+            try:
+                due_items = calendar_service.get_items_needing_notification(
+                    datetime.now(), tolerance_seconds=settings.schedule_notification_check_seconds
+                )
+            except Exception:
+                due_items = []
+            for due_item in due_items:
+                try:
+                    if due_item["stage"] == "30":
+                        message = phrase_bank.say("schedule_reminder_30", title=due_item["title"])
+                    else:
+                        message = phrase_bank.say("schedule_reminder_due", title=due_item["title"])
+                    robot_state.set_response(message)
+                    tts.speak(message)
+                    calendar_service.mark_notified(due_item["id"], due_item["stage"])
+                except Exception:
+                    # One item's failure (e.g. a TTS error) must not block or
+                    # skip the next item due in the same tick.
+                    continue
+            await asyncio.sleep(settings.schedule_notification_check_seconds)
 
     async def _ros_speech_command_loop():
         """Consumes transcripts published by language_pkg/transcriber.py."""
@@ -963,6 +988,30 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Schedule item not found")
         robot_state.set_response("Schedule item removed.")
         return {"deleted": True, "id": item_id}
+
+    @app.put("/api/schedule/{item_id}")
+    def update_schedule_item(item_id: int, request: ScheduleItemUpdateRequest, user: dict = Depends(_require_user)):
+        item = calendar_service.update_schedule_item(
+            item_id,
+            title=request.title,
+            date=request.date,
+            time=request.time,
+            type=request.type,
+            priority=request.priority,
+            user_id=user["id"],
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Schedule item not found")
+        robot_state.set_response(
+            phrase_bank.say(
+                "schedule_added",
+                purpose=item["title"],
+                date=item.get("formatted_date") or item.get("date") or "not specified",
+                time=item.get("time") or "not specified",
+                priority=item.get("priority") or "medium",
+            )
+        )
+        return item
 
     @app.get("/api/deadlines")
     def get_deadlines(user: dict = Depends(_require_user)):

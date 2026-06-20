@@ -17,7 +17,15 @@ class CalendarService:
         return int(user_id) if user_id else self.current_user_id
 
     def _connect(self):
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path)
+        # WAL mode lets readers and writers proceed concurrently instead of
+        # blocking each other; busy_timeout makes any remaining brief
+        # contention retry instead of immediately raising "database is
+        # locked" (relevant now that the notification loop polls this same
+        # database from a background asyncio task alongside API requests).
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
 
     def _initialise(self) -> None:
         with self._connect() as conn:
@@ -52,17 +60,25 @@ class CalendarService:
             self._migrate_reminder_columns(conn)
 
     def reset_runtime_data(self) -> None:
-        """Clear all user-scoped schedule/reminder rows for a fresh backend session."""
+        """Clear reminder rows for a fresh backend session.
+
+        Schedule items intentionally persist across restarts (action plan
+        requirement); only reminders are reset here.
+        """
         with self._connect() as conn:
-            conn.execute("DELETE FROM schedule_items")
             conn.execute("DELETE FROM reminders")
-            conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('schedule_items', 'reminders')")
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = 'reminders'")
 
     def _migrate_schedule_columns(self, conn: sqlite3.Connection) -> None:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(schedule_items)").fetchall()}
         if "user_id" not in columns:
             conn.execute("ALTER TABLE schedule_items ADD COLUMN user_id INTEGER")
+        if "notified_30" not in columns:
+            conn.execute("ALTER TABLE schedule_items ADD COLUMN notified_30 INTEGER DEFAULT 0")
+        if "notified_due" not in columns:
+            conn.execute("ALTER TABLE schedule_items ADD COLUMN notified_due INTEGER DEFAULT 0")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_items_user ON schedule_items(user_id, date, time, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_items_notify ON schedule_items(notified_30, notified_due)")
 
     def _migrate_reminder_columns(self, conn: sqlite3.Connection) -> None:
         """Bring old reminder tables up to the schedule-like schema.
@@ -164,6 +180,113 @@ class CalendarService:
             "priority": priority,
             "user_id": resolved_user_id,
         }
+
+    def update_schedule_item(
+        self,
+        item_id: int,
+        *,
+        title: str | None = None,
+        date: str | None = None,
+        time: str | None = None,
+        type: str | None = None,
+        priority: str | None = None,
+        user_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        resolved_user_id = self._resolve_user_id(user_id)
+        if resolved_user_id is None:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT title, date, time, type, priority FROM schedule_items WHERE id = ? AND user_id = ?",
+                (item_id, resolved_user_id),
+            ).fetchone()
+            if row is None:
+                return None
+
+            updated_title = title.strip() if title is not None else row[0]
+            updated_date = date if date is not None else row[1]
+            updated_time = time if time is not None else row[2]
+            updated_type = (type.strip().lower() if type else row[3]) if type is not None else row[3]
+            updated_priority = (priority.strip().lower() if priority else row[4]) if priority is not None else row[4]
+
+            conn.execute(
+                """
+                UPDATE schedule_items
+                SET title = ?, date = ?, time = ?, type = ?, priority = ?,
+                    notified_30 = 0, notified_due = 0
+                WHERE id = ? AND user_id = ?
+                """,
+                (updated_title, updated_date, updated_time, updated_type, updated_priority, item_id, resolved_user_id),
+            )
+
+        return {
+            "id": item_id,
+            "title": updated_title,
+            "date": updated_date,
+            "formatted_date": self.format_display_date(updated_date),
+            "time": updated_time,
+            "type": updated_type,
+            "priority": updated_priority,
+            "user_id": resolved_user_id,
+        }
+
+    def get_items_needing_notification(
+        self, now: datetime, tolerance_seconds: float = 15.0
+    ) -> list[dict[str, Any]]:
+        """Return every (item, stage) pair currently due for a spoken notification.
+
+        Each schedule item can independently need a "30 minutes before" and/or
+        "at the due time" notification; both are returned as separate entries
+        so the caller can announce and mark each one without one blocking the
+        other when several items are due in the same check tick.
+
+        The trigger condition is one-sided (now >= target - tolerance, with no
+        upper bound) rather than a tight window. This means a delayed check
+        tick still eventually surfaces every pending notification exactly
+        once; the notified_30/notified_due flags (set via mark_notified) are
+        what make each stage fire only once per item.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, user_id, title, date, time, type, priority, notified_30, notified_due
+                FROM schedule_items
+                WHERE date IS NOT NULL AND date != ''
+                  AND time IS NOT NULL AND time != ''
+                  AND (notified_30 = 0 OR notified_due = 0)
+                """
+            ).fetchall()
+
+        tolerance = timedelta(seconds=tolerance_seconds)
+        due_items: list[dict[str, Any]] = []
+        for row in rows:
+            item_id, user_id, title, date, time_value, item_type, priority, notified_30, notified_due = row
+            try:
+                due_at = datetime.strptime(f"{date} {time_value}", "%Y-%m-%d %H:%M")
+            except ValueError:
+                continue
+
+            base = {
+                "id": item_id,
+                "user_id": user_id,
+                "title": title,
+                "date": date,
+                "time": time_value,
+                "type": item_type,
+                "priority": priority,
+            }
+
+            if not notified_30 and now >= (due_at - timedelta(minutes=30) - tolerance):
+                due_items.append({**base, "stage": "30"})
+            if not notified_due and now >= (due_at - tolerance):
+                due_items.append({**base, "stage": "due"})
+
+        return due_items
+
+    def mark_notified(self, item_id: int, stage: str) -> None:
+        column = "notified_30" if stage == "30" else "notified_due"
+        with self._connect() as conn:
+            conn.execute(f"UPDATE schedule_items SET {column} = 1 WHERE id = ?", (item_id,))
 
     def delete_schedule_item(self, item_id: int, user_id: int | None = None) -> bool:
         resolved_user_id = self._resolve_user_id(user_id)
