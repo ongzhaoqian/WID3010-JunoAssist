@@ -762,7 +762,9 @@ def create_app() -> FastAPI:
             for due_item in due_items:
                 try:
                     if due_item["stage"] == "30":
-                        message = phrase_bank.say("schedule_reminder_30", title=due_item["title"])
+                        minutes = due_item.get("remaining_minutes", 30)
+                        minutes_label = "1 minute" if minutes == 1 else f"{minutes} minutes"
+                        message = phrase_bank.say("schedule_reminder_30", title=due_item["title"], minutes_label=minutes_label)
                     else:
                         message = phrase_bank.say("schedule_reminder_due", title=due_item["title"])
                     robot_state.set_response(message)

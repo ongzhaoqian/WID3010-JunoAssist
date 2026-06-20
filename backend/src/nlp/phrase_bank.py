@@ -182,8 +182,8 @@ class PhraseBank:
             "Done. I have removed that reminder.",
         ],
         "schedule_reminder_30": [
-            "Upcoming: {title} in 30 minutes.",
-            "Heads up, {title} starts in 30 minutes.",
+            "Upcoming: {title} in {minutes_label}.",
+            "Heads up, {title} starts in {minutes_label}.",
         ],
         "schedule_reminder_due": [
             "{title} starts now.",

@@ -275,10 +275,20 @@ class CalendarService:
                 "priority": priority,
             }
 
-            if not notified_30 and now >= (due_at - timedelta(minutes=30) - tolerance):
-                due_items.append({**base, "stage": "30"})
-            if not notified_due and now >= (due_at - tolerance):
-                due_items.append({**base, "stage": "due"})
+            due_trigger = due_at - tolerance
+            is_due_now = now >= due_trigger
+
+            if not notified_due and is_due_now:
+                due_items.append({**base, "stage": "due", "remaining_minutes": 0})
+            elif not is_due_now and not notified_30 and now >= (due_at - timedelta(minutes=30) - tolerance):
+                # Once the due stage's own window has opened, the 30-minute
+                # warning no longer applies (covers "due now" and "already
+                # overdue" items) - only fire one stage per tick. For items
+                # that genuinely had less than 30 minutes of lead time at
+                # creation, speak the actual remaining time instead of a
+                # fixed "30 minutes" that would be inaccurate.
+                remaining_minutes = max(1, round((due_at - now).total_seconds() / 60))
+                due_items.append({**base, "stage": "30", "remaining_minutes": remaining_minutes})
 
         return due_items
 

@@ -115,6 +115,46 @@ def test_notification_fires_30_minutes_before_and_at_due_time_once_each(tmp_path
     assert due_items_final == []
 
 
+def test_notification_speaks_actual_remaining_minutes_for_short_lead_time(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Quick standup", date="2026-06-19", time="09:10", user_id=1)
+
+    now = datetime(2026, 6, 19, 9, 0)  # only 10 minutes of lead time, not 30
+    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+
+    thirty_stage = [d for d in due_items if d["id"] == item["id"] and d["stage"] == "30"]
+    assert len(thirty_stage) == 1
+    assert thirty_stage[0]["remaining_minutes"] == 10
+
+
+def test_notification_fires_only_due_stage_when_item_is_due_now(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Standup", date="2026-06-19", time="09:00", user_id=1)
+
+    now = datetime(2026, 6, 19, 9, 0)
+    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    stages = [d["stage"] for d in due_items if d["id"] == item["id"]]
+
+    assert stages == ["due"]
+
+
+def test_notification_fires_only_due_stage_for_already_overdue_item(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Missed task", date="2026-06-19", time="09:00", user_id=1)
+
+    now = datetime(2026, 6, 19, 9, 5)  # 5 minutes overdue
+    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    stages = [d["stage"] for d in due_items if d["id"] == item["id"]]
+
+    assert stages == ["due"]
+
+
 def test_notification_handles_multiple_consecutive_schedules_in_same_tick(tmp_path):
     db_path = tmp_path / "juno_test.db"
     service = CalendarService(str(db_path))
