@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getJson } from "../lib/api";
+import { getJson, notifyCalendarChanged, onCalendarChanged } from "../lib/api";
 import Card from "./Card";
 
 const SCALES = [
@@ -113,7 +113,11 @@ export default function CalendarPanel() {
   useEffect(() => {
     loadAll();
     const interval = window.setInterval(loadAll, 30000);
-    return () => window.clearInterval(interval);
+    const unsubscribe = onCalendarChanged(loadAll);
+    return () => {
+    window.clearInterval(interval);
+    unsubscribe();
+  };
   }, []);
 
   function selectScale(nextScale) {

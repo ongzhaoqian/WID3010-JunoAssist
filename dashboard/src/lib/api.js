@@ -1,6 +1,7 @@
 export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const WS_BASE = API_BASE.replace("http://", "ws://").replace("https://", "wss://");
 const TOKEN_KEY = "juno_auth_token";
+const CALENDAR_REFRESH_EVENT = "juno:calendar-refresh";
 
 export function getAuthToken() {
   return window.localStorage.getItem(TOKEN_KEY);
@@ -83,4 +84,13 @@ export function statusSocket() {
 
 export function cameraStreamUrl() {
   return `${API_BASE}/api/vision/camera/stream`;
+}
+
+export function notifyCalendarChanged() {
+  window.dispatchEvent(new CustomEvent(CALENDAR_REFRESH_EVENT));
+}
+
+export function onCalendarChanged(callback) {
+  window.addEventListener(CALENDAR_REFRESH_EVENT, callback);
+  return () => window.removeEventListener(CALENDAR_REFRESH_EVENT, callback);
 }

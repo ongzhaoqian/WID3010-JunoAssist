@@ -4,8 +4,10 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.app import create_app
+from src.api.app import create_app, _run_schedule_notification_tick
 from src.calendar_module.calendar_service import CalendarService
+from src.core.state import RobotState
+from src.nlp.phrase_bank import PhraseBank
 
 
 def authenticated_client(app):
@@ -113,6 +115,46 @@ def test_notification_fires_30_minutes_before_and_at_due_time_once_each(tmp_path
 
     due_items_final = service.get_items_needing_notification(due_at, tolerance_seconds=15)
     assert due_items_final == []
+
+
+def test_notification_speaks_actual_remaining_minutes_for_short_lead_time(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Quick standup", date="2026-06-19", time="09:10", user_id=1)
+
+    now = datetime(2026, 6, 19, 9, 0)  # only 10 minutes of lead time, not 30
+    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+
+    thirty_stage = [d for d in due_items if d["id"] == item["id"] and d["stage"] == "30"]
+    assert len(thirty_stage) == 1
+    assert thirty_stage[0]["remaining_minutes"] == 10
+
+
+def test_notification_fires_only_due_stage_when_item_is_due_now(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Standup", date="2026-06-19", time="09:00", user_id=1)
+
+    now = datetime(2026, 6, 19, 9, 0)
+    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    stages = [d["stage"] for d in due_items if d["id"] == item["id"]]
+
+    assert stages == ["due"]
+
+
+def test_notification_fires_only_due_stage_for_already_overdue_item(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Missed task", date="2026-06-19", time="09:00", user_id=1)
+
+    now = datetime(2026, 6, 19, 9, 5)  # 5 minutes overdue
+    due_items = service.get_items_needing_notification(now, tolerance_seconds=15)
+    stages = [d["stage"] for d in due_items if d["id"] == item["id"]]
+
+    assert stages == ["due"]
 
 
 def test_notification_handles_multiple_consecutive_schedules_in_same_tick(tmp_path):
@@ -266,3 +308,84 @@ def test_schedule_persists_across_app_restart(tmp_path, monkeypatch):
     second_client = authenticated_client(create_app())
     items = second_client.get("/api/schedule/today").json()
     assert any(i["title"] == "Persisted task" for i in items)
+
+
+class _RecordingTTS:
+    def __init__(self):
+        self.spoken: list[str] = []
+
+    def speak(self, text):
+        self.spoken.append(text)
+
+
+def test_notification_tick_speaks_every_item_due_in_the_same_tick(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    service.add_schedule_item("Morning class", date="2026-06-19", time="09:00", user_id=1)
+    service.add_schedule_item("Group meeting", date="2026-06-19", time="09:00", user_id=1)
+
+    tts = _RecordingTTS()
+    robot_state = RobotState()
+    phrase_bank = PhraseBank(seed=1)
+
+    _run_schedule_notification_tick(service, tts, phrase_bank, robot_state, datetime(2026, 6, 19, 9, 0), 15.0)
+
+    assert len(tts.spoken) == 2
+    assert any("Morning class" in m for m in tts.spoken)
+    assert any("Group meeting" in m for m in tts.spoken)
+
+
+def test_notification_tick_stacks_combined_response_without_overwriting(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    service.add_schedule_item("Morning class", date="2026-06-19", time="09:00", user_id=1)
+    service.add_schedule_item("Group meeting", date="2026-06-19", time="09:00", user_id=1)
+
+    tts = _RecordingTTS()
+    robot_state = RobotState()
+    phrase_bank = PhraseBank(seed=1)
+
+    _run_schedule_notification_tick(service, tts, phrase_bank, robot_state, datetime(2026, 6, 19, 9, 0), 15.0)
+
+    assert "Morning class" in robot_state.last_response
+    assert "Group meeting" in robot_state.last_response
+    assert robot_state.last_response.count("\n") == 1
+
+
+def test_new_schedule_item_defaults_to_not_completed(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+
+    item = service.add_schedule_item("Group meeting", date="2026-06-20", time="09:00", user_id=1)
+
+    assert item["completed"] is False
+    [stored] = service.get_today_schedule(user_id=1)
+    assert stored["completed"] is False
+
+
+def test_update_schedule_item_can_toggle_completed(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Group meeting", date="2026-06-20", time="09:00", user_id=1)
+
+    updated = service.update_schedule_item(item["id"], completed=True, user_id=1)
+
+    assert updated["completed"] is True
+    [stored] = service.get_today_schedule(user_id=1)
+    assert stored["completed"] is True
+
+
+def test_completed_schedule_items_are_excluded_from_notifications(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Group meeting", date="2026-06-19", time="09:00", user_id=1)
+    service.update_schedule_item(item["id"], completed=True, user_id=1)
+
+    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+
+    assert due_items == []

@@ -77,6 +77,8 @@ class CalendarService:
             conn.execute("ALTER TABLE schedule_items ADD COLUMN notified_30 INTEGER DEFAULT 0")
         if "notified_due" not in columns:
             conn.execute("ALTER TABLE schedule_items ADD COLUMN notified_due INTEGER DEFAULT 0")
+        if "completed" not in columns:
+            conn.execute("ALTER TABLE schedule_items ADD COLUMN completed INTEGER DEFAULT 0")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_items_user ON schedule_items(user_id, date, time, id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_items_notify ON schedule_items(notified_30, notified_due)")
 
@@ -116,7 +118,7 @@ class CalendarService:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, title, date, time, type, priority FROM schedule_items
+                SELECT id, title, date, time, type, priority, completed FROM schedule_items
                 WHERE user_id = ?
                 ORDER BY COALESCE(date, ''), COALESCE(time, ''), id
                 """,
@@ -132,7 +134,7 @@ class CalendarService:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, title, date, time, type, priority
+                SELECT id, title, date, time, type, priority, completed
                 FROM schedule_items
                 WHERE user_id = ? AND type IN ('assignment', 'test', 'quiz', 'study')
                 ORDER BY COALESCE(date, ''), COALESCE(time, ''), id
@@ -176,6 +178,7 @@ class CalendarService:
             "time": time,
             "type": item_type,
             "priority": priority,
+            "completed": False,
             "user_id": resolved_user_id,
         }
 
@@ -188,6 +191,7 @@ class CalendarService:
         time: str | None = None,
         type: str | None = None,
         priority: str | None = None,
+        completed: bool | None = None,
         user_id: int | None = None,
     ) -> dict[str, Any] | None:
         resolved_user_id = self._resolve_user_id(user_id)
@@ -195,7 +199,7 @@ class CalendarService:
             return None
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT title, date, time, type, priority FROM schedule_items WHERE id = ? AND user_id = ?",
+                "SELECT title, date, time, type, priority, completed FROM schedule_items WHERE id = ? AND user_id = ?",
                 (item_id, resolved_user_id),
             ).fetchone()
             if row is None:
@@ -206,15 +210,19 @@ class CalendarService:
             updated_time = time if time is not None else row[2]
             updated_type = (type.strip().lower() if type else row[3]) if type is not None else row[3]
             updated_priority = (priority.strip().lower() if priority else row[4]) if priority is not None else row[4]
+            updated_completed = completed if completed is not None else bool(row[5])
 
             conn.execute(
                 """
                 UPDATE schedule_items
-                SET title = ?, date = ?, time = ?, type = ?, priority = ?,
+                SET title = ?, date = ?, time = ?, type = ?, priority = ?, completed = ?,
                     notified_30 = 0, notified_due = 0
                 WHERE id = ? AND user_id = ?
                 """,
-                (updated_title, updated_date, updated_time, updated_type, updated_priority, item_id, resolved_user_id),
+                (
+                    updated_title, updated_date, updated_time, updated_type, updated_priority,
+                    1 if updated_completed else 0, item_id, resolved_user_id,
+                ),
             )
 
         return {
@@ -225,6 +233,7 @@ class CalendarService:
             "time": updated_time,
             "type": updated_type,
             "priority": updated_priority,
+            "completed": updated_completed,
             "user_id": resolved_user_id,
         }
 
@@ -343,7 +352,6 @@ class CalendarService:
             "due_time": time,
             "user_id": resolved_user_id,
         }
-    
     def update_reminder(
         self,
         item_id: int,
@@ -352,6 +360,7 @@ class CalendarService:
         time: str | None = None,
         type: str = "reminder",
         priority: str = "medium",
+        completed: bool | None = None,
         user_id: int | None = None,
     ) -> dict[str, Any] | None:
         resolved_user_id = self._resolve_user_id(user_id)
@@ -363,22 +372,31 @@ class CalendarService:
         priority = (priority or "medium").strip().lower()
 
         with self._connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE reminders
-                SET title = ?, date = ?, time = ?, type = ?, priority = ?,
-                    notified_30min = 0, notified_due = 0
-                WHERE id = ? AND user_id = ?
-                """,
-                (title, date, time, item_type, priority, item_id, resolved_user_id),
-            )
+            if completed is None:
+                cursor = conn.execute(
+                    """
+                    UPDATE reminders
+                    SET title = ?, date = ?, time = ?, type = ?, priority = ?,
+                        notified_30 = 0, notified_due = 0
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (title, date, time, item_type, priority, item_id, resolved_user_id),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    UPDATE reminders
+                    SET title = ?, date = ?, time = ?, type = ?, priority = ?, completed = ?,
+                        notified_30 = 0, notified_due = 0
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (title, date, time, item_type, priority, int(completed), item_id, resolved_user_id),
+                )
             if cursor.rowcount == 0:
                 return None
 
-            row = conn.execute(
-                "SELECT completed FROM reminders WHERE id = ?", (item_id,)
-            ).fetchone()
-            completed = bool(row[0]) if row else False
+            row = conn.execute("SELECT completed FROM reminders WHERE id = ?", (item_id,)).fetchone()
+            actual_completed = bool(row[0]) if row else False
 
         return {
             "id": item_id,
@@ -388,8 +406,7 @@ class CalendarService:
             "time": time,
             "type": item_type,
             "priority": priority,
-            "completed": completed,
-            # Backwards-compatible aliases for older dashboard/test code.
+            "completed": actual_completed,
             "due_date": date,
             "due_time": time,
             "user_id": resolved_user_id,
@@ -421,16 +438,23 @@ class CalendarService:
             cursor = conn.execute("DELETE FROM reminders WHERE id = ? AND user_id = ?", (item_id, resolved_user_id))
             return cursor.rowcount > 0
 
-    def set_reminder_completed(self, item_id: int, completed: bool = True, user_id: int | None = None) -> bool:
+    def set_reminder_completed(self, item_id: int, completed: bool = True, user_id: int | None = None) -> dict[str, Any] | None:
         resolved_user_id = self._resolve_user_id(user_id)
         if resolved_user_id is None:
-            return False
+            return None
         with self._connect() as conn:
             cursor = conn.execute(
                 "UPDATE reminders SET completed = ? WHERE id = ? AND user_id = ?",
                 (1 if completed else 0, item_id, resolved_user_id),
             )
-            return cursor.rowcount > 0
+            if cursor.rowcount == 0:
+                return None
+            row = conn.execute(
+                "SELECT id, title, date, time, type, priority, completed FROM reminders WHERE id = ? AND user_id = ?",
+                (item_id, resolved_user_id),
+            ).fetchone()
+
+        return self._reminder_row_to_dict(row)
 
     @staticmethod
     def format_display_date(value: str | None) -> str | None:
@@ -452,6 +476,7 @@ class CalendarService:
             "time": row[3],
             "type": row[4],
             "priority": row[5],
+            "completed": bool(row[6]),
         }
 
     @classmethod

@@ -18,7 +18,7 @@ from src.activation.wake_word_detector import WakeWordDetector
 from src.auth.user_service import AuthError, AuthService
 from src.calendar_module.calendar_service import CalendarService 
 from src.core.config import settings
-from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
+from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ReminderUpdateRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -49,6 +49,48 @@ def _fuzzy_matches(word: str, candidates: list[str] | tuple[str, ...], threshold
         if difflib.SequenceMatcher(None, clean, target).ratio() >= threshold:
             return True
     return False
+
+
+def _build_schedule_notification_message(due_item: dict, phrase_bank: PhraseBank) -> str:
+    if due_item["stage"] == "30":
+        minutes = due_item.get("remaining_minutes", 30)
+        minutes_label = "1 minute" if minutes == 1 else f"{minutes} minutes"
+        return phrase_bank.say("schedule_reminder_30", title=due_item["title"], minutes_label=minutes_label)
+    return phrase_bank.say("schedule_reminder_due", title=due_item["title"])
+
+
+def _run_schedule_notification_tick(calendar_service, tts, phrase_bank, robot_state, now, tolerance_seconds) -> list[dict]:
+    """Speak and mark every schedule item due a notification at `now`.
+
+    Multiple items due in the same tick are each spoken individually (so
+    none of the spoken reminders get dropped), but only one combined
+    robot_state.set_response() call is made at the end - joining every
+    spoken message with a newline - so the "Most Recent Response" panel
+    shows all of them stacked together instead of the last one silently
+    overwriting the others. This only changes how the schedule loop calls
+    set_response; every other caller of set_response is untouched.
+    """
+    try:
+        due_items = calendar_service.get_items_needing_notification(now, tolerance_seconds=tolerance_seconds)
+    except Exception:
+        due_items = []
+
+    messages: list[str] = []
+    for due_item in due_items:
+        try:
+            message = _build_schedule_notification_message(due_item, phrase_bank)
+            tts.speak(message)
+            calendar_service.mark_notified(due_item["id"], due_item["stage"])
+            messages.append(message)
+        except Exception:
+            # One item's failure (e.g. a TTS error) must not block or skip
+            # the next item due in the same tick.
+            continue
+
+    if messages:
+        robot_state.set_response("\n".join(messages))
+
+    return due_items
 
 
 def create_app() -> FastAPI:
@@ -1011,6 +1053,7 @@ def create_app() -> FastAPI:
             time=request.time,
             type=request.type,
             priority=request.priority,
+            completed=request.completed,
             user_id=user["id"],
         )
         if item is None:
@@ -1064,6 +1107,7 @@ def create_app() -> FastAPI:
             time=request.time,
             type=request.type or "reminder",
             priority=request.priority or "medium",
+            completed=request.completed,
             user_id=user["id"],
         )
         if not reminder:

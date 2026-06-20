@@ -198,7 +198,7 @@ export default function App() {
         <StatusPanel status={status} />
         <TimerPanel status={status} />
         <Card title="Most Recent Response from JUNO">
-          <p className="text-slate-200/85">{status?.last_response ?? "Loading..."}</p>
+          <p className="whitespace-pre-line text-slate-200/85">{status?.last_response ?? "Loading..."}</p>
           {lastCommand && (
             <p className="mt-3 text-sm text-slate-300/75">
               Last intent: {lastCommand.intent}
