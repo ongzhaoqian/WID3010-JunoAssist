@@ -254,17 +254,28 @@ class CalendarService:
     # the due-time stage instead.
     SHORT_LEAD_SECONDS = 30
 
+    # How close the actual remaining time has to be to a round minute mark
+    # (e.g. exactly 1 minute, exactly 10 minutes) before it's spoken as that
+    # exact number rather than qualified with "about".
+    REMAINING_EXACT_TOLERANCE_SECONDS = 5
+
     @staticmethod
     def _format_remaining(seconds: float) -> tuple[int, str]:
         """Whole minutes remaining plus a human label, with a "less than a
-        minute" phrasing for the 30s-60s band instead of rounding to 0 or 1."""
+        minute" phrasing for the 30s-60s band instead of rounding to 0 or 1.
+
+        For 60s and up, the minute count is rounded to the nearest minute,
+        and prefixed with "about" unless the actual remaining time is within
+        REMAINING_EXACT_TOLERANCE_SECONDS of that exact minute mark - e.g.
+        75 seconds rounds to "1 minute" but is 15s off the 60s mark, so it's
+        spoken as "about 1 minute" rather than implying it's exactly 1:00."""
         seconds = max(0.0, seconds)
-        minutes = int(seconds // 60)
         if seconds < 60:
             return 0, "less than a minute"
-        if minutes == 1:
-            return 1, "1 minute"
-        return minutes, f"{minutes} minutes"
+        minutes = round(seconds / 60)
+        word = "1 minute" if minutes == 1 else f"{minutes} minutes"
+        is_exact = abs(seconds - minutes * 60) <= CalendarService.REMAINING_EXACT_TOLERANCE_SECONDS
+        return minutes, (word if is_exact else f"about {word}")
 
     @staticmethod
     def _format_overdue(seconds: float) -> str:

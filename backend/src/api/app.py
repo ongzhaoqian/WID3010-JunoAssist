@@ -818,9 +818,27 @@ def create_app() -> FastAPI:
 
     async def _schedule_notification_loop():
         while True:
-            for table_name, alert_30_key, alert_due_key, alert_overdue_key in [
-                ("schedule_items", "schedule_reminder_30", "schedule_reminder_due", "schedule_reminder_overdue"),
-                ("reminders", "reminder_alert_30", "reminder_alert_due", "reminder_alert_overdue"),
+            # Collected across BOTH tables for this tick. Each due item is
+            # still spoken individually via TTS (so a robot can't merge two
+            # sentences into one breath), but the dashboard's "Most Recent
+            # Response" gets exactly one combined, newline-joined update at
+            # the end of the tick instead of being overwritten by whichever
+            # item happened to be processed last (e.g. a reminder silently
+            # erasing 3 schedule items that fired in the same tick).
+            tick_messages: list[str] = []
+
+            for (
+                table_name, alert_30_key, alert_due_key, alert_overdue_key,
+                due_now_single_key, due_now_multiple_key,
+            ) in [
+                (
+                    "schedule_items", "schedule_reminder_30", "schedule_reminder_due", "schedule_reminder_overdue",
+                    "schedule_due_now_single", "schedule_due_now_multiple",
+                ),
+                (
+                    "reminders", "reminder_alert_30", "reminder_alert_due", "reminder_alert_overdue",
+                    "reminder_due_now_single", "reminder_due_now_multiple",
+                ),
             ]:
                 try:
                     due_items = calendar_service.get_items_needing_notification(
@@ -831,18 +849,41 @@ def create_app() -> FastAPI:
                 except Exception:
                     due_items = []
 
+                # Due-now items (not overdue) carry no per-item detail beyond
+                # the title, so several due in the same tick are spoken and
+                # shown as one combined sentence instead of one "X starts
+                # now." per item. "30 minutes before" and overdue items still
+                # carry distinct per-item timing, so those stay individual.
+                due_now_titles: list[str] = []
                 for due_item in due_items:
                     try:
-                        message = _build_notification_message(
-                            due_item, phrase_bank, alert_30_key, alert_due_key, alert_overdue_key
-                        )
-                        robot_state.set_response(message)
-                        tts.speak(message)
+                        if due_item["stage"] == "due" and not due_item.get("overdue"):
+                            due_now_titles.append(due_item["title"])
+                        else:
+                            message = _build_notification_message(
+                                due_item, phrase_bank, alert_30_key, alert_due_key, alert_overdue_key
+                            )
+                            tts.speak(message)
+                            tick_messages.append(message)
                         calendar_service.mark_notified(due_item["id"], due_item["stage"], table_name)
                     except Exception:
                         # One item's failure (e.g. a TTS error) must not block or
                         # skip the next item due in the same tick.
                         continue
+
+                if due_now_titles:
+                    if len(due_now_titles) == 1:
+                        grouped_message = phrase_bank.say(due_now_single_key, title=due_now_titles[0])
+                    else:
+                        grouped_message = phrase_bank.say(due_now_multiple_key, titles=", ".join(due_now_titles))
+                    try:
+                        tts.speak(grouped_message)
+                        tick_messages.append(grouped_message)
+                    except Exception:
+                        pass
+
+            if tick_messages:
+                robot_state.set_response("\n".join(tick_messages))
 
             await asyncio.sleep(settings.schedule_notification_check_seconds)
 

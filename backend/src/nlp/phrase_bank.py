@@ -194,6 +194,18 @@ class PhraseBank:
             "{title} is overdue by {overdue_label}.",
             "Heads up, {title} is now overdue by {overdue_label}.",
         ],
+        "schedule_due_now_single": [
+            "Schedule: {title} starts now.",
+        ],
+        "schedule_due_now_multiple": [
+            "Schedules: {titles} start now.",
+        ],
+        "reminder_due_now_single": [
+            "Reminder: {title} due now.",
+        ],
+        "reminder_due_now_multiple": [
+            "Reminders: {titles} due now.",
+        ],
         "schedule_marked_complete": [
             "Marked {title} as complete.",
             "Done. {title} is now marked complete.",
