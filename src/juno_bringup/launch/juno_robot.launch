@@ -38,6 +38,8 @@
     <param name="tts_stop_topic" value="/juno/tts_stop" />
     <param name="voice_locale" value="en_GB" />
     <param name="rate" value="165" />
-    <param name="backend" value="espeak" />
+    <param name="backend" value="coqui" />
+    <param name="coqui_model" value="tts_models/en/vctk/vits" />
+    <param name="coqui_speaker" value="p226" />
   </node>
 </launch>

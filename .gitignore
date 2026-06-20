@@ -5,6 +5,7 @@ venv/
 env/
 backend/.venv/
 backend/.venv-*/
+.venv310/
 
 # Ignore frontend dependencies/build outputs
 dashboard/node_modules/
@@ -74,3 +75,25 @@ src/language_pkg/models/
 *.sqlite3
 *.db
 .vscode/settings.json
+
+# -------------------------------
+# Coqui TTS, model caches, and audio artifacts
+# -------------------------------
+# Common caches used by model downloads and HuggingFace/torch
+.cache/
+.cache/huggingface/
+.cache/torch/
+.huggingface/
+# Coqui / TTS model folders (local downloads)
+tts_models/
+vocoder_models/
+TTS_models/
+# Temporary audio files and generated speech
+*.wav
+*.mp3
+# Model checkpoints and artifacts
+*.pth
+*.pt
+# WandB local runs
+wandb/
+

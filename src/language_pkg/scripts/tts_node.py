@@ -51,6 +51,7 @@ class JunoTTSNode:
         self.backend = str(rospy.get_param('~backend', os.getenv('JUNO_TTS_BACKEND', 'auto'))).strip().lower()
         self.command_setting = str(rospy.get_param('~command', os.getenv('JUNO_TTS_COMMAND', 'auto'))).strip()
         self.coqui_model_name = rospy.get_param('~coqui_model', os.getenv('JUNO_TTS_COQUI_MODEL', 'tts_models/en/ljspeech/vits'))
+        self.coqui_speaker = rospy.get_param('~coqui_speaker', os.getenv('JUNO_TTS_COQUI_SPEAKER', 'p226'))
         self.audio_player = rospy.get_param('~audio_player', os.getenv('JUNO_TTS_AUDIO_PLAYER', 'auto')).strip()
 
         self.engine = None
@@ -108,7 +109,7 @@ class JunoTTSNode:
             from TTS.api import TTS
 
             self.coqui = TTS(self.coqui_model_name)
-            rospy.loginfo('Initialized Coqui TTS model %s', self.coqui_model_name)
+            rospy.loginfo('Initialized Coqui TTS model %s with speaker %s', self.coqui_model_name, self.coqui_speaker)
         except Exception as exc:
             self.coqui = None
             if self.backend == 'coqui':
@@ -296,7 +297,7 @@ class JunoTTSNode:
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                 audio_file = tmp.name
 
-            self.coqui.tts_to_file(text=text, file_path=audio_file)
+            self.coqui.tts_to_file(text=text, file_path=audio_file, speaker=self.coqui_speaker)
             last_error = None
 
             for player in self._candidate_audio_players():
