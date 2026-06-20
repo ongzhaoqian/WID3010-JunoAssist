@@ -1025,6 +1025,7 @@ def create_app() -> FastAPI:
             time=request.time,
             type=request.type,
             priority=request.priority,
+            completed=request.completed,
             user_id=user["id"],
         )
         if item is None:

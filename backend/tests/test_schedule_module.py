@@ -352,3 +352,40 @@ def test_notification_tick_stacks_combined_response_without_overwriting(tmp_path
     assert "Morning class" in robot_state.last_response
     assert "Group meeting" in robot_state.last_response
     assert robot_state.last_response.count("\n") == 1
+
+
+def test_new_schedule_item_defaults_to_not_completed(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+
+    item = service.add_schedule_item("Group meeting", date="2026-06-20", time="09:00", user_id=1)
+
+    assert item["completed"] is False
+    [stored] = service.get_today_schedule(user_id=1)
+    assert stored["completed"] is False
+
+
+def test_update_schedule_item_can_toggle_completed(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Group meeting", date="2026-06-20", time="09:00", user_id=1)
+
+    updated = service.update_schedule_item(item["id"], completed=True, user_id=1)
+
+    assert updated["completed"] is True
+    [stored] = service.get_today_schedule(user_id=1)
+    assert stored["completed"] is True
+
+
+def test_completed_schedule_items_are_excluded_from_notifications(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    item = service.add_schedule_item("Group meeting", date="2026-06-19", time="09:00", user_id=1)
+    service.update_schedule_item(item["id"], completed=True, user_id=1)
+
+    due_items = service.get_items_needing_notification(datetime(2026, 6, 19, 9, 0), tolerance_seconds=15)
+
+    assert due_items == []

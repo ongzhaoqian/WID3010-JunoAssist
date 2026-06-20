@@ -72,6 +72,13 @@ export default function SchedulePanel({ schedule, onScheduleChanged }) {
     await onScheduleChanged?.();
   }
 
+  async function toggleCompleted(item) {
+    await putJson(`/api/schedule/${item.id}`, { completed: !item.completed });
+    await onScheduleChanged?.();
+  }
+
+  const sortedSchedule = [...schedule].sort((a, b) => Number(Boolean(a.completed)) - Number(Boolean(b.completed)));
+
   return (
     <Card title="Upcoming Schedule">
       <form onSubmit={submitForm} className="mb-5 rounded-[1.75rem] border border-white/20 bg-white/[0.08] p-4">
@@ -137,18 +144,27 @@ export default function SchedulePanel({ schedule, onScheduleChanged }) {
       </form>
 
       <div className="space-y-3">
-        {schedule.length === 0 ? (
+        {sortedSchedule.length === 0 ? (
           <p className="text-slate-300/75">No schedule items loaded.</p>
         ) : (
-          schedule.map((item) => (
-            <div key={item.id} className="flex items-start justify-between gap-3 rounded-2xl border border-white/20 bg-white/[0.08] p-3">
+          sortedSchedule.map((item) => (
+            <div
+              key={item.id}
+              className={`flex items-start justify-between gap-3 rounded-2xl border border-white/20 p-3 ${item.completed ? "bg-white/[0.04] opacity-60" : "bg-white/[0.08]"}`}
+            >
               <div>
-                <p className="font-semibold text-white">{item.title}</p>
-                <p className="text-sm capitalize text-slate-300/75">
+                <p className={`font-semibold text-white ${item.completed ? "line-through" : ""}`}>{item.title}</p>
+                <p className={`text-sm capitalize text-slate-300/75 ${item.completed ? "line-through" : ""}`}>
                   {item.formatted_date || item.date || "No date"} · {item.time || "No time"} · {item.type || "schedule"} · {item.priority} priority
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">
+                <button
+                  onClick={() => toggleCompleted(item)}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-medium ${item.completed ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/20" : "border-white/20 bg-white/[0.08] text-slate-200 hover:bg-white/[0.15]"}`}
+                >
+                  {item.completed ? "Completed ✓" : "Mark done"}
+                </button>
                 <button
                   onClick={() => startEdit(item)}
                   className="rounded-full border border-sky-300/30 bg-sky-400/10 px-3 py-1.5 text-sm font-medium text-sky-100 hover:bg-sky-400/20"

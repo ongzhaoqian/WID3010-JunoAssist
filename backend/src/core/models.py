@@ -152,6 +152,7 @@ class ScheduleItemUpdateRequest(BaseModel):
     time: Optional[str] = None
     type: Optional[str] = Field(default=None, max_length=40)
     priority: Optional[str] = Field(default=None, max_length=20)
+    completed: Optional[bool] = None
 
 
 class TimerRequest(BaseModel):
