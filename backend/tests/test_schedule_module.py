@@ -4,8 +4,10 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.app import create_app
+from src.api.app import create_app, _run_schedule_notification_tick
 from src.calendar_module.calendar_service import CalendarService
+from src.core.state import RobotState
+from src.nlp.phrase_bank import PhraseBank
 
 
 def authenticated_client(app):
@@ -306,3 +308,47 @@ def test_schedule_persists_across_app_restart(tmp_path, monkeypatch):
     second_client = authenticated_client(create_app())
     items = second_client.get("/api/schedule/today").json()
     assert any(i["title"] == "Persisted task" for i in items)
+
+
+class _RecordingTTS:
+    def __init__(self):
+        self.spoken: list[str] = []
+
+    def speak(self, text):
+        self.spoken.append(text)
+
+
+def test_notification_tick_speaks_every_item_due_in_the_same_tick(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    service.add_schedule_item("Morning class", date="2026-06-19", time="09:00", user_id=1)
+    service.add_schedule_item("Group meeting", date="2026-06-19", time="09:00", user_id=1)
+
+    tts = _RecordingTTS()
+    robot_state = RobotState()
+    phrase_bank = PhraseBank(seed=1)
+
+    _run_schedule_notification_tick(service, tts, phrase_bank, robot_state, datetime(2026, 6, 19, 9, 0), 15.0)
+
+    assert len(tts.spoken) == 2
+    assert any("Morning class" in m for m in tts.spoken)
+    assert any("Group meeting" in m for m in tts.spoken)
+
+
+def test_notification_tick_stacks_combined_response_without_overwriting(tmp_path):
+    db_path = tmp_path / "juno_test.db"
+    service = CalendarService(str(db_path))
+    service.set_active_user(1)
+    service.add_schedule_item("Morning class", date="2026-06-19", time="09:00", user_id=1)
+    service.add_schedule_item("Group meeting", date="2026-06-19", time="09:00", user_id=1)
+
+    tts = _RecordingTTS()
+    robot_state = RobotState()
+    phrase_bank = PhraseBank(seed=1)
+
+    _run_schedule_notification_tick(service, tts, phrase_bank, robot_state, datetime(2026, 6, 19, 9, 0), 15.0)
+
+    assert "Morning class" in robot_state.last_response
+    assert "Group meeting" in robot_state.last_response
+    assert robot_state.last_response.count("\n") == 1
