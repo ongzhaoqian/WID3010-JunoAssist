@@ -3,6 +3,7 @@ import os
 import queue
 import shutil
 import subprocess
+import tempfile
 import threading
 
 import rospy
@@ -49,20 +50,25 @@ class JunoTTSNode:
         self.done_delay = float(rospy.get_param('~done_delay', _env_float('JUNO_TTS_DONE_DELAY', 1.0)))
         self.backend = str(rospy.get_param('~backend', os.getenv('JUNO_TTS_BACKEND', 'auto'))).strip().lower()
         self.command_setting = str(rospy.get_param('~command', os.getenv('JUNO_TTS_COMMAND', 'auto'))).strip()
+        self.coqui_model_name = rospy.get_param('~coqui_model', os.getenv('JUNO_TTS_COQUI_MODEL', 'tts_models/en/ljspeech/vits'))
+        self.audio_player = rospy.get_param('~audio_player', os.getenv('JUNO_TTS_AUDIO_PLAYER', 'auto')).strip()
 
         self.engine = None
+        self.coqui = None
         self.queue = queue.Queue()
         self.done_pub = rospy.Publisher(self.done_topic, String, queue_size=1, latch=True)
         self._stop_event = threading.Event()
         self._current_process = None
         self._process_lock = threading.Lock()
 
-        if self.backend not in {'auto', 'pyttsx3', 'espeak'}:
+        if self.backend not in {'auto', 'pyttsx3', 'espeak', 'coqui'}:
             rospy.logwarn('Invalid JUNO_TTS_BACKEND=%s. Falling back to auto.', self.backend)
             self.backend = 'auto'
 
         if self.backend in {'auto', 'pyttsx3'}:
             self._init_pyttsx3()
+        if self.backend == 'coqui':
+            self._init_coqui()
 
         rospy.Subscriber(self.tts_topic, String, self.callback, queue_size=10)
         rospy.Subscriber(self.stop_topic, String, self.stop_callback, queue_size=10)
@@ -96,6 +102,19 @@ class JunoTTSNode:
                 rospy.logerr('pyttsx3 requested but unavailable: %s', exc)
             else:
                 rospy.logwarn('pyttsx3 unavailable. Will try espeak/espeak-ng fallback. Details: %s', exc)
+
+    def _init_coqui(self):
+        try:
+            from TTS.api import TTS
+
+            self.coqui = TTS(self.coqui_model_name)
+            rospy.loginfo('Initialized Coqui TTS model %s', self.coqui_model_name)
+        except Exception as exc:
+            self.coqui = None
+            if self.backend == 'coqui':
+                rospy.logerr('Coqui TTS requested but unavailable: %s', exc)
+            else:
+                rospy.logwarn('Coqui TTS unavailable. Will not use Coqui backend. Details: %s', exc)
 
     def _select_british_voice(self):
         if self.engine is None:
@@ -187,7 +206,13 @@ class JunoTTSNode:
             rospy.loginfo('Skipping queued speech because a stop request is active.')
             return
 
-        rospy.loginfo('JUNO says in British English: %s', text)
+        rospy.loginfo('JUNO says (%s): %s', self.voice_locale, text)
+
+        if self.backend == 'coqui':
+            if self.coqui is None:
+                raise RuntimeError('Coqui TTS backend selected but model is not initialized.')
+            self._speak_with_coqui(text)
+            return
 
         if self.backend in {'auto', 'pyttsx3'} and self.engine is not None:
             try:
@@ -203,12 +228,17 @@ class JunoTTSNode:
             self._speak_with_espeak(text)
             return
 
-        raise RuntimeError('No TTS backend available. Install pyttsx3 or espeak-ng/espeak.')
+        raise RuntimeError('No TTS backend available. Install pyttsx3, Coqui TTS, or espeak-ng/espeak.')
 
     def _candidate_commands(self):
         if self.command_setting and self.command_setting.lower() != 'auto':
             return [self.command_setting]
         return ['espeak-ng', 'espeak']
+
+    def _candidate_audio_players(self):
+        if self.audio_player and self.audio_player.lower() != 'auto':
+            return [self.audio_player]
+        return ['aplay', 'paplay', 'ffplay']
 
     def _candidate_voices(self):
         requested = self.voice_locale.strip().lower().replace('_', '-')
@@ -256,6 +286,59 @@ class JunoTTSNode:
                 rospy.logwarn('%s', last_error)
 
         raise RuntimeError(last_error or 'No espeak-compatible command available')
+
+    def _speak_with_coqui(self, text):
+        if self.coqui is None:
+            raise RuntimeError('Coqui TTS is not initialized.')
+
+        audio_file = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                audio_file = tmp.name
+
+            self.coqui.tts_to_file(text=text, file_path=audio_file)
+            last_error = None
+
+            for player in self._candidate_audio_players():
+                if shutil.which(player) is None:
+                    rospy.logwarn('Audio player not found: %s', player)
+                    continue
+
+                args = [player, audio_file]
+                rospy.loginfo('Playing Coqui TTS output with %s', player)
+                process = subprocess.Popen(args)
+                with self._process_lock:
+                    self._current_process = process
+
+                while process.poll() is None:
+                    if self._stop_event.is_set() or rospy.is_shutdown():
+                        process.terminate()
+                        try:
+                            process.wait(timeout=1.0)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                        rospy.loginfo('Interrupted Coqui TTS playback')
+                        with self._process_lock:
+                            self._current_process = None
+                        return
+                    rospy.sleep(0.05)
+
+                with self._process_lock:
+                    self._current_process = None
+
+                if process.returncode == 0:
+                    return
+
+                last_error = '%s exited with code %s' % (player, process.returncode)
+                rospy.logwarn('%s', last_error)
+
+            raise RuntimeError(last_error or 'No audio playback command available for Coqui TTS')
+        finally:
+            if audio_file is not None:
+                try:
+                    os.remove(audio_file)
+                except OSError:
+                    pass
 
     def run(self):
         rospy.spin()
