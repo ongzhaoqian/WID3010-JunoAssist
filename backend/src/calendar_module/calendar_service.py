@@ -59,16 +59,6 @@ class CalendarService:
             self._migrate_schedule_columns(conn)
             self._migrate_reminder_columns(conn)
 
-    def reset_runtime_data(self) -> None:
-        """Clear reminder rows for a fresh backend session.
-
-        Schedule items intentionally persist across restarts (action plan
-        requirement); only reminders are reset here.
-        """
-        with self._connect() as conn:
-            conn.execute("DELETE FROM reminders")
-            conn.execute("DELETE FROM sqlite_sequence WHERE name = 'reminders'")
-
     def _migrate_schedule_columns(self, conn: sqlite3.Connection) -> None:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(schedule_items)").fetchall()}
         if "user_id" not in columns:

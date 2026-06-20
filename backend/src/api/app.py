@@ -151,7 +151,9 @@ def create_app() -> FastAPI:
         return os.getenv("JUNO_DATABASE_REFRESH_ON_START", "true").strip().lower() in {"1", "true", "yes", "y", "on"}
 
     def _refresh_runtime_database() -> None:
-        calendar_service.reset_runtime_data()
+        # Reminders (and schedule items) are user data and persist across
+        # restarts like schedules already do; only the fitness game's
+        # session log is reset for a fresh demo/dev run.
         fitness_service.reset_runtime_data()
 
     # Refresh immediately when the backend app is constructed. This also makes
