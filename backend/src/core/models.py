@@ -128,6 +128,7 @@ class ReminderRequest(BaseModel):
     priority: str = Field(default="medium", max_length=20)
     due_date: Optional[str] = None
     due_time: Optional[str] = None
+    completed: Optional[bool] = None
 
     @model_validator(mode="after")
     def normalise_legacy_due_fields(self):
@@ -144,6 +145,15 @@ class ScheduleItemRequest(BaseModel):
     time: Optional[str] = None
     type: str = Field(default="study", max_length=40)
     priority: str = Field(default="medium", max_length=20)
+
+
+class ScheduleItemUpdateRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    date: Optional[str] = None
+    time: Optional[str] = None
+    type: Optional[str] = Field(default=None, max_length=40)
+    priority: Optional[str] = Field(default=None, max_length=20)
+    completed: Optional[bool] = None
 
 
 class TimerRequest(BaseModel):

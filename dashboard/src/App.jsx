@@ -3,6 +3,7 @@ import { getAuthToken, getJson, postJson, setAuthToken, statusSocket } from "./l
 import StatusPanel from "./components/StatusPanel";
 import CommandPanel from "./components/CommandPanel";
 import SchedulePanel from "./components/SchedulePanel";
+import CalendarPanel from "./components/CalendarPanel";
 import TimerPanel from "./components/TimerPanel";
 import DateTimePanel from "./components/DateTimePanel";
 import ReminderPanel from "./components/ReminderPanel";
@@ -257,6 +258,10 @@ export default function App() {
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
         <SchedulePanel schedule={schedule} onScheduleChanged={loadSchedule} />
         <ReminderPanel />
+      </section>
+
+      <section className="mt-5">
+        <CalendarPanel />
       </section>
 
       <FitnessGameModal

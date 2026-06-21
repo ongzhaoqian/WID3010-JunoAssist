@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime
 from typing import Optional
 import asyncio
 import logging
@@ -16,9 +17,9 @@ from fastapi.responses import StreamingResponse
 from src.activation.confirmation_handler import ConfirmationHandler
 from src.activation.wake_word_detector import WakeWordDetector
 from src.auth.user_service import AuthError, AuthService
-from src.calendar_module.calendar_service import CalendarService
+from src.calendar_module.calendar_service import CalendarService 
 from src.core.config import settings
-from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
+from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, ScheduleItemUpdateRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
 from src.core.state import robot_state, is_break_suggested_from_labels
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
@@ -82,6 +83,71 @@ def _fire_playwright_game(game_url: str) -> None:
         )
 
 
+def _build_notification_message(
+    due_item: dict,
+    phrase_bank: PhraseBank,
+    alert_30_key: str = "schedule_reminder_30",
+    alert_due_key: str = "schedule_reminder_due",
+    alert_overdue_key: str = "schedule_reminder_overdue",
+) -> str:
+    """Shared phrasing for both the live notification loop and the
+    test-exercised _run_schedule_notification_tick helper, so the two never
+    drift out of sync on how a due_item's stage/overdue fields are read."""
+    if due_item["stage"] == "30":
+        return phrase_bank.say(
+            alert_30_key,
+            title=due_item["title"],
+            remaining_label=due_item.get("remaining_label", "30 minutes"),
+        )
+    if due_item.get("overdue"):
+        return phrase_bank.say(
+            alert_overdue_key,
+            title=due_item["title"],
+            overdue_label=due_item.get("overdue_label", "a moment"),
+        )
+    return phrase_bank.say(alert_due_key, title=due_item["title"])
+
+
+def _build_schedule_notification_message(due_item: dict, phrase_bank: PhraseBank) -> str:
+    return _build_notification_message(due_item, phrase_bank)
+
+
+def _run_schedule_notification_tick(calendar_service, tts, phrase_bank, robot_state, now, tolerance_seconds) -> list[dict]:
+    """Speak and mark every schedule item due a notification at `now`.
+
+    Multiple items due in the same tick are each spoken individually (so
+    none of the spoken reminders get dropped), but only one combined
+    robot_state.set_response() call is made at the end - joining every
+    spoken message with a newline - so the "Most Recent Response" panel
+    shows all of them stacked together instead of the last one silently
+    overwriting the others. This only changes how the schedule loop calls
+    set_response; every other caller of set_response is untouched.
+    """
+    try:
+        due_items = calendar_service.get_items_needing_notification(
+            now, "schedule_items", tolerance_seconds=tolerance_seconds
+        )
+    except Exception:
+        due_items = []
+
+    messages: list[str] = []
+    for due_item in due_items:
+        try:
+            message = _build_schedule_notification_message(due_item, phrase_bank)
+            tts.speak(message)
+            calendar_service.mark_notified(due_item["id"], due_item["stage"], "schedule_items")
+            messages.append(message)
+        except Exception:
+            # One item's failure (e.g. a TTS error) must not block or skip
+            # the next item due in the same tick.
+            continue
+
+    if messages:
+        robot_state.set_response("\n".join(messages))
+
+    return due_items
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name)
 
@@ -117,7 +183,9 @@ def create_app() -> FastAPI:
         return os.getenv("JUNO_DATABASE_REFRESH_ON_START", "true").strip().lower() in {"1", "true", "yes", "y", "on"}
 
     def _refresh_runtime_database() -> None:
-        calendar_service.reset_runtime_data()
+        # Reminders (and schedule items) are user data and persist across
+        # restarts like schedules already do; only the fitness game's
+        # session log is reset for a fresh demo/dev run.
         fitness_service.reset_runtime_data()
 
     # Refresh immediately when the backend app is constructed. This also makes
@@ -515,7 +583,7 @@ def create_app() -> FastAPI:
         response = phrase_bank.say(
             "schedule_added",
             purpose=item["title"],
-            date=item.get("formatted_date") or item.get("date") or "not specified",
+            date=item.get("date") or "not specified",
             time=item.get("time") or "not specified",
             priority=item.get("priority") or "medium",
         )
@@ -553,7 +621,7 @@ def create_app() -> FastAPI:
         response = phrase_bank.say(
             "reminder_added",
             title=item["title"],
-            date=item.get("formatted_date") or item.get("date") or "not specified",
+            date=item.get("date") or "not specified",
             time=item.get("time") or "not specified",
             priority=item.get("priority") or "medium",
         )
@@ -857,6 +925,7 @@ def create_app() -> FastAPI:
         robot_state.set_vision_emotion_mode(settings.vision_emotion_mode_default)
         asyncio.create_task(_emotion_monitor_loop())
         asyncio.create_task(_timer_loop())
+        asyncio.create_task(_schedule_notification_loop())
         if settings.use_ros_robot:
             asyncio.create_task(_ros_speech_command_loop())
 
@@ -902,6 +971,107 @@ def create_app() -> FastAPI:
                 robot.set_led_state("timer_complete")
                 tts.speak(response)
             await asyncio.sleep(1)
+
+    async def _schedule_notification_loop():
+        while True:
+            # Collected across BOTH tables for this tick. Each due item is
+            # still spoken individually via TTS (so a robot can't merge two
+            # sentences into one breath), but the dashboard's "Most Recent
+            # Response" gets exactly one combined, newline-joined update at
+            # the end of the tick instead of being overwritten by whichever
+            # item happened to be processed last (e.g. a reminder silently
+            # erasing 3 schedule items that fired in the same tick).
+            tick_messages: list[str] = []
+
+            for (
+                table_name, alert_30_key, alert_due_key, alert_overdue_key,
+                due_now_single_key, due_now_multiple_key, upcoming_multiple_key,
+            ) in [
+                (
+                    "schedule_items", "schedule_reminder_30", "schedule_reminder_due", "schedule_reminder_overdue",
+                    "schedule_due_now_single", "schedule_due_now_multiple", "schedule_upcoming_multiple",
+                ),
+                (
+                    "reminders", "reminder_alert_30", "reminder_alert_due", "reminder_alert_overdue",
+                    "reminder_due_now_single", "reminder_due_now_multiple", "reminder_upcoming_multiple",
+                ),
+            ]:
+                try:
+                    due_items = calendar_service.get_items_needing_notification(
+                        datetime.now(),
+                        table_name,
+                        tolerance_seconds=settings.schedule_notification_check_seconds,
+                    )
+                except Exception:
+                    due_items = []
+
+                # Due-now items (not overdue) carry no per-item detail beyond
+                # the title, so several due in the same tick are spoken and
+                # shown as one combined sentence instead of one "X starts
+                # now." per item. "30 minutes before" items are grouped the
+                # same way when they share the same remaining_label (i.e.
+                # they're due at the same time), since the wording would
+                # otherwise be identical except for the title. Overdue items
+                # still carry distinct per-item duration, so those stay
+                # individual.
+                due_now_items: list[dict] = []
+                upcoming_items_by_label: dict[str, list[dict]] = {}
+                for due_item in due_items:
+                    try:
+                        if due_item["stage"] == "due" and not due_item.get("overdue"):
+                            due_now_items.append(due_item)
+                        elif due_item["stage"] == "30":
+                            upcoming_items_by_label.setdefault(due_item["remaining_label"], []).append(due_item)
+                        else:
+                            message = _build_notification_message(
+                                due_item, phrase_bank, alert_30_key, alert_due_key, alert_overdue_key
+                            )
+                            tts.speak(message)
+                            tick_messages.append(message)
+                            calendar_service.mark_notified(due_item["id"], due_item["stage"], table_name)
+                    except Exception:
+                        # One item's failure (e.g. a TTS error) must not block or
+                        # skip the next item due in the same tick.
+                        continue
+
+                # Grouped items are only marked notified after their combined
+                # TTS call succeeds — marking them upfront (before the spoken
+                # message is confirmed) would permanently drop the alert if
+                # speak() raised, since it's never retried afterwards.
+                if due_now_items:
+                    titles = [item["title"] for item in due_now_items]
+                    if len(titles) == 1:
+                        grouped_message = phrase_bank.say(due_now_single_key, title=titles[0])
+                    else:
+                        grouped_message = phrase_bank.say(due_now_multiple_key, titles=", ".join(titles))
+                    try:
+                        tts.speak(grouped_message)
+                        tick_messages.append(grouped_message)
+                        for item in due_now_items:
+                            calendar_service.mark_notified(item["id"], item["stage"], table_name)
+                    except Exception:
+                        pass
+
+                for remaining_label, items in upcoming_items_by_label.items():
+                    titles = [item["title"] for item in items]
+                    try:
+                        if len(titles) == 1:
+                            upcoming_message = phrase_bank.say(alert_30_key, title=titles[0], remaining_label=remaining_label)
+                        else:
+                            upcoming_message = phrase_bank.say(
+                                upcoming_multiple_key, titles=", ".join(titles), remaining_label=remaining_label
+                            )
+                        tts.speak(upcoming_message)
+                        tick_messages.append(upcoming_message)
+                        for item in items:
+                            calendar_service.mark_notified(item["id"], item["stage"], table_name)
+                    except Exception:
+                        continue
+
+            if tick_messages:
+                robot_state.set_response("\n".join(tick_messages))
+
+            await asyncio.sleep(settings.schedule_notification_check_seconds)
 
     async def _ros_speech_command_loop():
         """Consumes transcripts published by language_pkg/transcriber.py."""
@@ -1090,8 +1260,8 @@ def create_app() -> FastAPI:
                 "Pragma": "no-cache",
                 "Expires": "0",
             },
-        )
-
+        )    
+    
     @app.get("/api/schedule/today")
     def get_today_schedule(user: dict = Depends(_require_user)):
         return calendar_service.get_today_schedule(user_id=user["id"])
@@ -1106,7 +1276,7 @@ def create_app() -> FastAPI:
             priority=request.priority or "medium",
             user_id=user["id"],
         )
-        robot_state.set_response(phrase_bank.say("schedule_added", purpose=item["title"], date=item.get("formatted_date") or item.get("date") or "not specified", time=item.get("time") or "not specified", priority=item.get("priority") or "medium"))
+        robot_state.set_response(phrase_bank.say("schedule_added", purpose=item["title"], date=item.get("date") or "not specified", time=item.get("time") or "not specified", priority=item.get("priority") or "medium"))
         return item
 
     @app.delete("/api/schedule/{item_id}")
@@ -1116,6 +1286,41 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Schedule item not found")
         robot_state.set_response("Schedule item removed.")
         return {"deleted": True, "id": item_id}
+
+    @app.put("/api/schedule/{item_id}")
+    def update_schedule_item(item_id: int, request: ScheduleItemUpdateRequest, user: dict = Depends(_require_user)):
+        previous = calendar_service.get_schedule_item(item_id, user_id=user["id"])
+        item = calendar_service.update_schedule_item(
+            item_id,
+            title=request.title,
+            date=request.date,
+            time=request.time,
+            type=request.type,
+            priority=request.priority,
+            completed=request.completed,
+            user_id=user["id"],
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Schedule item not found")
+
+        completed_only_change = previous is not None and item["completed"] != previous["completed"] and all(
+            item[field] == previous[field] for field in ("title", "date", "time", "type", "priority")
+        )
+        if completed_only_change:
+            robot_state.set_response(
+                phrase_bank.say("schedule_marked_complete" if item["completed"] else "schedule_marked_incomplete", title=item["title"])
+            )
+        else:
+            robot_state.set_response(
+                phrase_bank.say(
+                    "schedule_added",
+                    purpose=item["title"],
+                    date=item.get("date") or "not specified",
+                    time=item.get("time") or "not specified",
+                    priority=item.get("priority") or "medium",
+                )
+            )
+        return item
 
     @app.get("/api/deadlines")
     def get_deadlines(user: dict = Depends(_require_user)):
@@ -1139,11 +1344,49 @@ def create_app() -> FastAPI:
             phrase_bank.say(
                 "reminder_added",
                 title=reminder["title"],
-                date=reminder.get("formatted_date") or reminder.get("date") or "not specified",
-                time=reminder.get("time") or "not specified",
+                date=reminder.get("date"),
+                time=reminder.get("time"),
                 priority=reminder.get("priority") or "medium",
             )
         )
+        return reminder
+    
+    @app.put("/api/reminders/{item_id}")
+    def update_reminder(item_id: int, request: ReminderRequest, user: dict = Depends(_require_user)):
+        previous = calendar_service.get_reminder(item_id, user_id=user["id"])
+        reminder = calendar_service.update_reminder(
+            item_id,
+            request.title.strip(),
+            date=request.date,
+            time=request.time,
+            type=request.type or "reminder",
+            priority=request.priority or "medium",
+            completed=request.completed,
+            user_id=user["id"],
+        )
+        if not reminder:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+
+        completed_only_change = previous is not None and reminder["completed"] != previous["completed"] and all(
+            reminder[field] == previous[field] for field in ("title", "date", "time", "type", "priority")
+        )
+        if completed_only_change:
+            robot_state.set_response(
+                phrase_bank.say(
+                    "reminder_marked_complete" if reminder["completed"] else "reminder_marked_incomplete",
+                    title=reminder["title"],
+                )
+            )
+        else:
+            robot_state.set_response(
+                phrase_bank.say(
+                    "reminder_updated",
+                    title=reminder["title"],
+                    date=reminder.get("date"),
+                    time=reminder.get("time"),
+                    priority=reminder.get("priority") or "medium",
+                )
+            )
         return reminder
 
     @app.delete("/api/reminders/{item_id}")

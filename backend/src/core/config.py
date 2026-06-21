@@ -36,6 +36,10 @@ class Settings:
     wake_phrase: str = os.getenv("JUNO_WAKE_PHRASE", "hey john")
     confirmation_phrase: str = os.getenv("JUNO_CONFIRMATION_PHRASE", "yes")
     emotion_update_seconds: float = float(os.getenv("JUNO_EMOTION_UPDATE_SECONDS", "3.0"))
+    # How often the background loop scans for schedule items due a spoken
+    # notification (30 minutes before, and at, the scheduled time). Also used
+    # as the tolerance window so a check tick never misses a notification.
+    schedule_notification_check_seconds: float = float(os.getenv("JUNO_SCHEDULE_NOTIFICATION_CHECK_SECONDS", "5.0"))
     # When the user explicitly states an emotion in speech, keep that as the
     # trusted emotion for this many seconds before visual inference may override it.
     speech_emotion_override_seconds: float = float(os.getenv("JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS", "45.0"))

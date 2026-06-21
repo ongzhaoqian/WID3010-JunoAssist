@@ -144,7 +144,8 @@ def test_voice_schedule_add_accepts_structured_transcription(tmp_path, monkeypat
     assert payload["schedule_item"]["formatted_date"] == "20 May, 2026"
     assert payload["schedule_item"]["time"] == "15:30"
     assert payload["schedule_item"]["priority"] == "high"
-    assert "20 May, 2026" in payload["response"]
+    assert "May 20" in payload["response"]
+    assert "3:30 PM" in payload["response"]
 
 
 def test_voice_timer_flow_can_be_cancelled():
@@ -608,7 +609,7 @@ def test_fitness_session_without_profile_marks_calories_pending(tmp_path, monkey
 
 
 
-def test_database_refresh_on_start_clears_runtime_tables(tmp_path, monkeypatch):
+def test_schedule_and_reminders_both_persist_across_restart(tmp_path, monkeypatch):
     db_path = tmp_path / "juno_test.db"
     monkeypatch.setenv("JUNO_DATABASE_PATH", str(db_path))
 
@@ -620,9 +621,18 @@ def test_database_refresh_on_start_clears_runtime_tables(tmp_path, monkeypatch):
     assert created.status_code == 200
     assert client.get("/api/schedule/today").json()
 
-    # A fresh app startup should clear previous runtime rows by default.
+    reminder = client.post(
+        "/api/reminders",
+        json={"title": "Old reminder", "date": "2026-05-20", "time": "10:00"},
+    )
+    assert reminder.status_code == 200
+    assert client.get("/api/reminders").json()
+
+    # Reminders are user data, same as schedule items, and must survive a
+    # fresh app startup rather than being wiped for a "clean demo" run.
     refreshed_client = authenticated_client(create_app())
-    assert refreshed_client.get("/api/schedule/today").json() == []
+    assert refreshed_client.get("/api/schedule/today").json()
+    assert refreshed_client.get("/api/reminders").json()
 
 
 def test_startup_does_not_load_sample_schedule_dataset(tmp_path, monkeypatch):

@@ -20,7 +20,7 @@ class ResponseGenerator:
 
     def generate(self, intent: Intent, emotion: EmotionState, user_text: str = "") -> str:
         if intent == Intent.CHECK_SCHEDULE:
-            items = self.calendar_service.get_today_schedule()
+            items = self.calendar_service.get_today_schedule(include_completed=False)
             if not items:
                 return self.phrases.say("schedule_empty")
             first_items = "; ".join(self._describe_schedule_item(item) for item in items)
@@ -34,8 +34,8 @@ class ResponseGenerator:
             return self.phrases.say(
                 "deadline_nearest",
                 title=nearest["title"],
-                date=nearest.get("formatted_date") or nearest.get("date") or "not specified",
-                time=nearest.get("time") or "not specified",
+                date=nearest.get("date"),
+                time=nearest.get("time")
             )
 
         if intent == Intent.CHECK_REMINDERS:
@@ -106,7 +106,7 @@ class ResponseGenerator:
         return self.llm_client.generate(context)
 
     def _schedule_summary(self) -> str:
-        items = self.calendar_service.get_today_schedule()[:3]
+        items = self.calendar_service.get_today_schedule(include_completed=False)[:3]
         deadlines = self.calendar_service.get_upcoming_deadlines()[:2]
         reminders = self.calendar_service.list_reminders(include_completed=False)[:3]
 
@@ -125,18 +125,20 @@ class ResponseGenerator:
             )
         return " | ".join(fragments)
 
-    @staticmethod
-    def _describe_schedule_item(item: dict) -> str:
-        date = item.get("formatted_date") or item.get("date") or "no date"
-        time = item.get("time") or "no time"
+    def _describe_schedule_item(self, item: dict) -> str:
+        date_val = item.get("date") or item.get("formatted_date")
+        time_val = item.get("time")
         item_type = item.get("type") or "schedule"
         priority = item.get("priority") or "medium"
-        return f"{item['title']} ({item_type}, {priority} priority) on {date} at {time}"
+        
+        when_phrase = self.phrases._humanize_when(date_val, time_val)
+        return f"{item['title']} ({item_type}, {priority} priority) {when_phrase}"
 
-    @staticmethod
-    def _describe_reminder_item(item: dict) -> str:
-        date = item.get("formatted_date") or item.get("date") or "no date"
-        time = item.get("time") or "no time"
+    def _describe_reminder_item(self, item: dict) -> str:
+        date_val = item.get("date") or item.get("formatted_date")
+        time_val = item.get("time")
         item_type = item.get("type") or "reminder"
         priority = item.get("priority") or "medium"
-        return f"{item['title']} ({item_type}, {priority} priority) on {date} at {time}"
+
+        when_phrase = self.phrases._humanize_when(date_val, time_val)
+        return f"{item['title']} ({item_type}, {priority} priority) {when_phrase}"

@@ -68,7 +68,11 @@ class IntentClassifier:
         if _has_timer_word:
             return Intent.SET_TIMER
 
-        _check_reminder_phrases = ("what are my reminders", "show my reminders", "list reminders", "check reminders", "my reminders", "show reminders")
+        _check_reminder_phrases = (
+            "what are my reminders", "show my reminders", "list reminders", "check reminders",
+            "my reminders", "show reminders",
+            "what are my remarks", "show my remarks", "list remarks", "check remarks", "my remarks",
+        )
         if any(p in t for p in _check_reminder_phrases):
             return Intent.CHECK_REMINDERS
 
@@ -138,11 +142,12 @@ class IntentClassifier:
     def looks_like_reminder_add(self, text: str) -> bool:
         t = text.lower().strip()
         add_words = ("add", "create", "insert", "put", "set", "make")
+        has_reminder_word = "reminder" in t or any(w in t for w in self._REMIND_MISHEARINGS)
         if self._looks_like_remind_me(t) or "reminder to" in t or "reminder for" in t:
             return True
-        if any(word in t for word in add_words) and "reminder" in t:
+        if any(word in t for word in add_words) and has_reminder_word:
             return True
-        return "reminder" in t and any(field in t for field in ("date", "time", "purpose", "title", "task"))
+        return has_reminder_word and any(field in t for field in ("date", "time", "purpose", "title", "task"))
 
     @staticmethod
     def _looks_like_remind_me(text: str) -> bool:
@@ -166,6 +171,15 @@ class IntentClassifier:
                     return True
         return False
 
+    # "Reminders" is consistently mangled by Whisper Tiny on short/noisy
+    # captures (e.g. "remarks", "remark") because the two words share enough
+    # phonetic shape that the model collapses them. A SequenceMatcher ratio
+    # against "remind"/"reminder" doesn't catch this (character overlap is
+    # too low), so these known mishearings are whitelisted explicitly instead
+    # of lowering the fuzzy threshold, which would start matching unrelated
+    # words like "calendar".
+    _REMIND_MISHEARINGS = ("remark", "remarks")
+
     @staticmethod
     def _has_remind_word(text: str) -> bool:
         """Fuzzy detect any 'remind'/'reminder' word for CHECK_REMINDERS fallback."""
@@ -173,7 +187,7 @@ class IntentClassifier:
             clean = re.sub(r"[^a-z]", "", word)
             if not clean:
                 continue
-            if clean in ("remind", "reminder", "reminders"):
+            if clean in ("remind", "reminder", "reminders") or clean in IntentClassifier._REMIND_MISHEARINGS:
                 return True
             if len(clean) >= 5 and difflib.SequenceMatcher(None, clean, "remind").ratio() >= 0.80:
                 return True
