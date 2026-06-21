@@ -94,7 +94,7 @@ class PhraseBank:
         "timer_started": [
             "Study timer started for {duration}.",
             "Done. I have started a study timer for {duration}.",
-            "Your focus session is ready. The timer is set for {duration}.",
+            "Your study session is ready. The timer is set for {duration}.",
         ],
         "timer_finished": [
             "Time is up. Your {label} has finished.",
@@ -155,6 +155,21 @@ class PhraseBank:
             "Which mood would you like? I can play Focus, Calm, Happy, Gentle, or Cool Down.",
             "Sure. Tell me what mood you want — Focus, Calm, Happy, Gentle, or Cool Down.",
         ],
+        "stress_acknowledgment": [
+            "You seem stressed.",
+        ],
+        "break_offer_ask": [
+            "Do you want a break?",
+        ],
+        "break_offer_declined": [
+            "No problem. Let me know if you change your mind.",
+        ],
+        "break_offer_declined_resume_study": [
+            "No problem. Resuming your study timer.",
+        ],
+        "break_offer_unclear": [
+            "Sorry, I did not catch that. Do you want a break?",
+        ],
         "game_or_music_offer": [
             "Would you like to play a game, or play music?",
             "Do you want to play a game, or would you rather play music?",
@@ -187,6 +202,27 @@ class PhraseBank:
         "reminder_removed": [
             "Reminder removed.",
             "Done. I have removed that reminder.",
+        ],
+        "break_ask_after_study": [
+            "Your study timer is up. Would you like to take a short break?",
+        ],
+        "break_ask_after_stress": [
+            "You have been stressed for a while. Would you like to take a short break?",
+        ],
+        "break_confirmed": [
+            "Sounds good. Starting a 5-minute break timer now.",
+        ],
+        "break_declined_after_study": [
+            "Understood. Let me know when you're ready for your next session.",
+        ],
+        "break_declined_after_stress": [
+            "Understood, continuing your study timer.",
+        ],
+        "break_resumed_study": [
+            "Break's over. Resuming your study timer.",
+        ],
+        "break_confirmation_unclear": [
+            "Sorry, I did not catch that. Would you like a short break? Please say yes or no.",
         ],
     })
 

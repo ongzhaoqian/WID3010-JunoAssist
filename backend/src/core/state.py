@@ -5,6 +5,31 @@ from .models import RobotMode, EmotionState, VisionEmotionMode
 from src.vision.emotion_labels import format_emotion_for_mode, normalise_vision_mode
 
 
+BREAK_SUGGESTION_EMOTIONS = {
+    "stress",
+    "stressed",
+    "fear",
+    "fearful",
+    "scared",
+    "anger",
+    "angry",
+    "frustrated",
+    "frustration",
+    "disgust",
+    "disgusted",
+}
+
+
+def is_break_suggested_from_labels(*labels: object) -> bool:
+    """Return True when the current emotion estimate should trigger a movement break prompt."""
+    for label in labels:
+        value = getattr(label, "value", label)
+        normalised = str(value or "unknown").strip().lower().replace("_", "-")
+        if normalised in BREAK_SUGGESTION_EMOTIONS:
+            return True
+    return False
+
+
 class RobotState:
     def __init__(self) -> None:
         self._lock = Lock()
@@ -26,6 +51,7 @@ class RobotState:
         self.awaiting_timer_seconds = False
         self.awaiting_music_genre = False
         self.awaiting_game_or_music = False
+        self.awaiting_break_offer = False
         self.timer_pending_minutes = 0
         self.timer_paused = False
         self.timer_paused_remaining = 0
@@ -33,6 +59,13 @@ class RobotState:
         self.timer_completed_counter = 0
         self.last_timer_completed_label = None
         self.last_timer_completed_at = 0.0
+        self.active_timer_type = "study"
+        self.stress_started_at = 0.0
+        self.awaiting_break_confirmation = False
+        self.break_confirmation_reason: str | None = None
+        self.study_timer_stashed = False
+        self.stashed_study_remaining = 0
+        self.stashed_study_label: str | None = None
         self.last_emotion_source = "none"
         self.last_speech_emotion_text = None
         self.last_speech_emotion_at = 0.0
@@ -74,6 +107,7 @@ class RobotState:
                 "awaiting_timer_seconds": self.awaiting_timer_seconds,
                 "awaiting_music_genre": self.awaiting_music_genre,
                 "awaiting_game_or_music": self.awaiting_game_or_music,
+                "awaiting_break_offer": self.awaiting_break_offer,
                 "timer_pending_minutes": self.timer_pending_minutes,
                 "timer_paused": self.timer_paused,
                 "timer_paused_remaining": self.timer_paused_remaining,
@@ -81,8 +115,17 @@ class RobotState:
                 "timer_completed_counter": self.timer_completed_counter,
                 "last_timer_completed_label": self.last_timer_completed_label,
                 "last_timer_completed_at": self.last_timer_completed_at,
+                "active_timer_type": self.active_timer_type,
+                "awaiting_break_confirmation": self.awaiting_break_confirmation,
+                "break_confirmation_reason": self.break_confirmation_reason,
                 "emotion_source": self.last_emotion_source,
                 "emotion_confidence": self.emotion_confidence,
+                "break_suggested": is_break_suggested_from_labels(
+                    self.display_emotion,
+                    self.juno_emotion,
+                    self.raw_ekman_emotion,
+                    self.current_emotion,
+                ),
                 "last_speech_emotion_text": self.last_speech_emotion_text,
                 "last_speech_emotion_at": self.last_speech_emotion_at,
                 "camera_enabled": self.camera_enabled,
@@ -208,6 +251,7 @@ class RobotState:
         with self._lock:
             self.timer_remaining_seconds = max(0, seconds)
             self.active_timer_label = label
+            self.active_timer_type = "study"
             self.awaiting_timer_duration = False
             self.awaiting_timer_minutes = False
             self.awaiting_timer_seconds = False
@@ -215,6 +259,11 @@ class RobotState:
             self.timer_paused = False
             self.timer_paused_remaining = 0
             self.timer_duration_attempts = 0
+            self.study_timer_stashed = False
+            self.stashed_study_remaining = 0
+            self.stashed_study_label = None
+            self.awaiting_break_confirmation = False
+            self.break_confirmation_reason = None
 
     def pause_timer(self) -> bool:
         with self._lock:
@@ -238,6 +287,7 @@ class RobotState:
         with self._lock:
             self.timer_remaining_seconds = 0
             self.active_timer_label = None
+            self.active_timer_type = "study"
             self.timer_paused = False
             self.timer_paused_remaining = 0
             self.awaiting_timer_duration = False
@@ -245,6 +295,11 @@ class RobotState:
             self.awaiting_timer_seconds = False
             self.timer_pending_minutes = 0
             self.timer_duration_attempts = 0
+            self.study_timer_stashed = False
+            self.stashed_study_remaining = 0
+            self.stashed_study_label = None
+            self.awaiting_break_confirmation = False
+            self.break_confirmation_reason = None
 
     def set_awaiting_timer_duration(self, awaiting: bool) -> None:
         with self._lock:
@@ -277,6 +332,10 @@ class RobotState:
         with self._lock:
             self.awaiting_game_or_music = bool(awaiting)
 
+    def set_awaiting_break_offer(self, awaiting: bool) -> None:
+        with self._lock:
+            self.awaiting_break_offer = bool(awaiting)
+
     def increment_timer_duration_attempts(self) -> int:
         with self._lock:
             self.timer_duration_attempts += 1
@@ -308,15 +367,130 @@ class RobotState:
                 return None
 
             completed_label = self.active_timer_label or "Study timer"
+            completed_type = self.active_timer_type
             self.active_timer_label = None
             self.timer_completed_counter += 1
             self.last_timer_completed_label = completed_label
             self.last_timer_completed_at = time.time()
+
+            # A break timer that completes while a study timer is stashed
+            # underneath it (the user said "yes" to a break mid-session)
+            # should hand control straight back to that study timer instead
+            # of leaving everything idle.
+            resumed_study = False
+            if completed_type == "break" and self.study_timer_stashed:
+                self.timer_remaining_seconds = self.stashed_study_remaining
+                self.active_timer_label = self.stashed_study_label
+                self.study_timer_stashed = False
+                self.stashed_study_remaining = 0
+                self.stashed_study_label = None
+                self.active_timer_type = "study"
+                resumed_study = True
+            else:
+                self.active_timer_type = "study"
+
             return {
                 "label": completed_label,
+                "timer_type": completed_type,
                 "completed_counter": self.timer_completed_counter,
                 "completed_at": self.last_timer_completed_at,
+                "resumed_study": resumed_study,
             }
+
+    def update_stress_tracking(self, in_stress_class: bool, threshold_seconds: float) -> bool:
+        """Track continuous vision-detected stress and signal once per episode.
+
+        Returns True exactly once, when sustained stress first crosses
+        `threshold_seconds`. Leaving the stress class (even for a single
+        frame) resets the counter, so "continuously" is interpreted strictly.
+        """
+        with self._lock:
+            if not in_stress_class:
+                self.stress_started_at = 0.0
+                return False
+
+            if self.awaiting_break_confirmation:
+                # Already asking about a break; do not restart or re-signal.
+                return False
+
+            if self.stress_started_at <= 0:
+                self.stress_started_at = time.monotonic()
+                return False
+
+            elapsed = time.monotonic() - self.stress_started_at
+            return elapsed >= threshold_seconds
+
+    def _stash_study_timer_locked(self) -> None:
+        """Freeze a running study timer into the break-question stash. Caller holds the lock."""
+        if (
+            self.active_timer_type == "study"
+            and self.timer_remaining_seconds > 0
+            and not self.timer_paused
+            and not self.study_timer_stashed
+        ):
+            self.study_timer_stashed = True
+            self.stashed_study_remaining = self.timer_remaining_seconds
+            self.stashed_study_label = self.active_timer_label
+            self.timer_remaining_seconds = 0
+
+    def stash_study_timer_if_running(self) -> None:
+        """Freeze a running study timer ahead of asking an unrelated yes/no question.
+
+        Unlike `request_break_confirmation`, this does not touch
+        `awaiting_break_confirmation` — for flows (like the voice-triggered
+        break offer) that use their own awaiting-flag and yes/no handling.
+        """
+        with self._lock:
+            self._stash_study_timer_locked()
+
+    def request_break_confirmation(self, reason: str) -> None:
+        """Ask the user whether they want a break, freezing a running study timer.
+
+        Freezing happens immediately when the question is asked (not when the
+        user answers), so the study countdown stops for the duration of the
+        question rather than continuing to run underneath it. The frozen
+        remaining time is kept in a dedicated stash (distinct from the normal
+        pause/resume fields) so a later break timer can use the live
+        timer_remaining_seconds slot without losing track of it.
+        """
+        with self._lock:
+            self.awaiting_break_confirmation = True
+            self.break_confirmation_reason = reason
+            if reason == "stress":
+                self._stash_study_timer_locked()
+
+    def clear_break_confirmation(self) -> None:
+        with self._lock:
+            self.awaiting_break_confirmation = False
+            self.break_confirmation_reason = None
+
+    def accept_break(self, seconds: int, label: str) -> None:
+        """Start the break timer. Any stashed study timer stays frozen underneath."""
+        with self._lock:
+            self.timer_remaining_seconds = max(0, seconds)
+            self.active_timer_label = label
+            self.active_timer_type = "break"
+            self.awaiting_break_confirmation = False
+            self.break_confirmation_reason = None
+
+    def decline_break(self) -> bool:
+        """Resume a study timer that was frozen for the question, if any.
+
+        Returns True if a stashed study timer was resumed.
+        """
+        with self._lock:
+            resumed = False
+            if self.study_timer_stashed:
+                self.timer_remaining_seconds = self.stashed_study_remaining
+                self.active_timer_label = self.stashed_study_label
+                self.active_timer_type = "study"
+                self.study_timer_stashed = False
+                self.stashed_study_remaining = 0
+                self.stashed_study_label = None
+                resumed = True
+            self.awaiting_break_confirmation = False
+            self.break_confirmation_reason = None
+            return resumed
 
 
 robot_state = RobotState()

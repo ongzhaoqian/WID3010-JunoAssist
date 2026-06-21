@@ -19,7 +19,7 @@ from src.auth.user_service import AuthError, AuthService
 from src.calendar_module.calendar_service import CalendarService
 from src.core.config import settings
 from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
-from src.core.state import robot_state
+from src.core.state import robot_state, is_break_suggested_from_labels
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
 from src.nlp.llm_client import MalaysianLlamaClient
@@ -27,11 +27,11 @@ from src.nlp.response_generator import ResponseGenerator
 from src.nlp.phrase_bank import PhraseBank
 from src.productivity.music_service import MusicService
 from src.productivity.playwright_music import playwright_music
+from src.productivity.playwright_game import playwright_game
 from src.productivity.timer_service import TimerService
 from src.productivity.fitness_service import FitnessService, FITNESS_GAME_URL
 from src.robot.jupiter_interface import get_robot_interface
 from src.speech.text_to_speech import TextToSpeech
-from src.vision.emotion_detector import EmotionDetector
 from src.vision.speech_emotion import SpeechEmotionDetector
 from src.system.dashboard_lifecycle import DashboardLifecycleManager
 
@@ -45,7 +45,13 @@ def _fuzzy_matches(word: str, candidates: list[str] | tuple[str, ...], threshold
         target = re.sub(r"[^a-z0-9]", "", candidate.lower())
         if not target:
             continue
-        if clean == target or clean.startswith(target) or target.startswith(clean):
+        if clean == target:
+            return True
+        # The prefix shortcut below is meant for noisy multi-letter ASR
+        # variants (e.g. "stoppp" vs "stop"), not short common words like
+        # "a" or "i" that trivially prefix-match longer candidates (e.g.
+        # "a" vs "abort"). Require a minimum length before it applies.
+        if len(clean) >= 3 and (clean.startswith(target) or target.startswith(clean)):
             return True
         if difflib.SequenceMatcher(None, clean, target).ratio() >= threshold:
             return True
@@ -64,6 +70,15 @@ def _fire_playwright(embed_url: str) -> None:
         future = asyncio.run_coroutine_threadsafe(playwright_music.play(embed_url), _event_loop)
         future.add_done_callback(
             lambda f: f.exception() and _log.error("Playwright play task failed: %s", f.exception())
+        )
+
+
+def _fire_playwright_game(game_url: str) -> None:
+    """Schedule Playwright game launch from a sync context (thread pool or ROS loop)."""
+    if _event_loop and game_url:
+        future = asyncio.run_coroutine_threadsafe(playwright_game.play(game_url), _event_loop)
+        future.add_done_callback(
+            lambda f: f.exception() and _log.error("Playwright game task failed: %s", f.exception())
         )
 
 
@@ -148,7 +163,7 @@ def create_app() -> FastAPI:
     speech_emotion_detector = SpeechEmotionDetector()
     # The emotion model is created only when the operator explicitly enables
     # the Vision Module. This keeps the dashboard camera lightweight by default.
-    emotion_detector: Optional[EmotionDetector] = None
+    emotion_detector: Optional[object] = None
     dashboard_lifecycle = DashboardLifecycleManager(
         dashboard_title=settings.dashboard_window_title,
         reuse_existing=settings.dashboard_reuse_existing,
@@ -223,6 +238,7 @@ def create_app() -> FastAPI:
             "vision_emotion_mode": snapshot.get("vision_emotion_mode", "juno"),
             "emotion_source": snapshot.get("emotion_source"),
             "emotion_confidence": snapshot.get("emotion_confidence"),
+            "break_suggested": snapshot.get("break_suggested", False),
             "vision_backend": detector.backend_name if detector is not None else settings.vision_backend,
             "model_id": detector.model_id if detector is not None else settings.vision_model_id,
             "model_loaded": bool(detector.model_loaded) if detector is not None else False,
@@ -230,9 +246,13 @@ def create_app() -> FastAPI:
             "analysis_error": detector.last_error if detector is not None else None,
         }
 
-    def _ensure_emotion_detector() -> EmotionDetector:
+    def _ensure_emotion_detector():
+        # Import lazily so the normal backend can start with requirements.txt only.
+        # Vision dependencies such as numpy/torch/opencv are required only when the
+        # dashboard Vision Module is actually switched on.
         nonlocal emotion_detector
         if emotion_detector is None:
+            from src.vision.emotion_detector import EmotionDetector
             emotion_detector = EmotionDetector(use_real=True)
         return emotion_detector
 
@@ -304,13 +324,6 @@ def create_app() -> FastAPI:
         robot_state.set_response(response)
         tts.speak(response)
         return {"intent": Intent.SET_TIMER, "response": response, "timer": result, "status": robot_state.snapshot()}
-
-    def _ask_for_timer_minutes() -> dict:
-        response = phrase_bank.say("timer_ask_minutes")
-        robot_state.set_awaiting_timer_minutes(True)
-        robot_state.set_response(response)
-        tts.speak(response)
-        return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
 
     def _ask_for_timer_seconds(minutes: int) -> dict:
         response = phrase_bank.say("timer_ask_seconds", minutes=minutes)
@@ -384,7 +397,10 @@ def create_app() -> FastAPI:
             "study", "time", "alarm",
         )
 
-        cleaned = re.sub(r"[^a-z0-9 ]", " ", text.lower())
+        # Strip apostrophes first so contractions ("that's", "don't") collapse
+        # into one token instead of leaving an orphan "s"/"t" letter that the
+        # fuzzy startswith check below can mismatch against short stop words.
+        cleaned = re.sub(r"[^a-z0-9 ]", " ", text.lower().replace("'", ""))
         words = cleaned.split()
         joined = " ".join(words)
         snap = robot_state.snapshot()
@@ -394,9 +410,7 @@ def create_app() -> FastAPI:
         if not is_running and not is_paused:
             return None
 
-        _OUTPUT_CONTEXT_WORDS = ("music", "song", "songs", "audio", "speech", "voice", "talking", "speaking", "tts")
         has_timer_context = any(_fuzzy_matches(w, _TIMER_CONTEXT_WORDS, threshold=0.74) for w in words)
-        has_output_context = any(_fuzzy_matches(w, _OUTPUT_CONTEXT_WORDS, threshold=0.74) for w in words)
         has_stop = any(_fuzzy_matches(w, _STOP_WORDS, threshold=0.73) for w in words)
         has_pause = any(_fuzzy_matches(w, _PAUSE_WORDS, threshold=0.76) for w in words)
         has_resume = any(_fuzzy_matches(w, _RESUME_WORDS, threshold=0.76) for w in words)
@@ -406,6 +420,7 @@ def create_app() -> FastAPI:
             "end the timer", "cancel timer", "cancel the timer", "delete timer",
             "reset timer", "clear timer", "stop countdown", "end countdown",
             "cancel countdown", "stop study timer", "stop focus session",
+            "stop study session", "cancel study session",
             "finish timer", "terminate timer", "turn off timer",
         )
         pause_phrases = ("pause timer", "pause the timer", "hold timer", "freeze timer")
@@ -415,11 +430,10 @@ def create_app() -> FastAPI:
         explicit_pause_phrase = any(phrase in joined for phrase in pause_phrases)
         explicit_resume_phrase = any(phrase in joined for phrase in resume_phrases)
 
-        # Stop/delete takes priority when the user explicitly mentions a timer
-        # context, or when the command is a short bare stop-like command while
-        # a timer is the only active countdown on the dashboard.
-        short_bare_stop = has_stop and len(words) <= 3 and not has_pause and not has_resume and not has_output_context
-        if explicit_stop_phrase or (has_stop and has_timer_context) or short_bare_stop:
+        # Stop/delete only fires when the user explicitly mentions a timer
+        # context (e.g. "stop timer", "cancel countdown"). A bare "stop" should
+        # only interrupt music/game/speech, not delete the timer.
+        if explicit_stop_phrase or (has_stop and has_timer_context):
             timer_service.delete_timer()
             response = phrase_bank.say("timer_deleted")
             robot_state.set_response(response)
@@ -455,15 +469,14 @@ def create_app() -> FastAPI:
         music_result = music_service.stop()
         if _event_loop:
             asyncio.run_coroutine_threadsafe(playwright_music.stop(), _event_loop)
+            asyncio.run_coroutine_threadsafe(playwright_game.stop(), _event_loop)
 
-        # If a timer is currently visible and the spoken command is stop-like,
-        # honour it as a timer stop as well. This makes bare "stop" useful while
-        # the countdown is running, while still supporting explicit "stop music"
-        # / "stop speaking" through the same endpoint.
+        # Only delete the timer when the command explicitly mentions it
+        # ("stop timer", "cancel countdown"). A bare "stop" should only
+        # interrupt music/game/speech, never the running timer.
         lowered = text.lower().strip()
-        music_or_speech_only = bool(re.search(r"\b(music|song|songs|audio|speech|voice|talking|speaking|tts)\b", lowered))
         timer_related = bool(re.search(r"\b(timer|countdown|pomodoro|focus|study|session|clock)\b", lowered))
-        if _timer_is_active_or_paused() and (timer_related or not music_or_speech_only):
+        if _timer_is_active_or_paused() and timer_related:
             timer_service.delete_timer()
             response = phrase_bank.say("timer_deleted")
         else:
@@ -618,6 +631,50 @@ def create_app() -> FastAPI:
             return {"intent": intent, "response": snapshot["last_response"], "status": robot_state.snapshot()}
 
         if snapshot["mode"] == RobotMode.ACTIVE:
+            # --- awaiting yes/no for a break offer (after stress or study completion) ---
+            if snapshot.get("awaiting_break_confirmation"):
+                reason = snapshot.get("break_confirmation_reason")
+                _break_yes = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "please", "affirmative"}
+                _break_no = {"no", "nope", "nah", "not", "cancel", "negative"}
+                words = set(re.sub(r"[^a-z0-9 ]", "", text.lower()).split())
+                if words & _break_yes:
+                    robot_state.accept_break(5 * 60, "Break timer")
+                    response = phrase_bank.say("break_confirmed")
+                elif words & _break_no:
+                    robot_state.decline_break()
+                    key = "break_declined_after_study" if reason == "study_complete" else "break_declined_after_stress"
+                    response = phrase_bank.say(key)
+                else:
+                    response = phrase_bank.say("break_confirmation_unclear")
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": Intent.SET_TIMER, "response": response, "status": robot_state.snapshot()}
+
+            # --- awaiting yes/no for "do you want a break?" ---
+            if snapshot.get("awaiting_break_offer"):
+                _break_offer_yes = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "please", "affirmative"}
+                _break_offer_no = {"no", "nope", "nah", "not", "cancel", "negative"}
+                words = set(re.sub(r"[^a-z0-9 ]", "", text.lower()).split())
+                if words & _break_offer_yes:
+                    robot_state.set_awaiting_break_offer(False)
+                    robot_state.accept_break(5 * 60, "Break timer")
+                    robot_state.set_awaiting_game_or_music(True)
+                    response = f"{phrase_bank.say('break_confirmed')} {phrase_bank.say('game_or_music_offer')}"
+                    robot_state.set_response(response)
+                    tts.speak(response)
+                    return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
+                if words & _break_offer_no:
+                    robot_state.set_awaiting_break_offer(False)
+                    resumed = robot_state.decline_break()
+                    response = phrase_bank.say("break_offer_declined_resume_study" if resumed else "break_offer_declined")
+                    robot_state.set_response(response)
+                    tts.speak(response)
+                    return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
+                response = phrase_bank.say("break_offer_unclear")
+                robot_state.set_response(response)
+                tts.speak(response)
+                return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
+
             # --- awaiting game-or-music choice ---
             if snapshot.get("awaiting_game_or_music"):
                 words = re.findall(r"[a-z0-9']+", text.lower())
@@ -632,10 +689,12 @@ def create_app() -> FastAPI:
                     return {"intent": Intent.PLAY_MUSIC, "response": response, "status": robot_state.snapshot()}
                 if wants_game and not wants_music:
                     robot_state.set_awaiting_game_or_music(False)
-                    response = "Opening the fitness game for you."
+                    response = "Opening the destressing game for you."
+                    _fire_playwright_game(FITNESS_GAME_URL)
                     robot_state.set_response(response)
                     tts.speak(response)
                     return {"intent": Intent.REQUEST_BREAK, "response": response, "game_url": FITNESS_GAME_URL, "status": robot_state.snapshot()}
+                robot_state.set_awaiting_game_or_music(False)
                 response = phrase_bank.say("game_or_music_unclear")
                 robot_state.set_response(response)
                 tts.speak(response)
@@ -727,7 +786,9 @@ def create_app() -> FastAPI:
                 duration_seconds = intent_classifier.extract_timer_duration_seconds(text)
                 if duration_seconds:
                     return _start_study_timer_from_seconds(duration_seconds)
-                return _ask_for_timer_minutes()
+                # No duration spoken: default to the 25-minute Pomodoro session
+                # instead of asking, matching the dashboard's default duration.
+                return _start_study_timer_from_seconds(25 * 60)
             elif intent == Intent.ADD_SCHEDULE:
                 return _add_schedule_from_transcript(text)
             elif intent == Intent.ADD_REMINDER:
@@ -742,8 +803,9 @@ def create_app() -> FastAPI:
                 tts.speak(response)
                 return {"intent": intent, "response": response, "reminders": calendar_service.list_reminders(include_completed=False), "status": robot_state.snapshot()}
             elif intent == Intent.REQUEST_BREAK:
-                response = phrase_bank.say("game_or_music_offer")
-                robot_state.set_awaiting_game_or_music(True)
+                robot_state.stash_study_timer_if_running()
+                response = f"{phrase_bank.say('stress_acknowledgment')} {phrase_bank.say('break_offer_ask')}"
+                robot_state.set_awaiting_break_offer(True)
                 robot_state.set_response(response)
                 tts.speak(response)
                 return {"intent": intent, "response": response, "status": robot_state.snapshot()}
@@ -814,13 +876,28 @@ def create_app() -> FastAPI:
                             confidence=detector.last_confidence,
                             scores=scores,
                         )
+                        should_ask = robot_state.update_stress_tracking(
+                            is_break_suggested_from_labels(emotion),
+                            settings.stress_break_threshold_seconds,
+                        )
+                        if should_ask:
+                            robot_state.request_break_confirmation("stress")
+                            response = phrase_bank.say("break_ask_after_stress")
+                            robot_state.set_response(response)
+                            tts.speak(response)
             await asyncio.sleep(settings.emotion_update_seconds)
 
     async def _timer_loop():
         while True:
             completed = robot_state.decrement_timer()
             if completed:
-                response = phrase_bank.say("timer_finished", label=completed.get("label") or "study timer")
+                if completed.get("resumed_study"):
+                    response = phrase_bank.say("break_resumed_study")
+                elif completed.get("timer_type") == "study":
+                    robot_state.request_break_confirmation("study_complete")
+                    response = phrase_bank.say("break_ask_after_study")
+                else:
+                    response = phrase_bank.say("timer_finished", label=completed.get("label") or "study timer")
                 robot_state.set_response(response)
                 robot.set_led_state("timer_complete")
                 tts.speak(response)
@@ -875,14 +952,14 @@ def create_app() -> FastAPI:
         return [
             {"name": "Today's Schedule", "description": "Check classes, meetings, deadlines, and add structured schedule items by voice."},
             {"name": "Voice Schedule Capture", "description": "Accept date, time, purpose, and priority from speech, then format dates such as 2026-05-20 as 20 May, 2026."},
-            {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
+            {"name": "Study Timer", "description": "Start a Pomodoro-style study session."},
             {"name": "Dashboard Camera View", "description": "Choose when to view the Jupiter webcam directly inside the dashboard, with a refreshable MJPEG stream."},
             {"name": "Optional Vision Module", "description": "Enable emotion recognition only when needed; camera-only monitoring remains available."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},
             {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
-            {"name": "Fitness Game", "description": "Open the 6-7 fitness game, save scores, and estimate calories for one-off or cumulative statistics."},
+            {"name": "Destressing Game", "description": "Open a camera-based destressing game for a quick movement break."},
         ]
 
     @app.get("/api/status")

@@ -4,12 +4,12 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-FITNESS_GAME_URL = "https://67speed.com/"
+FITNESS_GAME_URL = "https://motions.games/"
 DEFAULT_GAME_MET = 4.0
 
 
 class FitnessService:
-    """User-scoped persistence and calorie estimation for the JUNO 6-7 game."""
+    """User-scoped persistence and calorie estimation for the JUNO destressing game."""
 
     def __init__(self, db_path: str = "juno_assist.db") -> None:
         self.db_path = db_path
