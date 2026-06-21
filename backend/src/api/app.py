@@ -831,15 +831,15 @@ def create_app() -> FastAPI:
 
             for (
                 table_name, alert_30_key, alert_due_key, alert_overdue_key,
-                due_now_single_key, due_now_multiple_key,
+                due_now_single_key, due_now_multiple_key, upcoming_multiple_key,
             ) in [
                 (
                     "schedule_items", "schedule_reminder_30", "schedule_reminder_due", "schedule_reminder_overdue",
-                    "schedule_due_now_single", "schedule_due_now_multiple",
+                    "schedule_due_now_single", "schedule_due_now_multiple", "schedule_upcoming_multiple",
                 ),
                 (
                     "reminders", "reminder_alert_30", "reminder_alert_due", "reminder_alert_overdue",
-                    "reminder_due_now_single", "reminder_due_now_multiple",
+                    "reminder_due_now_single", "reminder_due_now_multiple", "reminder_upcoming_multiple",
                 ),
             ]:
                 try:
@@ -854,13 +854,20 @@ def create_app() -> FastAPI:
                 # Due-now items (not overdue) carry no per-item detail beyond
                 # the title, so several due in the same tick are spoken and
                 # shown as one combined sentence instead of one "X starts
-                # now." per item. "30 minutes before" and overdue items still
-                # carry distinct per-item timing, so those stay individual.
+                # now." per item. "30 minutes before" items are grouped the
+                # same way when they share the same remaining_label (i.e.
+                # they're due at the same time), since the wording would
+                # otherwise be identical except for the title. Overdue items
+                # still carry distinct per-item duration, so those stay
+                # individual.
                 due_now_titles: list[str] = []
+                upcoming_titles_by_label: dict[str, list[str]] = {}
                 for due_item in due_items:
                     try:
                         if due_item["stage"] == "due" and not due_item.get("overdue"):
                             due_now_titles.append(due_item["title"])
+                        elif due_item["stage"] == "30":
+                            upcoming_titles_by_label.setdefault(due_item["remaining_label"], []).append(due_item["title"])
                         else:
                             message = _build_notification_message(
                                 due_item, phrase_bank, alert_30_key, alert_due_key, alert_overdue_key
@@ -883,6 +890,19 @@ def create_app() -> FastAPI:
                         tick_messages.append(grouped_message)
                     except Exception:
                         pass
+
+                for remaining_label, titles in upcoming_titles_by_label.items():
+                    try:
+                        if len(titles) == 1:
+                            upcoming_message = phrase_bank.say(alert_30_key, title=titles[0], remaining_label=remaining_label)
+                        else:
+                            upcoming_message = phrase_bank.say(
+                                upcoming_multiple_key, titles=", ".join(titles), remaining_label=remaining_label
+                            )
+                        tts.speak(upcoming_message)
+                        tick_messages.append(upcoming_message)
+                    except Exception:
+                        continue
 
             if tick_messages:
                 robot_state.set_response("\n".join(tick_messages))

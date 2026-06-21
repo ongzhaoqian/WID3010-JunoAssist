@@ -194,6 +194,9 @@ class PhraseBank:
             "{title} is overdue by {overdue_label}.",
             "Heads up, {title} is now overdue by {overdue_label}.",
         ],
+        "schedule_upcoming_multiple": [
+            "Schedules: {titles} start in {remaining_label}.",
+        ],
         "schedule_due_now_single": [
             "Schedule: {title} starts now.",
         ],
@@ -222,6 +225,9 @@ class PhraseBank:
         "reminder_alert_30": [
             "Reminder: {title} is in {remaining_label}.",
             "Don't forget — {title} is coming up in {remaining_label}.",
+        ],
+        "reminder_upcoming_multiple": [
+            "Reminders: {titles} are in {remaining_label}.",
         ],
         "reminder_alert_due": [
             "Reminder: {title} is due now.",
