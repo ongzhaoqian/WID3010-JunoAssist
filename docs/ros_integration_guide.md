@@ -49,7 +49,7 @@ This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot 
 | `microphone_node.py` | `/audio/raw` | `std_msgs/Float32MultiArray` | Publishes mono float32 microphone samples at 16 kHz. |
 | `transcriber.py` | `/speech/transcript` | `std_msgs/String` | Runs ASR (Whisper primary, Moonshine fallback) and publishes recognised text. |
 | External ASR or `example_transcriptor.py` | `/speech/raw_transcript` | `std_msgs/String` | Manual/external transcript fallback; relayed to `/speech/transcript`. |
-| `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using a British English voice where available. |
+| `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using Coqui TTS (offline, multi-speaker neural model). |
 | `tts_node.py` | `/juno/tts_done` | `std_msgs/String` | Signals that TTS has finished so STT can resume. |
 | Backend ROS bridge | `/juno/led_state` | `std_msgs/String` | Optional LED/status feedback. |
 | FastAPI backend | `/api/vision/camera/stream` | MJPEG over HTTP | Streams `/camera/image_raw` to the dashboard camera window. |
@@ -179,6 +179,121 @@ cd backend
 
 Do **not** merge the two environments unless all dependency conflicts have been tested and resolved.
 
+## 5a. First-Time Robot Setup (Python Environment & Coqui TTS)
+
+### Overview
+
+This section covers the **initial one-time setup** for a fresh Ubuntu robot or development machine to run JUNO Assist ROS nodes. Specifically:
+
+- Verify Python version (3.10 or later required for TTS)
+- Create and configure a Python virtual environment
+- Install Coqui TTS and audio dependencies
+- Configure system phonemizer (`espeak-ng`)
+- Set environment variables for the TTS node
+
+### Step 1: Verify Python Version
+
+On the robot or dev machine, check your Python version:
+
+```bash
+python3 --version
+```
+
+Ensure you have **Python 3.10 or later**. If your system has an older version, install a newer one or create a virtual environment using a compatible Python interpreter.
+
+### Step 2: Create Virtual Environment in Backend
+
+From the project root:
+
+```bash
+cd backend
+python3 -m venv .venv --system-site-packages
+source .venv/bin/activate
+```
+
+The `--system-site-packages` flag allows the venv to access system-level packages (like ROS Python packages).
+
+### Step 3: Install Core Backend and ASR/TTS Dependencies
+
+```bash
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+pip install -r ../src/language_pkg/requirements-asr.txt
+```
+
+This installs FastAPI, Whisper, Moonshine, and **Coqui TTS** (`TTS>=0.14.0`).
+
+### Step 4: Install System Phonemizer (espeak-ng)
+
+Coqui TTS requires a text-to-phoneme converter. Install the system library:
+
+**On Ubuntu/Linux:**
+
+```bash
+sudo apt-get update
+sudo apt-get install -y espeak-ng
+```
+
+**On macOS:**
+
+```bash
+brew install espeak-ng
+```
+
+Verify the installation:
+
+```bash
+espeak-ng --version
+```
+
+### Step 5: Configure Environment Variables for Coqui TTS
+
+In your shell configuration (`.bashrc`, `.zshrc`, etc.) or before running the ROS node, set:
+
+```bash
+export JUNO_TTS_BACKEND=coqui
+export JUNO_TTS_COQUI_MODEL=tts_models/en/vctk/vits
+export JUNO_TTS_COQUI_SPEAKER=p226
+export JUNO_TTS_AUDIO_PLAYER=auto
+```
+
+Or set them inline when launching the ROS node:
+
+```bash
+export JUNO_TTS_BACKEND=coqui && roslaunch juno_bringup juno_robot.launch
+```
+
+### Step 6: Test Coqui TTS (Optional)
+
+From the project root with the `.venv` activated:
+
+```bash
+python test_coqui.py
+```
+
+This opens an interactive TTS prompt. Type sentences and press Enter to hear them. Type `quit` to exit.
+
+### Step 7: Build and Source ROS Workspace
+
+From the project root:
+
+```bash
+catkin_make
+source devel/setup.bash
+```
+
+If catkin_make fails due to missing dependencies, ensure your `.venv` is activated and all requirements are installed.
+
+### Troubleshooting
+
+| Issue | Solution |
+|---|---|
+| `ModuleNotFoundError: No module named TTS` | Activate `.venv` and run `pip install TTS>=0.14.0` |
+| `espeak-ng: command not found` | Install via `apt-get` (Ubuntu) or `brew` (macOS) |
+| TTS plays no audio | Verify audio output device with `speaker-test -t sine -f 1000 -l 1` (Linux) or check system volume (macOS) |
+| Model download hangs or fails | Check internet connection; models are large (~100–300 MB). First download may take 5–10 minutes. |
+| Phonemizer error: `expected language …` | Ensure `espeak-ng --version` works; VCTK models may require specific language/locale setup. |
+
 ## 6. Running the Integrated System
 
 ### Terminal 1: ROS Core
@@ -205,7 +320,7 @@ This launches:
 - `camera_node.py` — camera publisher for the dashboard stream
 - `microphone_node.py` — microphone publisher (device resolved by `JUNO_MIC_DEVICE_NAME`, 48 kHz → 16 kHz)
 - `transcriber.py` — Whisper primary / Moonshine fallback ASR
-- `tts_node.py` — British English TTS with `/juno/tts_done` signal
+- `tts_node.py` — Coqui TTS (offline, multi-speaker) with `/juno/tts_done` signal
 
 The normal camera view is now the web dashboard panel. Do **not** launch `camera_listener_node.py` for normal operation because it is only a diagnostic listener. If you need the old OpenCV pop-up for debugging, run it explicitly with `_display_window:=true`.
 
@@ -440,7 +555,7 @@ The backend ROS bridge is embedded inside the FastAPI backend process, so it may
 | File | Purpose |
 |---|---|
 | `src/language_pkg/scripts/transcriber.py` | ASR node — Whisper primary, Moonshine fallback, TTS mute/resume, manual relay. |
-| `src/language_pkg/scripts/tts_node.py` | TTS node — British English voice, publishes `/juno/tts_done`. |
+| `src/language_pkg/scripts/tts_node.py` | TTS node — Coqui TTS (offline neural model), publishes `/juno/tts_done`. |
 | `src/language_pkg/scripts/helper.py` | Pre-downloads Whisper model assets into local cache. |
 | `src/language_pkg/scripts/example_transcriptor.py` | Manual text input that publishes to `/speech/raw_transcript`. |
 | `src/juno_bringup/launch/juno_robot.launch` | Launches all robot-side ROS nodes. |

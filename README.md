@@ -305,7 +305,17 @@ JUNO_ASR_TASK=translate
 JUNO_ASR_SAMPLE_RATE=16000
 ```
 
-TTS is handled through ROS topics. The TTS node supports a configurable non-default voice profile, as follows.
+TTS is handled through ROS topics. The default backend is **Coqui TTS** (offline, multi-speaker neural models). Configuration:
+
+```env
+# Default: Coqui TTS (tts_models/en/vctk/vits with speaker p226)
+JUNO_TTS_BACKEND=coqui
+JUNO_TTS_COQUI_MODEL=tts_models/en/vctk/vits
+JUNO_TTS_COQUI_SPEAKER=p226
+JUNO_TTS_AUDIO_PLAYER=auto  # auto, aplay, paplay, ffplay, afplay
+```
+
+Alternatively, use the fallback `espeak` backend:
 
 ```env
 JUNO_TTS_BACKEND=espeak
