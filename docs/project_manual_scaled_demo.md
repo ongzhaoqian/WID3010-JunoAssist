@@ -1289,8 +1289,8 @@ The timer duration prompt now accepts flexible formats such as `twenty five minu
 
 When the user's transcript explicitly states an emotion, such as `I am stressed` or `I feel tired`, the backend treats the speech cue as higher priority than the visual emotion estimate for a short configurable window (`JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS`).
 
-### Fitness Game Feature
+### Destressing Game Feature
 
-The dashboard includes a 6-7 fitness game feature under Quick Actions. The **Play Fitness Game** button opens the 67 Speed game in a separate popup/window first so the dashboard stays open. If a popup is blocked, the dashboard requests a new tab as fallback. An optional embedded view remains available, but it is sandboxed to prevent the third-party page from replacing the dashboard. The dashboard attempts to receive score data through browser `postMessage`; if the third-party page does not expose the score, the user can manually enter the final 6-7 count after one round. Saved sessions are stored through `/api/fitness/sessions`, and the Fitness Game Statistics window can show either one-off or cumulative 6-7 count and estimated calories burnt.
+The dashboard includes a camera-based destressing game feature under Movement Break. The **Play Destressing Game** button opens `motions.games` in a separate popup/window first so the dashboard stays open. If a popup is blocked, the dashboard requests a new tab as fallback. An optional embedded view remains available, but it is sandboxed to prevent the third-party page from replacing the dashboard. Score/statistics saving has been removed from the dashboard; the panel now only launches the game.
 
 The user can enter height in metres and weight in kilogrammes through `/api/fitness/profile`. Weight is used for a rough MET-based calorie estimate; the result is displayed as a dashboard estimate only, not as medical or fitness advice.

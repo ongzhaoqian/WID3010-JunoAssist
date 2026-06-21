@@ -19,7 +19,7 @@ from src.auth.user_service import AuthError, AuthService
 from src.calendar_module.calendar_service import CalendarService
 from src.core.config import settings
 from src.core.models import AuthRequest, CommandRequest, ReminderRequest, ScheduleItemRequest, TimerRequest, MusicPlayRequest, VisionModeRequest, FitnessProfileRequest, FitnessSessionRequest, RobotMode, Intent, EmotionState, VisionEmotionMode
-from src.core.state import robot_state
+from src.core.state import robot_state, is_break_suggested_from_labels
 from src.nlp.intent_classifier import IntentClassifier
 from src.nlp.input_normalizer import MalaysianInputNormalizer
 from src.nlp.llm_client import MalaysianLlamaClient
@@ -670,7 +670,6 @@ def create_app() -> FastAPI:
                     robot_state.set_response(response)
                     tts.speak(response)
                     return {"intent": Intent.REQUEST_BREAK, "response": response, "status": robot_state.snapshot()}
-                robot_state.set_awaiting_break_offer(False)
                 response = phrase_bank.say("break_offer_unclear")
                 robot_state.set_response(response)
                 tts.speak(response)
@@ -861,8 +860,6 @@ def create_app() -> FastAPI:
         if settings.use_ros_robot:
             asyncio.create_task(_ros_speech_command_loop())
 
-    _STRESS_CLASS = {EmotionState.FEAR, EmotionState.SADNESS}
-
     async def _emotion_monitor_loop():
         while True:
             snapshot = robot_state.snapshot()
@@ -880,7 +877,7 @@ def create_app() -> FastAPI:
                             scores=scores,
                         )
                         should_ask = robot_state.update_stress_tracking(
-                            emotion in _STRESS_CLASS,
+                            is_break_suggested_from_labels(emotion),
                             settings.stress_break_threshold_seconds,
                         )
                         if should_ask:
@@ -962,7 +959,7 @@ def create_app() -> FastAPI:
             {"name": "Whisper Tiny Speech Recognition", "description": "Lightweight Hugging Face ASR for robot microphone input, publishing recognised speech to the same backend transcript topic."},
             {"name": "Soothing Music", "description": "Play calming sounds for study support."},
             {"name": "Reminders", "description": "Add and view simple academic reminders."},
-            {"name": "Fitness Game", "description": "Open the 6-7 fitness game, save scores, and estimate calories for one-off or cumulative statistics."},
+            {"name": "Destressing Game", "description": "Open a camera-based destressing game for a quick movement break."},
         ]
 
     @app.get("/api/status")

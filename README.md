@@ -14,7 +14,7 @@ Group 5
 
 # JUNO Assist: Jupiter Robot Personal Daily Assistant
 
-JUNO Assist is a Jupiter Robot-based personal daily assistant prototype. It combines ROS nodes, a FastAPI backend, a React dashboard, speech interaction, facial-expression analysis, schedule/reminder management, study timer controls, emotion-aware music, a fitness game workflow, and user-scoped data storage.
+JUNO Assist is a Jupiter Robot-based personal daily assistant prototype. It combines ROS nodes, a FastAPI backend, a React dashboard, speech interaction, facial-expression analysis, schedule/reminder management, study timer controls, emotion-aware music, a destressing game workflow, and user-scoped data storage.
 
 The project is built for the WID3010 Autonomous Robots alternative assessment and can run in two practical environments, as follows.
 
@@ -36,7 +36,7 @@ The project is built for the WID3010 Autonomous Robots alternative assessment an
 | Schedules/reminders | User-scoped CRUD from dashboard and voice commands |
 | Study timer | Flexible spoken duration parsing, pause/resume/stop buttons, fuzzy voice stop commands, completion bell |
 | Music | Spotify dashboard embed selected by current displayed emotion |
-| Movement break / fitness game | 67speed.com popup workflow, stress-relief movement-break prompt, 6-7 score saving, calories estimate, latest/cumulative statistics |
+| Movement break / destressing game | motions.games popup workflow, stress-relief movement-break prompt |
 | Date/time | Dashboard clock with timezone/location selector and local storage persistence |
 | Power lifecycle | Sleep/power-off closes dashboard or shows fallback overlay, stops runtime services, and preserves ROS Core |
 | Testing | Pytest backend tests and Vite frontend production build |
@@ -114,7 +114,7 @@ User
 │   ├── Camera / Vision Module / emotion mode controls
 │   ├── Schedule and reminder management
 │   ├── Study timer controls
-│   ├── Music and fitness game panels
+│   ├── Music and destressing game panels
 │   └── WebSocket status updates
 │
 ├── ROS Speech Pipeline
@@ -404,24 +404,13 @@ JUNO_SPOTIFY_ANGER_URL=...
 JUNO_SPOTIFY_UNKNOWN_URL=...
 ```
 
-### 12. Movement Break and Fitness Game Feature
+### 12. Movement Break and Destressing Game Feature
 
-The Quick Actions panel includes a **Play Fitness Game** button. The game workflow prioritises opening `https://67speed.com/` in a separate popup/window so the dashboard stays open. If the popup is blocked, the user can open the game in a new tab.
+The Movement Break panel includes a **Play Destressing Game** button. The game workflow prioritises opening `https://motions.games/` in a separate popup/window so the dashboard stays open. If the popup is blocked, the user can open the game in a new tab. `motions.games` hosts several camera-based motion games, not a single fixed "6-7" challenge, so the dashboard treats it as a generic camera-based movement break rather than a score-specific game.
 
-The former fitness statistics panel is now presented as **Movement Break** to position the game as a short focus-reset and stress-relief activity. When the backend WebSocket state exposes `break_suggested: true`, the dashboard shows a highlighted prompt: **“JUNO recommends a movement break — try the destress game!”** The prompt button scrolls to the Movement Break panel, where the user can open the destress game and save the resulting 6-7 count.
+The Movement Break panel positions the game as a short focus-reset and stress-relief activity. When the backend WebSocket state exposes `break_suggested: true`, the dashboard shows a highlighted prompt: **“JUNO recommends a movement break — try the destress game!”** The prompt button scrolls to the Movement Break panel.
 
-The Movement Break panel supports the following features.
-
-- score saving for the 6-7 count,
-- manual score entry fallback,
-- height input in metres,
-- weight input in kilogrammes,
-- one-off/latest statistics,
-- cumulative statistics,
-- estimated calories burnt,
-- per-user fitness profile and sessions.
-
-Automatic score extraction from the third-party game page is best-effort only because cross-origin browser restrictions may prevent reliable access to the game DOM.
+Score/statistics saving (fitness profile, calorie estimate, one-off/cumulative session history) has been removed from the dashboard; the panel now only launches the game.
 
 ### 12.1 Prominent Emotion Indicator
 
@@ -715,7 +704,7 @@ Frontend build: Vite production build passed
 - Facial emotion recognition is an estimate, not a diagnosis or proof of the user’s internal state.
 - The system prioritises explicit user speech over facial-expression inference.
 - `tired` is not a direct Ekman facial class and is mainly inferred through speech content.
-- The fitness game score capture from `67speed.com` is best-effort due to cross-origin browser restrictions; manual score entry is the reliable fallback.
+- `motions.games` may block iframe embedding or attempt to navigate the parent page, so the dashboard opens it in a separate popup/tab rather than embedding it directly.
 - The default accounts and passwords are for prototype demonstration only and should be changed before any real deployment.
 - The database refresh-on-start behaviour is useful for demos, but should be disabled if persistent production data is required.
 - Power-off cleanup is pattern-based and intentionally excludes ROS Core and the backend so the robot can be powered on again in the same run.
@@ -731,9 +720,9 @@ JUNO Assist currently integrates the following features within its system archit
 - user-scoped SQLite persistence,
 - flexible speech-command handling,
 - camera and dual-mode emotion display,
-- study timer, schedule, reminders, music, fitness game, and power lifecycle management.
+- study timer, schedule, reminders, music, destressing game, and power lifecycle management.
 
-This README documents the current combined system state after the authentication, database refresh, power lifecycle, dual emotion mode, date/time panel, fitness game, and dashboard/robot interaction updates.
+This README documents the current combined system state after the authentication, database refresh, power lifecycle, dual emotion mode, date/time panel, destressing game, and dashboard/robot interaction updates.
 
 
 ### Backend startup note

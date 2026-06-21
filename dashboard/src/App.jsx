@@ -21,7 +21,6 @@ export default function App() {
   const [lastCommand, setLastCommand] = useState(null);
   const [dashboardClosing, setDashboardClosing] = useState(false);
   const [fitnessGameOpen, setFitnessGameOpen] = useState(false);
-  const [fitnessRefreshKey, setFitnessRefreshKey] = useState(0);
   const [fitnessLaunchMessage, setFitnessLaunchMessage] = useState("");
   const [movementBreakHighlighted, setMovementBreakHighlighted] = useState(false);
   const movementBreakRef = useRef(null);
@@ -66,16 +65,12 @@ export default function App() {
     await postJson("/api/robot/sleep");
   }
 
-  async function handleFitnessSessionSaved() {
-    setFitnessRefreshKey((current) => current + 1);
-  }
-
   function launchFitnessGame() {
     const openedPopup = openFitnessGameWindow();
     setFitnessLaunchMessage(
       openedPopup
-        ? "Game opened in a separate popup window. Keep this dashboard open to save the final 6-7 score."
-        : "A new game tab was requested because the browser may have blocked the popup. Keep this dashboard open to save the final 6-7 score."
+        ? "Game opened in a separate popup window."
+        : "A new game tab was requested because the browser may have blocked the popup."
     );
     setFitnessGameOpen(true);
   }
@@ -209,7 +204,7 @@ export default function App() {
                 JUNO recommends a movement break — try the destress game!
               </p>
               <p className="mt-1 text-sm text-red-50/80">
-                A quick 6-7 game can help reset focus when a stress-class emotion is detected.
+                A quick camera-based movement game can help reset focus when a stress-class emotion is detected.
               </p>
             </div>
             <button
@@ -256,7 +251,7 @@ export default function App() {
         ref={movementBreakRef}
         className={`mt-5 scroll-mt-8 rounded-[2.25rem] transition ${movementBreakHighlighted ? "ring-4 ring-[#4ade80]/50" : "ring-0 ring-transparent"}`}
       >
-        <FitnessPanel refreshKey={fitnessRefreshKey} onProfileSaved={handleFitnessSessionSaved} onPlayGame={launchFitnessGame} />
+        <FitnessPanel onPlayGame={launchFitnessGame} />
       </section>
 
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
@@ -267,7 +262,6 @@ export default function App() {
       <FitnessGameModal
         open={fitnessGameOpen}
         onClose={() => setFitnessGameOpen(false)}
-        onSessionSaved={handleFitnessSessionSaved}
         launchMessage={fitnessLaunchMessage}
       />
     </main>
