@@ -128,7 +128,7 @@ class ReminderRequest(BaseModel):
     priority: str = Field(default="medium", max_length=20)
     due_date: Optional[str] = None
     due_time: Optional[str] = None
-    completed: bool | None = None
+    completed: Optional[bool] = None
 
     @model_validator(mode="after")
     def normalise_legacy_due_fields(self):
