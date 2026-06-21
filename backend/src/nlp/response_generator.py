@@ -34,8 +34,8 @@ class ResponseGenerator:
             return self.phrases.say(
                 "deadline_nearest",
                 title=nearest["title"],
-                date=nearest.get("formatted_date") or nearest.get("date") or "not specified",
-                time=nearest.get("time") or "not specified",
+                date=nearest.get("date"),
+                time=nearest.get("time")
             )
 
         if intent == Intent.CHECK_REMINDERS:
@@ -125,18 +125,22 @@ class ResponseGenerator:
             )
         return " | ".join(fragments)
 
-    @staticmethod
-    def _describe_schedule_item(item: dict) -> str:
-        date = item.get("formatted_date") or item.get("date") or "no date"
-        time = item.get("time") or "no time"
+    def _describe_schedule_item(self, item: dict) -> str:
+        date_val = item.get("date") or item.get("formatted_date")
+        time_val = item.get("time")
         item_type = item.get("type") or "schedule"
         priority = item.get("priority") or "medium"
-        return f"{item['title']} ({item_type}, {priority} priority) on {date} at {time}"
+        
+        when_phrase = self.phrases._humanize_when(date_val, time_val)
+        return f"{item['title']} ({item_type}, {priority} priority) {when_phrase}"
 
-    @staticmethod
-    def _describe_reminder_item(item: dict) -> str:
-        date = item.get("formatted_date") or item.get("date") or "no date"
-        time = item.get("time") or "no time"
+    def _describe_reminder_item(self, item: dict) -> str:
+        # Fallback to 'formatted_date' if 'date' is stored differently in your calendar service
+        date_val = item.get("date") or item.get("formatted_date")
+        time_val = item.get("time")
         item_type = item.get("type") or "reminder"
         priority = item.get("priority") or "medium"
-        return f"{item['title']} ({item_type}, {priority} priority) on {date} at {time}"
+        
+        # This calls the method you just added to PhraseBank
+        when_phrase = self.phrases._humanize_when(date_val, time_val)
+        return f"{item['title']} ({item_type}, {priority} priority) {when_phrase}"

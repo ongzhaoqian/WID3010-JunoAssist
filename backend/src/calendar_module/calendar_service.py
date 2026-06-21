@@ -140,7 +140,9 @@ class CalendarService:
                 """
                 SELECT id, title, date, time, type, priority, completed
                 FROM schedule_items
-                WHERE user_id = ? AND type IN ('assignment', 'test', 'quiz', 'study')
+                WHERE user_id = ? 
+                AND type IN ('assignment', 'test', 'quiz', 'study')
+                AND (completed = 0 OR completed IS NULL)  -- FIXED: Excludes completed items
                 ORDER BY COALESCE(date, ''), COALESCE(time, ''), id
                 LIMIT 5
                 """,
