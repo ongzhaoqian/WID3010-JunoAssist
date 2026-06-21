@@ -144,7 +144,8 @@ def test_voice_schedule_add_accepts_structured_transcription(tmp_path, monkeypat
     assert payload["schedule_item"]["formatted_date"] == "20 May, 2026"
     assert payload["schedule_item"]["time"] == "15:30"
     assert payload["schedule_item"]["priority"] == "high"
-    assert "20 May, 2026" in payload["response"]
+    assert "May 20" in payload["response"]
+    assert "3:30 PM" in payload["response"]
 
 
 def test_voice_timer_flow_can_be_cancelled():

@@ -135,12 +135,10 @@ class ResponseGenerator:
         return f"{item['title']} ({item_type}, {priority} priority) {when_phrase}"
 
     def _describe_reminder_item(self, item: dict) -> str:
-        # Fallback to 'formatted_date' if 'date' is stored differently in your calendar service
         date_val = item.get("date") or item.get("formatted_date")
         time_val = item.get("time")
         item_type = item.get("type") or "reminder"
         priority = item.get("priority") or "medium"
-        
-        # This calls the method you just added to PhraseBank
+
         when_phrase = self.phrases._humanize_when(date_val, time_val)
         return f"{item['title']} ({item_type}, {priority} priority) {when_phrase}"

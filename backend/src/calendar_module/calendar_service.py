@@ -91,7 +91,10 @@ class CalendarService:
         # Carry over from the old column name if it exists from a prior version.
         refreshed_columns = {row[1] for row in conn.execute("PRAGMA table_info(reminders)").fetchall()}
         if "notified_30min" in refreshed_columns:
-            conn.execute("UPDATE reminders SET notified_30 = COALESCE(notified_30, notified_30min)")
+            # notified_30 was just added with DEFAULT 0, so it's never NULL here —
+            # COALESCE(notified_30, notified_30min) would always keep the new
+            # default and silently drop the legacy flag.
+            conn.execute("UPDATE reminders SET notified_30 = notified_30min")
 
         if "due_date" in refreshed_columns:
             conn.execute("UPDATE reminders SET date = COALESCE(date, due_date)")

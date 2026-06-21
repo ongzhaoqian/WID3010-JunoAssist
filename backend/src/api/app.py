@@ -583,7 +583,7 @@ def create_app() -> FastAPI:
         response = phrase_bank.say(
             "schedule_added",
             purpose=item["title"],
-            date=item.get("formatted_date") or item.get("date") or "not specified",
+            date=item.get("date") or "not specified",
             time=item.get("time") or "not specified",
             priority=item.get("priority") or "medium",
         )
@@ -621,7 +621,7 @@ def create_app() -> FastAPI:
         response = phrase_bank.say(
             "reminder_added",
             title=item["title"],
-            date=item.get("formatted_date") or item.get("date") or "not specified",
+            date=item.get("date") or "not specified",
             time=item.get("time") or "not specified",
             priority=item.get("priority") or "medium",
         )
@@ -1014,38 +1014,46 @@ def create_app() -> FastAPI:
                 # otherwise be identical except for the title. Overdue items
                 # still carry distinct per-item duration, so those stay
                 # individual.
-                due_now_titles: list[str] = []
-                upcoming_titles_by_label: dict[str, list[str]] = {}
+                due_now_items: list[dict] = []
+                upcoming_items_by_label: dict[str, list[dict]] = {}
                 for due_item in due_items:
                     try:
                         if due_item["stage"] == "due" and not due_item.get("overdue"):
-                            due_now_titles.append(due_item["title"])
+                            due_now_items.append(due_item)
                         elif due_item["stage"] == "30":
-                            upcoming_titles_by_label.setdefault(due_item["remaining_label"], []).append(due_item["title"])
+                            upcoming_items_by_label.setdefault(due_item["remaining_label"], []).append(due_item)
                         else:
                             message = _build_notification_message(
                                 due_item, phrase_bank, alert_30_key, alert_due_key, alert_overdue_key
                             )
                             tts.speak(message)
                             tick_messages.append(message)
-                        calendar_service.mark_notified(due_item["id"], due_item["stage"], table_name)
+                            calendar_service.mark_notified(due_item["id"], due_item["stage"], table_name)
                     except Exception:
                         # One item's failure (e.g. a TTS error) must not block or
                         # skip the next item due in the same tick.
                         continue
 
-                if due_now_titles:
-                    if len(due_now_titles) == 1:
-                        grouped_message = phrase_bank.say(due_now_single_key, title=due_now_titles[0])
+                # Grouped items are only marked notified after their combined
+                # TTS call succeeds — marking them upfront (before the spoken
+                # message is confirmed) would permanently drop the alert if
+                # speak() raised, since it's never retried afterwards.
+                if due_now_items:
+                    titles = [item["title"] for item in due_now_items]
+                    if len(titles) == 1:
+                        grouped_message = phrase_bank.say(due_now_single_key, title=titles[0])
                     else:
-                        grouped_message = phrase_bank.say(due_now_multiple_key, titles=", ".join(due_now_titles))
+                        grouped_message = phrase_bank.say(due_now_multiple_key, titles=", ".join(titles))
                     try:
                         tts.speak(grouped_message)
                         tick_messages.append(grouped_message)
+                        for item in due_now_items:
+                            calendar_service.mark_notified(item["id"], item["stage"], table_name)
                     except Exception:
                         pass
 
-                for remaining_label, titles in upcoming_titles_by_label.items():
+                for remaining_label, items in upcoming_items_by_label.items():
+                    titles = [item["title"] for item in items]
                     try:
                         if len(titles) == 1:
                             upcoming_message = phrase_bank.say(alert_30_key, title=titles[0], remaining_label=remaining_label)
@@ -1055,6 +1063,8 @@ def create_app() -> FastAPI:
                             )
                         tts.speak(upcoming_message)
                         tick_messages.append(upcoming_message)
+                        for item in items:
+                            calendar_service.mark_notified(item["id"], item["stage"], table_name)
                     except Exception:
                         continue
 
@@ -1266,7 +1276,7 @@ def create_app() -> FastAPI:
             priority=request.priority or "medium",
             user_id=user["id"],
         )
-        robot_state.set_response(phrase_bank.say("schedule_added", purpose=item["title"], date=item.get("formatted_date") or item.get("date") or "not specified", time=item.get("time") or "not specified", priority=item.get("priority") or "medium"))
+        robot_state.set_response(phrase_bank.say("schedule_added", purpose=item["title"], date=item.get("date") or "not specified", time=item.get("time") or "not specified", priority=item.get("priority") or "medium"))
         return item
 
     @app.delete("/api/schedule/{item_id}")
@@ -1305,7 +1315,7 @@ def create_app() -> FastAPI:
                 phrase_bank.say(
                     "schedule_added",
                     purpose=item["title"],
-                    date=item.get("formatted_date") or item.get("date") or "not specified",
+                    date=item.get("date") or "not specified",
                     time=item.get("time") or "not specified",
                     priority=item.get("priority") or "medium",
                 )
