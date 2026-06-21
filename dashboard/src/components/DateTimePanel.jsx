@@ -115,7 +115,7 @@ export default function DateTimePanel() {
   const presetValue = LOCATION_PRESETS.some((item) => item.timeZone === timeZone) ? timeZone : "custom";
 
   return (
-    <Card title="Current System Date & Time" className="mb-5">
+    <Card title="Current System Date & Time" className="h-full">
       <div className="grid gap-4 lg:grid-cols-[1fr_1.15fr] lg:items-center">
         <div className="rounded-[1.75rem] border border-white/20 bg-slate-950/55 p-5 shadow-inner">
           <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300/80">

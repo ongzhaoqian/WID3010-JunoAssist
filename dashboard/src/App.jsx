@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getAuthToken, getJson, postJson, setAuthToken, statusSocket } from "./lib/api";
 import StatusPanel from "./components/StatusPanel";
 import CommandPanel from "./components/CommandPanel";
@@ -22,8 +22,9 @@ export default function App() {
   const [lastCommand, setLastCommand] = useState(null);
   const [dashboardClosing, setDashboardClosing] = useState(false);
   const [fitnessGameOpen, setFitnessGameOpen] = useState(false);
-  const [fitnessRefreshKey, setFitnessRefreshKey] = useState(0);
   const [fitnessLaunchMessage, setFitnessLaunchMessage] = useState("");
+  const [movementBreakHighlighted, setMovementBreakHighlighted] = useState(false);
+  const movementBreakRef = useRef(null);
 
   async function handleAuthenticated(authUser) {
     setUser(authUser);
@@ -65,18 +66,20 @@ export default function App() {
     await postJson("/api/robot/sleep");
   }
 
-  async function handleFitnessSessionSaved() {
-    setFitnessRefreshKey((current) => current + 1);
-  }
-
   function launchFitnessGame() {
     const openedPopup = openFitnessGameWindow();
     setFitnessLaunchMessage(
       openedPopup
-        ? "Game opened in a separate popup window. Keep this dashboard open to save the final 6-7 score."
-        : "A new game tab was requested because the browser may have blocked the popup. Keep this dashboard open to save the final 6-7 score."
+        ? "Game opened in a separate popup window."
+        : "A new game tab was requested because the browser may have blocked the popup."
     );
     setFitnessGameOpen(true);
+  }
+
+  function openMovementBreakPanel() {
+    setMovementBreakHighlighted(true);
+    movementBreakRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => setMovementBreakHighlighted(false), 2600);
   }
 
   useEffect(() => {
@@ -193,17 +196,47 @@ export default function App() {
         </div>
       </header>
 
-      <DateTimePanel />
-      <section className="grid gap-5 lg:grid-cols-3">
-        <StatusPanel status={status} />
+      {status?.break_suggested && (
+        <section className="mt-5 rounded-[2rem] border border-[#ef4444]/50 bg-[#ef4444]/15 p-5 text-white shadow-[0_0_40px_rgba(239,68,68,0.18)] backdrop-blur-xl">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="section-kicker text-xs font-semibold text-red-100/80">Movement break suggested</p>
+              <p className="mt-2 text-xl font-black text-white">
+                JUNO recommends a movement break — try the destress game!
+              </p>
+              <p className="mt-1 text-sm text-red-50/80">
+                A quick camera-based movement game can help reset focus when a stress-class emotion is detected.
+              </p>
+            </div>
+            <button
+              onClick={openMovementBreakPanel}
+              className="btn-primary shrink-0 px-5 py-2.5 text-sm font-semibold"
+              type="button"
+            >
+              Open Movement Break
+            </button>
+          </div>
+        </section>
+      )}
+
+      <section className="mt-5 grid gap-5 lg:grid-cols-2">
+        <DateTimePanel />
         <TimerPanel status={status} />
-        <Card title="Most Recent Response from JUNO">
-          <p className="whitespace-pre-line text-slate-200/85">{status?.last_response ?? "Loading..."}</p>
-          {lastCommand && (
-            <p className="mt-3 text-sm text-slate-300/75">
-              Last intent: {lastCommand.intent}
-            </p>
-          )}
+      </section>
+
+      <section className="mt-5 grid gap-5 lg:grid-cols-2">
+        <StatusPanel status={status} onSleep={sleepJuno} />
+        <Card title="Ask JUNO">
+          <CommandPanel onCommandResult={setLastCommand} bare />
+          <div className="mt-5 border-t border-white/10 pt-4">
+            <p className="section-kicker text-xs font-semibold">Most recent response from JUNO</p>
+            <p className="mt-2 text-slate-200/85">{status?.last_response ?? "Loading..."}</p>
+            {lastCommand && (
+              <p className="mt-3 text-sm text-slate-300/75">
+                Last intent: {lastCommand.intent}
+              </p>
+            )}
+          </div>
         </Card>
       </section>
 
@@ -211,35 +244,15 @@ export default function App() {
         <CameraPanel status={status} />
       </section>
 
-      <section className="mt-5 grid gap-5 lg:grid-cols-2">
-        <CommandPanel onCommandResult={setLastCommand} />
-        <Card title="Quick Actions">
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={launchFitnessGame}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold"
-            >
-              Play Fitness Game
-            </button>
-            <button
-              onClick={sleepJuno}
-              className="btn-secondary px-5 py-2.5 text-sm font-semibold"
-            >
-              Put JUNO to Sleep
-            </button>
-          </div>
-          <p className="mt-3 text-sm text-slate-300/75">
-            Use the fitness game for a quick movement break, or put JUNO back to sleep when the session is done.
-          </p>
-        </Card>
-      </section>
-
       <section className="mt-5">
         <MusicPanel status={status} />
       </section>
 
-      <section className="mt-5">
-        <FitnessPanel refreshKey={fitnessRefreshKey} onProfileSaved={handleFitnessSessionSaved} />
+      <section
+        ref={movementBreakRef}
+        className={`mt-5 scroll-mt-8 rounded-[2.25rem] transition ${movementBreakHighlighted ? "ring-4 ring-[#4ade80]/50" : "ring-0 ring-transparent"}`}
+      >
+        <FitnessPanel onPlayGame={launchFitnessGame} />
       </section>
 
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
@@ -254,7 +267,6 @@ export default function App() {
       <FitnessGameModal
         open={fitnessGameOpen}
         onClose={() => setFitnessGameOpen(false)}
-        onSessionSaved={handleFitnessSessionSaved}
         launchMessage={fitnessLaunchMessage}
       />
     </main>

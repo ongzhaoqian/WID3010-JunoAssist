@@ -27,8 +27,15 @@ def reset_robot_state():
     robot_state.set_awaiting_timer_duration(False)
     robot_state.set_awaiting_timer_minutes(False)
     robot_state.set_awaiting_timer_seconds(False)
+    robot_state.clear_break_confirmation()
+    robot_state.update_stress_tracking(False, 30.0)
+    robot_state.set_awaiting_music_genre(False)
+    robot_state.set_awaiting_game_or_music(False)
+    robot_state.set_awaiting_break_offer(False)
     yield
-    robot_state.delete_timer()
+    robot_state.delete_timer()  # also clears the break-confirmation stash fields
+    robot_state.clear_break_confirmation()
+    robot_state.update_stress_tracking(False, 30.0)
 
 
 def test_schedule_item_can_be_added_and_removed(tmp_path, monkeypatch):
@@ -72,21 +79,25 @@ def test_voice_timer_flow_asks_then_starts_duration():
     robot_state.set_mode(RobotMode.ACTIVE)
     robot_state.set_awaiting_timer_duration(False)
 
-    ask = client.post("/api/command", json={"text": "start study timer"})
-    assert ask.status_code == 200
-    assert ask.json()["status"]["awaiting_timer_minutes"] is True
-
-    minutes_reply = client.post("/api/command", json={"text": "1"})
-    assert minutes_reply.status_code == 200
-    assert minutes_reply.json()["status"]["awaiting_timer_seconds"] is True
-
-    seconds_reply = client.post("/api/command", json={"text": "15"})
-    assert seconds_reply.status_code == 200
-    payload = seconds_reply.json()
+    explicit = client.post("/api/command", json={"text": "start a study timer for 1 minute 15 seconds"})
+    assert explicit.status_code == 200
+    payload = explicit.json()
     assert payload["timer"]["remaining_seconds"] == 75
     assert payload["status"]["awaiting_timer_duration"] is False
     assert payload["status"]["awaiting_timer_minutes"] is False
     assert payload["status"]["awaiting_timer_seconds"] is False
+
+
+def test_voice_timer_flow_defaults_to_25_minutes_without_duration():
+    client = authenticated_client(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_awaiting_timer_duration(False)
+
+    ask = client.post("/api/command", json={"text": "start study timer"})
+    assert ask.status_code == 200
+    payload = ask.json()
+    assert payload["timer"]["remaining_seconds"] == 1500
+    assert payload["status"]["awaiting_timer_minutes"] is False
 
 
 def test_music_play_uses_current_emotion_and_spotify_embed():
@@ -143,13 +154,12 @@ def test_voice_timer_flow_can_be_cancelled():
 
     ask = client.post("/api/command", json={"text": "start study timer"})
     assert ask.status_code == 200
-    assert ask.json()["status"]["awaiting_timer_minutes"] is True
+    assert ask.json()["timer"]["remaining_seconds"] == 1500
 
-    cancel = client.post("/api/command", json={"text": "cancel"})
+    cancel = client.post("/api/command", json={"text": "cancel timer"})
     assert cancel.status_code == 200
     payload = cancel.json()
-    assert payload["status"]["awaiting_timer_minutes"] is False
-    assert payload["status"]["awaiting_timer_seconds"] is False
+    assert payload["status"]["timer_remaining_seconds"] == 0
     assert "timer" in payload["response"].lower()
 
 
@@ -200,7 +210,13 @@ def test_speech_emotion_overrides_visual_emotion_for_break_request():
     payload = response.json()
     assert payload["status"]["current_emotion"] == "fear"
     assert payload["status"]["emotion_source"] == "speech"
-    assert "stressed" in payload["response"].lower()
+    assert "stressed" in payload["response"].lower() and "break" in payload["response"].lower()
+    assert payload["status"]["awaiting_break_offer"] is True
+
+    confirm = client.post("/api/command", json={"text": "yes"})
+    confirm_payload = confirm.json()
+    assert "game" in confirm_payload["response"].lower() and "music" in confirm_payload["response"].lower()
+    assert confirm_payload["status"]["awaiting_game_or_music"] is True
 
 
 def test_dashboard_reminder_uses_schedule_like_columns_and_can_be_deleted(tmp_path, monkeypatch):
@@ -352,6 +368,126 @@ def test_dashboard_timer_pause_resume_and_stop_endpoints():
     assert stop_payload["stopped"] is True
     assert stop_payload["status"]["timer_remaining_seconds"] == 0
     assert stop_payload["status"]["timer_paused"] is False
+
+
+def test_sustained_stress_pauses_study_and_asks_for_break(monkeypatch):
+    robot_state.set_timer(1500, "Study timer")
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("src.core.state.time.monotonic", lambda: clock["now"])
+
+    assert robot_state.update_stress_tracking(True, 30.0) is False
+    clock["now"] += 29.0
+    assert robot_state.update_stress_tracking(True, 30.0) is False
+    clock["now"] += 1.0
+    assert robot_state.update_stress_tracking(True, 30.0) is True
+
+    robot_state.request_break_confirmation("stress")
+    snapshot = robot_state.snapshot()
+    assert snapshot["awaiting_break_confirmation"] is True
+    assert snapshot["break_confirmation_reason"] == "stress"
+    assert robot_state.study_timer_stashed is True
+    assert robot_state.stashed_study_remaining == 1500
+    assert snapshot["timer_remaining_seconds"] == 0
+
+
+def test_stress_tracking_resets_when_emotion_leaves_stress_class(monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("src.core.state.time.monotonic", lambda: clock["now"])
+
+    robot_state.update_stress_tracking(True, 30.0)
+    clock["now"] += 31.0
+    assert robot_state.update_stress_tracking(False, 30.0) is False
+
+    # Re-entering stress restarts the 30s window instead of firing immediately.
+    assert robot_state.update_stress_tracking(True, 30.0) is False
+
+
+def test_break_accept_after_stress_starts_break_timer_and_keeps_study_paused():
+    robot_state.set_timer(600, "Study timer")
+    robot_state.request_break_confirmation("stress")
+
+    robot_state.accept_break(5 * 60, "Break timer")
+    snapshot = robot_state.snapshot()
+    assert snapshot["active_timer_type"] == "break"
+    assert snapshot["timer_remaining_seconds"] == 300
+    assert snapshot["awaiting_break_confirmation"] is False
+    assert robot_state.study_timer_stashed is True
+    assert robot_state.stashed_study_remaining == 600
+
+
+def test_break_decline_after_stress_resumes_study_immediately():
+    robot_state.set_timer(600, "Study timer")
+    robot_state.request_break_confirmation("stress")
+
+    resumed = robot_state.decline_break()
+    assert resumed is True
+    snapshot = robot_state.snapshot()
+    assert robot_state.study_timer_stashed is False
+    assert snapshot["timer_remaining_seconds"] == 600
+    assert snapshot["awaiting_break_confirmation"] is False
+
+
+def test_break_timer_completion_resumes_paused_study_timer():
+    robot_state.set_timer(600, "Study timer")
+    robot_state.request_break_confirmation("stress")
+    robot_state.accept_break(1, "Break timer")
+
+    completed = robot_state.decrement_timer()
+    assert completed["timer_type"] == "break"
+    assert completed["resumed_study"] is True
+    snapshot = robot_state.snapshot()
+    assert snapshot["active_timer_type"] == "study"
+    assert snapshot["timer_remaining_seconds"] == 600
+    assert robot_state.study_timer_stashed is False
+
+
+def test_study_timer_completion_signals_break_ask_without_resuming():
+    robot_state.set_timer(1, "Study timer")
+
+    completed = robot_state.decrement_timer()
+    assert completed["timer_type"] == "study"
+    assert completed["resumed_study"] is False
+
+
+def test_break_decline_after_study_complete_does_not_resume_anything():
+    robot_state.set_timer(1, "Study timer")
+    robot_state.decrement_timer()
+    robot_state.request_break_confirmation("study_complete")
+
+    resumed = robot_state.decline_break()
+    assert resumed is False
+    snapshot = robot_state.snapshot()
+    assert snapshot["awaiting_break_confirmation"] is False
+    assert snapshot["timer_remaining_seconds"] == 0
+
+
+def test_voice_confirms_break_after_stress_via_command_endpoint():
+    client = authenticated_client(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_timer(600, "Study timer")
+    robot_state.request_break_confirmation("stress")
+
+    response = client.post("/api/command", json={"text": "yes"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"]["active_timer_type"] == "break"
+    assert payload["status"]["timer_remaining_seconds"] == 300
+    assert payload["status"]["awaiting_break_confirmation"] is False
+
+
+def test_voice_declines_break_after_stress_via_command_endpoint():
+    client = authenticated_client(create_app())
+    robot_state.set_mode(RobotMode.ACTIVE)
+    robot_state.set_timer(600, "Study timer")
+    robot_state.request_break_confirmation("stress")
+
+    response = client.post("/api/command", json={"text": "no thanks"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"]["timer_paused"] is False
+    assert payload["status"]["timer_remaining_seconds"] == 600
+    assert payload["status"]["awaiting_break_confirmation"] is False
 
 
 def test_voice_stop_timer_uses_fuzzy_stop_commands():

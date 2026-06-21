@@ -171,6 +171,7 @@ class TimerRequest(BaseModel):
 
 class MusicPlayRequest(BaseModel):
     emotion: Optional[EmotionState] = None
+    genre: Optional[str] = None
 
 
 class VisionModeRequest(BaseModel):
