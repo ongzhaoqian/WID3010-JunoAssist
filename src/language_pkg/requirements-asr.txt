@@ -10,4 +10,4 @@ huggingface_hub>=0.24.0
 
 # Optional local TTS engine used by tts_node.py before falling back to espeak-ng/espeak.
 pyttsx3>=2.90
-TTS>=0.14.0
+requests>=2.28.0

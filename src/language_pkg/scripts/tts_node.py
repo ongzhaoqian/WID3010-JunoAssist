@@ -7,6 +7,7 @@ import tempfile
 import threading
 
 import rospy
+import requests
 from std_msgs.msg import String
 
 
@@ -53,6 +54,10 @@ class JunoTTSNode:
         self.coqui_model_name = rospy.get_param('~coqui_model', os.getenv('JUNO_TTS_COQUI_MODEL', 'tts_models/en/ljspeech/vits'))
         self.coqui_speaker = rospy.get_param('~coqui_speaker', os.getenv('JUNO_TTS_COQUI_SPEAKER', 'p226'))
         self.audio_player = rospy.get_param('~audio_player', os.getenv('JUNO_TTS_AUDIO_PLAYER', 'auto')).strip()
+        # Hugging Face token (optional) to access private/large models
+        self.hf_token = os.getenv('JUNO_HF_TOKEN', os.getenv('HUGGINGFACE_HUB_TOKEN', None))
+        # Allow forcing CUDA usage for Coqui (optional)
+        self.coqui_use_cuda = bool(str(rospy.get_param('~coqui_use_cuda', os.getenv('JUNO_TTS_COQUI_USE_CUDA', 'false'))).lower() in ('1', 'true', 'yes'))
 
         self.engine = None
         self.coqui = None
@@ -106,10 +111,13 @@ class JunoTTSNode:
 
     def _init_coqui(self):
         try:
-            from TTS.api import TTS
-
-            self.coqui = TTS(self.coqui_model_name)
-            rospy.loginfo('Initialized Coqui TTS model %s with speaker %s', self.coqui_model_name, self.coqui_speaker)
+            # Use the Hugging Face Inference API by default for TTS.
+            # We intentionally avoid importing the Coqui `TTS` library here so the
+            # node can work via the HF Inference API using network calls and a
+            # Hugging Face token (if provided). This keeps the node lightweight
+            # on systems where building native TTS packages is difficult.
+            self.coqui = True
+            rospy.loginfo('Configured Coqui TTS to use Hugging Face Inference API model %s (speaker=%s)', self.coqui_model_name, self.coqui_speaker)
         except Exception as exc:
             self.coqui = None
             if self.backend == 'coqui':
@@ -291,14 +299,34 @@ class JunoTTSNode:
     def _speak_with_coqui(self, text):
         if self.coqui is None:
             raise RuntimeError('Coqui TTS is not initialized.')
-
+        # Use the Hugging Face Inference API to synthesize speech. This avoids
+        # depending on the Coqui `TTS` package and instead requests audio bytes
+        # from HF's hosted inference (requires network access and an optional token).
         audio_file = None
         try:
+            headers = {'Accept': 'audio/wav'}
+            if self.hf_token:
+                headers['Authorization'] = 'Bearer %s' % self.hf_token
+
+            url = 'https://api-inference.huggingface.co/models/%s' % self.coqui_model_name
+            payload = {'inputs': text, 'parameters': {'speaker': self.coqui_speaker}}
+
+            rospy.loginfo('Requesting TTS from HF model %s', self.coqui_model_name)
+            resp = requests.post(url, headers=headers, json=payload, stream=True, timeout=60)
+
+            if resp.status_code != 200:
+                try:
+                    err = resp.json()
+                except Exception:
+                    err = resp.text
+                raise RuntimeError('HuggingFace TTS inference failed: %s (status=%s)' % (err, resp.status_code))
+
+            # Write binary audio response to a temporary file and play it.
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                 audio_file = tmp.name
-
-            self.coqui.tts_to_file(text=text, file_path=audio_file, speaker=self.coqui_speaker)
-            last_error = None
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        tmp.write(chunk)
 
             for player in self._candidate_audio_players():
                 if shutil.which(player) is None:
@@ -306,7 +334,7 @@ class JunoTTSNode:
                     continue
 
                 args = [player, audio_file]
-                rospy.loginfo('Playing Coqui TTS output with %s', player)
+                rospy.loginfo('Playing HF TTS output with %s', player)
                 process = subprocess.Popen(args)
                 with self._process_lock:
                     self._current_process = process
@@ -318,7 +346,7 @@ class JunoTTSNode:
                             process.wait(timeout=1.0)
                         except subprocess.TimeoutExpired:
                             process.kill()
-                        rospy.loginfo('Interrupted Coqui TTS playback')
+                        rospy.loginfo('Interrupted TTS playback')
                         with self._process_lock:
                             self._current_process = None
                         return
@@ -333,7 +361,7 @@ class JunoTTSNode:
                 last_error = '%s exited with code %s' % (player, process.returncode)
                 rospy.logwarn('%s', last_error)
 
-            raise RuntimeError(last_error or 'No audio playback command available for Coqui TTS')
+            raise RuntimeError(last_error or 'No audio playback command available for Coqui/HF TTS')
         finally:
             if audio_file is not None:
                 try:

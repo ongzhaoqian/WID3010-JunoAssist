@@ -300,12 +300,26 @@ JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS=45.0
 The ROS speech path uses Whisper Tiny for lightweight automatic speech recognition, as follows.
 
 ```env
-JUNO_ASR_MODEL_ID=openai/whisper-tiny
+The dashboard and backend support immediate stop commands for speech/music, while preserving timer-specific stop behaviour.
+
 JUNO_ASR_TASK=translate
-JUNO_ASR_SAMPLE_RATE=16000
+
+**Coqui TTS (Hugging Face Inference API by default)**
+
+The ROS TTS node is configured to use the Hugging Face Inference API for neural TTS by default, so a local build of the Coqui `TTS` package is not required. Notes:
+
+- **Python requirement:** some backend tools (ASR, transformers, torch) still require Python 3.10 for installation on the robot — follow `docs/ros_integration_guide.md`.
+- **Hugging Face token:** set `JUNO_HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` if your chosen model is gated or private.
+- **Optional GPU:** to request GPU acceleration when available, set `JUNO_TTS_COQUI_USE_CUDA=true` before startup; the node will only use CUDA if a compatible GPU and drivers are present.
+- **Verification:** after installing dependencies, verify basic packages:
+
+```bash
+python3.10 -c "import requests; print('requests OK')"
+python3.10 -c "import torch; print('PyTorch OK')"
+python3.10 -c "import transformers; print('Transformers OK')"
 ```
 
-TTS is handled through ROS topics. The default backend is **Coqui TTS** (offline, multi-speaker neural models). Configuration:
+TTS is handled through ROS topics. The default backend is **Coqui (Hugging Face)** (multi-speaker neural models via HF inference). Configuration:
 
 ```env
 # Default: Coqui TTS (tts_models/en/vctk/vits with speaker p226)

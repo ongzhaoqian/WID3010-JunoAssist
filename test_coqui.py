@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 import os
 import sys
-from TTS.api import TTS
+import requests
 
 
 def find_audio_player():
@@ -30,10 +30,8 @@ def play_wav(path):
 def main():
     model_name = os.getenv("JUNO_TTS_COQUI_MODEL", "tts_models/en/vctk/vits")
     default_speaker = os.getenv("JUNO_TTS_COQUI_SPEAKER", "p226")
-    print(f"Loading Coqui TTS model: {model_name} (this may take a moment)")
-    tts = TTS(model_name)
-
-    print("Interactive Coqui TTS. Type text and press Enter to speak. Type 'quit' or Ctrl-D to exit.")
+    print(f"Using Hugging Face Inference API model: {model_name}")
+    print("Interactive HF TTS. Type text and press Enter to speak. Type 'quit' or Ctrl-D to exit.")
     print(f"Default speaker: {default_speaker}")
 
     try:
@@ -59,7 +57,26 @@ def main():
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 out = f.name
             try:
-                tts.tts_to_file(text=text, file_path=out, speaker=speaker)
+                headers = {'Accept': 'audio/wav'}
+                hf_token = os.getenv('JUNO_HF_TOKEN', os.getenv('HUGGINGFACE_HUB_TOKEN', None))
+                if hf_token:
+                    headers['Authorization'] = f'Bearer {hf_token}'
+
+                url = f'https://api-inference.huggingface.co/models/{model_name}'
+                payload = {'inputs': text, 'parameters': {'speaker': speaker}}
+                resp = requests.post(url, headers=headers, json=payload, stream=True, timeout=60)
+                if resp.status_code != 200:
+                    try:
+                        err = resp.json()
+                    except Exception:
+                        err = resp.text
+                    raise RuntimeError(f'HF TTS inference failed: {err} (status={resp.status_code})')
+
+                with open(out, 'wb') as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+
                 play_wav(out)
             except Exception as e:
                 print("TTS error:", e, file=sys.stderr)

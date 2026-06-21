@@ -191,19 +191,63 @@ This section covers the **initial one-time setup** for a fresh Ubuntu robot or d
 - Configure system phonemizer (`espeak-ng`)
 - Set environment variables for the TTS node
 
-### Step 1: Verify Python Version
+### Step 1: Install Python 3.10+
 
-On the robot or dev machine, check your Python version:
+Your robot has Python 3.8, but Coqui/Whisper/PyTorch require Python 3.9+. **Python 3.8 is not supported** — attempting `pip install` on 3.8 will fail with `could not find a version that satisfies the requirement` because PyPI does not have wheels for these packages on Python 3.8.
+
+**Install Python 3.10** alongside the system Python 3.8:
 
 ```bash
-python3 --version
+sudo apt-get update
+sudo apt-get install -y python3.10 python3.10-venv python3.10-dev
 ```
 
-Ensure you have **Python 3.10 or later**. If your system has an older version, install a newer one or create a virtual environment using a compatible Python interpreter.
+Verify the installation:
 
-### Step 2: Create Virtual Environment in Backend
+```bash
+python3.10 --version
+```
 
-From the project root:
+You should see `Python 3.10.x` or later. Keep the system Python 3.8 (ROS may use it), but **use `python3.10` for all subsequent venv and pip commands in this guide**.
+
+### Step 2: Install TTS and ASR Dependencies in Python 3.10
+
+**Important:** ROS nodes (transcriber, TTS node) will eventually run with system Python 3.10 (ensure you've upgraded robot's system Python as above). They need TTS/ASR packages available **globally in Python 3.10**, not just in a venv.
+
+From the project root, install ASR/TTS to Python 3.10:
+
+```bash
+python3.10 -m pip install --upgrade pip setuptools wheel
+python3.10 -m pip install -r src/language_pkg/requirements-asr.txt
+```
+
+This installs Whisper, Moonshine, and `pyttsx3` into Python 3.10. The ROS TTS node is configured by default to use the Hugging Face Inference API for TTS (so a local Coqui `TTS` Python package is no longer required).
+
+**Verify the install:**
+
+```bash
+python3.10 -c "import requests; print('requests OK')"
+python3.10 -c "import torch; print('PyTorch OK')"
+python3.10 -c "import transformers; print('Transformers OK')"
+```
+
+If any of these fail, re-run the pip install command or check your internet connection (TTS inference requires network access to download or invoke hub models).
+
+If your Coqui model is gated or stored in a private Hugging Face repo, set a HF token before starting the node:
+
+```bash
+export JUNO_HF_TOKEN="<your_hf_token>"  # or set HUGGINGFACE_HUB_TOKEN
+```
+
+To allow the Coqui TTS node to attempt GPU acceleration (only if available), set:
+
+```bash
+export JUNO_TTS_COQUI_USE_CUDA=true
+```
+
+### Step 3: Create Virtual Environment for Backend
+
+Now that system Python has TTS/ASR, create `backend/.venv` with `--system-site-packages` so it inherits them:
 
 ```bash
 cd backend
@@ -211,21 +255,22 @@ python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
 ```
 
-The `--system-site-packages` flag allows the venv to access system-level packages (like ROS Python packages).
+The `--system-site-packages` flag allows the venv to access ROS and TTS/ASR packages installed in system Python.
 
-### Step 3: Install Core Backend and ASR/TTS Dependencies
+### Step 4: Install Backend-Specific Dependencies
+
+With `backend/.venv` activated, install FastAPI and other backend packages:
 
 ```bash
 pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
-pip install -r ../src/language_pkg/requirements-asr.txt
 ```
 
-This installs FastAPI, Whisper, Moonshine, and **Coqui TTS** (`TTS>=0.14.0`).
+This installs FastAPI, uvicorn, pydantic, pytest, and others. **Do not reinstall src/language_pkg/requirements-asr.txt here** — it's already available from system Python via `--system-site-packages`.
 
-### Step 4: Install System Phonemizer (espeak-ng)
+### Step 3: Install System Phonemizer (espeak-ng)
 
-Coqui TTS requires a text-to-phoneme converter. Install the system library:
+Coqui TTS requires a text-to-phoneme converter. Install the system library **before** testing TTS:
 
 **On Ubuntu/Linux:**
 
@@ -246,53 +291,93 @@ Verify the installation:
 espeak-ng --version
 ```
 
-### Step 5: Configure Environment Variables for Coqui TTS
+### Step 4: Create Virtual Environment for Backend (using Python 3.10)
 
-In your shell configuration (`.bashrc`, `.zshrc`, etc.) or before running the ROS node, set:
+Create `backend/.venv` with Python 3.10 with `--system-site-packages` so it inherits TTS/ASR from system Python 3.10:
+
+```bash
+cd backend
+python3.10 -m venv .venv --system-site-packages
+source .venv/bin/activate
+```
+
+The `--system-site-packages` flag allows the venv to access ROS and TTS/ASR packages installed in Python 3.10.
+
+### Step 5: Install Backend-Specific Dependencies
+
+With `backend/.venv` activated, install FastAPI and other backend packages:
+
+```bash
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+```
+
+This installs FastAPI, uvicorn, pydantic, pytest, and others. **Do not reinstall src/language_pkg/requirements-asr.txt here** — it's already available from Python 3.10 via `--system-site-packages`.
+
+### Step 6: Verify Coqui TTS Installation (Optional)
+
+Test that Coqui TTS is working in Python 3.10 (before building ROS). From the project root:
+
+```bash
+deactivate  # Exit backend/.venv if active
+python3.10 test_coqui.py
+```
+
+This opens an interactive TTS prompt. Type sentences and press Enter to hear them. Type `quit` to exit.
+
+If TTS fails:
+- Ensure `espeak-ng --version` works (system package installed in Step 3)
+- Ensure `python3.10 -c "from TTS.api import TTS"` succeeds (TTS installed in Step 2)
+- Check internet connection (first download of model can take 5–10 minutes)
+
+### Step 7: Build ROS Workspace (with Python 3.10)
+
+From the project root:
+
+```bash
+catkin_make -DPYTHON_EXECUTABLE:FILEPATH=/usr/bin/python3.10
+source devel/setup.bash
+```
+
+The `-DPYTHON_EXECUTABLE` flag tells catkin to use Python 3.10 instead of the system default (3.8).
+
+If `catkin_make` fails due to missing Python dependencies (not ROS build issues), ensure Step 2 (Python 3.10 pip install) and espeak-ng were completed correctly.
+
+### Step 8: Configure ROS Node Parameters (Optional)
+
+The ROS launch file ([src/juno_bringup/launch/juno_robot.launch](src/juno_bringup/launch/juno_robot.launch)) has sensible defaults:
+- `backend=coqui`
+- `coqui_model=tts_models/en/vctk/vits`
+- `coqui_speaker=p226`
+
+You can override these at launch time with environment variables or via command-line parameter overrides:
 
 ```bash
 export JUNO_TTS_BACKEND=coqui
 export JUNO_TTS_COQUI_MODEL=tts_models/en/vctk/vits
 export JUNO_TTS_COQUI_SPEAKER=p226
-export JUNO_TTS_AUDIO_PLAYER=auto
+roslaunch juno_bringup juno_robot.launch
 ```
 
-Or set them inline when launching the ROS node:
+Or inline:
 
 ```bash
-export JUNO_TTS_BACKEND=coqui && roslaunch juno_bringup juno_robot.launch
+roslaunch juno_bringup juno_robot.launch \
+  backend:=coqui \
+  coqui_model:=tts_models/en/vctk/vits \
+  coqui_speaker:=p226
 ```
 
-### Step 6: Test Coqui TTS (Optional)
-
-From the project root with the `.venv` activated:
-
-```bash
-python test_coqui.py
-```
-
-This opens an interactive TTS prompt. Type sentences and press Enter to hear them. Type `quit` to exit.
-
-### Step 7: Build and Source ROS Workspace
-
-From the project root:
-
-```bash
-catkin_make
-source devel/setup.bash
-```
-
-If catkin_make fails due to missing dependencies, ensure your `.venv` is activated and all requirements are installed.
-
-### Troubleshooting
+### First-Time Setup Troubleshooting
 
 | Issue | Solution |
 |---|---|
-| `ModuleNotFoundError: No module named TTS` | Activate `.venv` and run `pip install TTS>=0.14.0` |
-| `espeak-ng: command not found` | Install via `apt-get` (Ubuntu) or `brew` (macOS) |
-| TTS plays no audio | Verify audio output device with `speaker-test -t sine -f 1000 -l 1` (Linux) or check system volume (macOS) |
-| Model download hangs or fails | Check internet connection; models are large (~100–300 MB). First download may take 5–10 minutes. |
-| Phonemizer error: `expected language …` | Ensure `espeak-ng --version` works; VCTK models may require specific language/locale setup. |
+| `ModuleNotFoundError: No module named TTS` | Run Step 2 again: `pip install -r src/language_pkg/requirements-asr.txt` |
+| `espeak-ng: command not found` | Install via `apt-get` (Ubuntu) or `brew` (macOS) in Step 3 |
+| TTS plays no audio during test_coqui.py | Verify audio output device with `speaker-test -t sine -f 1000 -l 1` (Linux) or check system volume (macOS) |
+| Model download hangs or fails in test_coqui.py | Check internet connection; models are large (~100–300 MB). First download may take 5–10 minutes. Use a VPN if mirrors are blocked. |
+| Phonemizer error: `expected language …` during test_coqui.py | Ensure `espeak-ng --version` works; VCTK models may require specific language/locale setup. Try setting `export LANG=en_US.UTF-8` before running test_coqui.py. |
+| `catkin_make` fails with Python import errors | Ensure you completed Step 2 (pip install in system Python 3.10) before running catkin_make. |
 
 ## 6. Running the Integrated System
 
@@ -309,11 +394,13 @@ From the project root:
 ```bash
 catkin_make
 source devel/setup.bash
-pip install -r src/language_pkg/requirements-asr.txt
 amixer -c 3 sset Mic cap on
 amixer -c 3 sset Mic 16
+export JUNO_TTS_BACKEND=coqui
 roslaunch juno_bringup juno_robot.launch
 ```
+
+**Note:** `src/language_pkg/requirements-asr.txt` was already installed globally in Python 3.10 during first-time setup (Step 2 in Section 5a). Do not reinstall here; ROS nodes will find TTS/Whisper from the system Python 3.10 installation.
 
 This launches:
 
@@ -329,13 +416,15 @@ The normal camera view is now the web dashboard panel. Do **not** launch `camera
 ```bash
 cd backend
 source ../devel/setup.bash
-python3 -m venv .venv --system-site-packages
+python3.10 -m venv .venv --system-site-packages
 source .venv/bin/activate
 pip install -r requirements.txt
 export JUNO_ROBOT_INTERFACE=ros
 export JUNO_DASHBOARD_URL=http://localhost:5173
 python main.py
 ```
+
+**Important:** Use `python3.10 -m venv` to ensure the backend venv inherits Python 3.10 packages (Coqui/Whisper) installed in Step 2 of Section 5a.
 
 If the dashboard runs on a different machine from the backend:
 
