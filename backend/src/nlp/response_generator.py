@@ -20,7 +20,7 @@ class ResponseGenerator:
 
     def generate(self, intent: Intent, emotion: EmotionState, user_text: str = "") -> str:
         if intent == Intent.CHECK_SCHEDULE:
-            items = self.calendar_service.get_today_schedule()
+            items = self.calendar_service.get_today_schedule(include_completed=False)
             if not items:
                 return self.phrases.say("schedule_empty")
             first_items = "; ".join(self._describe_schedule_item(item) for item in items)
@@ -106,7 +106,7 @@ class ResponseGenerator:
         return self.llm_client.generate(context)
 
     def _schedule_summary(self) -> str:
-        items = self.calendar_service.get_today_schedule()[:3]
+        items = self.calendar_service.get_today_schedule(include_completed=False)[:3]
         deadlines = self.calendar_service.get_upcoming_deadlines()[:2]
         reminders = self.calendar_service.list_reminders(include_completed=False)[:3]
 

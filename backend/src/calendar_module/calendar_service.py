@@ -101,15 +101,18 @@ class CalendarService:
         conn.execute("UPDATE reminders SET priority = COALESCE(NULLIF(priority, ''), 'medium')")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id, completed, date, time, id)")
 
-    def get_today_schedule(self, user_id: int | None = None) -> list[dict[str, Any]]:
+    def get_today_schedule(
+        self, user_id: int | None = None, include_completed: bool = True
+    ) -> list[dict[str, Any]]:
         resolved_user_id = self._resolve_user_id(user_id)
         if resolved_user_id is None:
             return []
+        completed_filter = "" if include_completed else "AND completed = 0"
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT id, title, date, time, type, priority, completed FROM schedule_items
-                WHERE user_id = ?
+                WHERE user_id = ? {completed_filter}
                 ORDER BY COALESCE(date, ''), COALESCE(time, ''), id
                 """,
                 (resolved_user_id,),
