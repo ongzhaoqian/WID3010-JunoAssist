@@ -48,7 +48,7 @@ class WhisperTinyTranscriber:
 
         self.model_id = os.getenv("JUNO_ASR_MODEL_ID", "openai/whisper-tiny")
         self.sample_rate = int(os.getenv("JUNO_ASR_SAMPLE_RATE", "16000"))
-        self.window_seconds = float(os.getenv("JUNO_ASR_WINDOW_SECONDS", "1.0"))
+        self.window_seconds = float(os.getenv("JUNO_ASR_WINDOW_SECONDS", "3.0"))
         self.buffer_size = max(1, int(self.sample_rate * self.window_seconds))
         self.min_rms = float(os.getenv("JUNO_ASR_MIN_RMS", "0.030"))
         self.task = os.getenv("JUNO_ASR_TASK", "transcribe").strip().lower()

@@ -56,7 +56,14 @@ export default function ReminderPanel() {
 
   const [editingId, setEditingId] = useState(null); // null = creating, otherwise editing this id
 
-  const now = useMemo(() => new Date(), []);
+  // `now` must stay live: it was previously captured once at mount, so quick
+  // picks like "In 15 min" silently drifted into the past on a dashboard tab
+  // left open for a while. Refresh it periodically instead.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
   const quickOptions = useMemo(() => buildQuickOptions(now), [now]);
   const maxAhead = useMemo(() => new Date(now.getTime() + MAX_HOURS_AHEAD * 60 * 60000), [now]);
 
