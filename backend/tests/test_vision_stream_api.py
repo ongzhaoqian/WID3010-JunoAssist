@@ -81,3 +81,19 @@ def test_vision_mode_can_switch_between_juno_and_ekman():
 
     back = client.post("/api/vision/mode", json={"mode": "juno"}).json()
     assert back["display_emotion"] == "stressed"
+
+
+def test_stress_class_emotion_sets_break_suggestion():
+    from src.core.models import EmotionState, VisionEmotionMode
+
+    robot_state.set_vision_emotion_mode(VisionEmotionMode.JUNO)
+    robot_state.set_emotion(EmotionState.FEAR, source="vision", confidence=0.82)
+
+    stress_payload = robot_state.snapshot()
+    assert stress_payload["display_emotion"] == "stressed"
+    assert stress_payload["break_suggested"] is True
+
+    robot_state.set_emotion(EmotionState.HAPPINESS, source="vision", confidence=0.9)
+    happy_payload = robot_state.snapshot()
+    assert happy_payload["display_emotion"] == "happy"
+    assert happy_payload["break_suggested"] is False
