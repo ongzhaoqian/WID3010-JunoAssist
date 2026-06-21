@@ -30,7 +30,7 @@ The project is built for the WID3010 Autonomous Robots alternative assessment an
 | Default accounts | `mackwongyy@gmail.com / 12345678`, `jonathansiew@hotmail.com / 87654321` |
 | Storage | SQLite with user-scoped data tables and automatic clean-start refresh |
 | Speech input | ROS microphone stream with Whisper Tiny transcription; manual dashboard text-based command fallback |
-| Speech output | ROS TTS bridge with configurable British English eSpeak profile and stop control |
+| Speech output | ROS TTS bridge with Kokoro-82M neural voice (bm_lewis) and espeak fallback |
 | Vision | Jupiter camera stream, user-controlled camera toggle, optional facial-emotion model |
 | Emotion modes | Switchable **JUNO Mode** and **Ekman Mode** using one internal Ekman evidence pipeline |
 | Schedules/reminders | User-scoped CRUD from dashboard and voice commands |
@@ -300,33 +300,41 @@ JUNO_SPEECH_EMOTION_OVERRIDE_SECONDS=45.0
 The ROS speech path uses Whisper Tiny for lightweight automatic speech recognition, as follows.
 
 ```env
-The dashboard and backend support immediate stop commands for speech/music, while preserving timer-specific stop behaviour.
-
 JUNO_ASR_TASK=translate
 
-**Coqui TTS (Hugging Face Inference API by default)**
+**Kokoro-82M TTS (local neural model with espeak fallback)**
 
-The ROS TTS node is configured to use the Hugging Face Inference API for neural TTS by default, so a local build of the Coqui `TTS` package is not required. Notes:
+The ROS TTS node uses **Kokoro-82M** (`kokoro` Python package, voice: `bm_lewis`) as the primary neural TTS engine. Follows the same lazy-load pattern as Whisper Tiny: downloads weights from Hugging Face once, then runs entirely offline. Falls back to espeak-ng/espeak if Kokoro is unavailable.
 
-- **Python requirement:** some backend tools (ASR, transformers, torch) still require Python 3.10 for installation on the robot — follow `docs/ros_integration_guide.md`.
-- **Hugging Face token:** set `JUNO_HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` if your chosen model is gated or private.
-- **Optional GPU:** to request GPU acceleration when available, set `JUNO_TTS_COQUI_USE_CUDA=true` before startup; the node will only use CUDA if a compatible GPU and drivers are present.
-- **Verification:** after installing dependencies, verify basic packages:
+
+- **Python requirement:** Kokoro requires Python 3.10+ with `torch` already installed (same environment as Whisper ASR).
+- **First-time setup:** the Kokoro-82M model (~330 MB) is downloaded automatically on first run via `huggingface_hub`.
+- **Disabled:** set `JUNO_TTS_KOKORO_ENABLED=false` to skip Kokoro and use espeak directly.
+
+```bash
+# Install Kokoro alongside existing ASR dependencies
+python3.10 -m pip install kokoro
+python3.10 -c "from kokoro import KPipeline; KPipeline(lang_code='a')"
+```
+
+- **Verification:** after installing, verify basic packages:
 
 ```bash
 python3.10 -c "import requests; print('requests OK')"
 python3.10 -c "import torch; print('PyTorch OK')"
-python3.10 -c "import transformers; print('Transformers OK')"
+
+python3.10 -c "import kokoro; print('Kokoro OK')"
 ```
 
-TTS is handled through ROS topics. The default backend is **Coqui (Hugging Face)** (multi-speaker neural models via HF inference). Configuration:
+TTS is handled through ROS topics. The default backend is **Kokoro** (neural model, voice: `bm_lewis`). Configuration:
 
 ```env
-# Default: Coqui TTS (tts_models/en/vctk/vits with speaker p226)
-JUNO_TTS_BACKEND=coqui
-JUNO_TTS_COQUI_MODEL=tts_models/en/vctk/vits
-JUNO_TTS_COQUI_SPEAKER=p226
-JUNO_TTS_AUDIO_PLAYER=auto  # auto, aplay, paplay, ffplay, afplay
+# Default: Kokoro-82M (voice: bm_lewis)
+JUNO_TTS_BACKEND=kokoro
+JUNO_TTS_KOKORO_VOICE=bm_lewis
+JUNO_TTS_KOKORO_LANG_CODE=a       # 'a'=American English, 'b'=British English (for pm_* voices)
+JUNO_TTS_KOKORO_SPEED=1.0
+JUNO_TTS_AUDIO_PLAYER=auto         # auto, aplay, paplay, ffplay, afplay
 ```
 
 Alternatively, use the fallback `espeak` backend:

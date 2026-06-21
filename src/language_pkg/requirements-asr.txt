@@ -8,6 +8,15 @@ huggingface_hub>=0.24.0
 # Fallback ASR: moonshine/base via moonshine-onnx (used if Whisper fails to load)
 # moonshine-onnx>=0.1.0  # optional fallback, not on all mirrors
 
-# Optional local TTS engine used by tts_node.py before falling back to espeak-ng/espeak.
-pyttsx3>=2.90
-requests>=2.28.0
+# TTS: Kokoro-82M neural TTS (primary; see tts_node.py) RUN THE CODES BELOW
+## 1. Install the base math and NLP engines that support Python 3.8
+# pip install numpy==1.24.4 thinc==8.2.5 spacy==3.7.5
+
+# 2. Install the TTS engine without letting it overwrite your dependencies
+# pip install --no-deps kokoro misaki
+
+# 3. Install the remaining utilities normally
+# pip install scipy torch loguru transformers huggingface-hub addict num2words phonemizer
+
+# pip install --upgrade --force-reinstall espeakng-loader phonemizer-fork
+

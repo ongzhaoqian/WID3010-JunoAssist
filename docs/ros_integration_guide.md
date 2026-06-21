@@ -49,7 +49,7 @@ This guide explains how the FastAPI backend, React dashboard, and Jupiter Robot 
 | `microphone_node.py` | `/audio/raw` | `std_msgs/Float32MultiArray` | Publishes mono float32 microphone samples at 16 kHz. |
 | `transcriber.py` | `/speech/transcript` | `std_msgs/String` | Runs ASR (Whisper primary, Moonshine fallback) and publishes recognised text. |
 | External ASR or `example_transcriptor.py` | `/speech/raw_transcript` | `std_msgs/String` | Manual/external transcript fallback; relayed to `/speech/transcript`. |
-| `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using Coqui TTS (offline, multi-speaker neural model). |
+| `tts_node.py` | `/juno/tts` | `std_msgs/String` | Speaks backend responses using Kokoro-82M TTS (neural model, voice: bm_lewis). |
 | `tts_node.py` | `/juno/tts_done` | `std_msgs/String` | Signals that TTS has finished so STT can resume. |
 | Backend ROS bridge | `/juno/led_state` | `std_msgs/String` | Optional LED/status feedback. |
 | FastAPI backend | `/api/vision/camera/stream` | MJPEG over HTTP | Streams `/camera/image_raw` to the dashboard camera window. |
@@ -179,7 +179,7 @@ cd backend
 
 Do **not** merge the two environments unless all dependency conflicts have been tested and resolved.
 
-## 5a. First-Time Robot Setup (Python Environment & Coqui TTS)
+## 5a. First-Time Robot Setup (Python Environment & Kokoro TTS)
 
 ### Overview
 
@@ -187,13 +187,13 @@ This section covers the **initial one-time setup** for a fresh Ubuntu robot or d
 
 - Verify Python version (3.10 or later required for TTS)
 - Create and configure a Python virtual environment
-- Install Coqui TTS and audio dependencies
+- Install Kokoro TTS and audio dependencies
 - Configure system phonemizer (`espeak-ng`)
 - Set environment variables for the TTS node
 
 ### Step 1: Install Python 3.10+
 
-Your robot has Python 3.8, but Coqui/Whisper/PyTorch require Python 3.9+. **Python 3.8 is not supported** — attempting `pip install` on 3.8 will fail with `could not find a version that satisfies the requirement` because PyPI does not have wheels for these packages on Python 3.8.
+Your robot has Python 3.8, but Kokoro/Whisper/PyTorch require Python 3.9+. **Python 3.8 is not supported** — attempting `pip install` on 3.8 will fail with `could not find a version that satisfies the requirement` because PyPI does not have wheels for these packages on Python 3.8.
 
 **Install Python 3.10** alongside the system Python 3.8:
 
@@ -221,28 +221,30 @@ python3.10 -m pip install --upgrade pip setuptools wheel
 python3.10 -m pip install -r src/language_pkg/requirements-asr.txt
 ```
 
-This installs Whisper, Moonshine, and `pyttsx3` into Python 3.10. The ROS TTS node is configured by default to use the Hugging Face Inference API for TTS (so a local Coqui `TTS` Python package is no longer required).
+This installs Whisper, Moonshine, Kokoro-82M, and `pyttsx3` into Python 3.10. The ROS TTS node uses **Kokoro-82M** (`kokoro` package, voice: `bm_lewis`) as the primary neural TTS engine, following the same lazy-load pattern as WhisperTiny. Falls back to espeak-ng/espeak if Kokoro is unavailable.
 
 **Verify the install:**
 
 ```bash
-python3.10 -c "import requests; print('requests OK')"
 python3.10 -c "import torch; print('PyTorch OK')"
 python3.10 -c "import transformers; print('Transformers OK')"
+python3.10 -c "import kokoro; print('Kokoro OK')"
 ```
 
-If any of these fail, re-run the pip install command or check your internet connection (TTS inference requires network access to download or invoke hub models).
+If any of these fail, re-run the pip install command or check your internet connection.
 
-If your Coqui model is gated or stored in a private Hugging Face repo, set a HF token before starting the node:
+**Pre-download the Kokoro-82M model** (optional, avoids delay at first utterance):
 
 ```bash
-export JUNO_HF_TOKEN="<your_hf_token>"  # or set HUGGINGFACE_HUB_TOKEN
+python3.10 -c "from kokoro import KPipeline; KPipeline(lang_code='a')"
 ```
 
-To allow the Coqui TTS node to attempt GPU acceleration (only if available), set:
+The model (~330 MB) is downloaded from Hugging Face and cached locally. After the first download, Kokoro runs entirely offline.
+
+**To disable Kokoro** and use espeak directly, set:
 
 ```bash
-export JUNO_TTS_COQUI_USE_CUDA=true
+export JUNO_TTS_KOKORO_ENABLED=false
 ```
 
 ### Step 3: Create Virtual Environment for Backend
@@ -268,9 +270,9 @@ pip install -r requirements.txt
 
 This installs FastAPI, uvicorn, pydantic, pytest, and others. **Do not reinstall src/language_pkg/requirements-asr.txt here** — it's already available from system Python via `--system-site-packages`.
 
-### Step 3: Install System Phonemizer (espeak-ng)
+### Step 3: Install espeak-ng (TTS fallback engine)
 
-Coqui TTS requires a text-to-phoneme converter. Install the system library **before** testing TTS:
+espeak-ng is the fallback TTS engine used when Kokoro is unavailable. Install the system library:
 
 **On Ubuntu/Linux:**
 
@@ -314,9 +316,9 @@ pip install -r requirements.txt
 
 This installs FastAPI, uvicorn, pydantic, pytest, and others. **Do not reinstall src/language_pkg/requirements-asr.txt here** — it's already available from Python 3.10 via `--system-site-packages`.
 
-### Step 6: Verify Coqui TTS Installation (Optional)
+### Step 6: Verify Kokoro TTS Installation (Optional)
 
-Test that Coqui TTS is working in Python 3.10 (before building ROS). From the project root:
+Test that Kokoro TTS is working in Python 3.10 (before building ROS). From the project root:
 
 ```bash
 deactivate  # Exit backend/.venv if active
@@ -327,7 +329,7 @@ This opens an interactive TTS prompt. Type sentences and press Enter to hear the
 
 If TTS fails:
 - Ensure `espeak-ng --version` works (system package installed in Step 3)
-- Ensure `python3.10 -c "from TTS.api import TTS"` succeeds (TTS installed in Step 2)
+- Ensure `python3.10 -c "import kokoro; print('Kokoro OK')"` succeeds (kokoro installed in Step 2)
 - Check internet connection (first download of model can take 5–10 minutes)
 
 ### Step 7: Build ROS Workspace (with Python 3.10)
@@ -346,16 +348,16 @@ If `catkin_make` fails due to missing Python dependencies (not ROS build issues)
 ### Step 8: Configure ROS Node Parameters (Optional)
 
 The ROS launch file ([src/juno_bringup/launch/juno_robot.launch](src/juno_bringup/launch/juno_robot.launch)) has sensible defaults:
-- `backend=coqui`
-- `coqui_model=tts_models/en/vctk/vits`
-- `coqui_speaker=p226`
+- `backend=kokoro`
+- `kokoro_voice=bm_lewis`
+- `kokoro_voice=bm_lewis`
 
 You can override these at launch time with environment variables or via command-line parameter overrides:
 
 ```bash
-export JUNO_TTS_BACKEND=coqui
-export JUNO_TTS_COQUI_MODEL=tts_models/en/vctk/vits
-export JUNO_TTS_COQUI_SPEAKER=p226
+export JUNO_TTS_BACKEND=kokoro
+export JUNO_TTS_KOKORO_VOICE=kakao-enterprise/vits-vctk
+export JUNO_TTS_KOKORO_VOICE=p226
 roslaunch juno_bringup juno_robot.launch
 ```
 
@@ -363,9 +365,9 @@ Or inline:
 
 ```bash
 roslaunch juno_bringup juno_robot.launch \
-  backend:=coqui \
-  coqui_model:=tts_models/en/vctk/vits \
-  coqui_speaker:=p226
+  backend:=kokoro \
+  kokoro_voice:=bm_lewis \
+  kokoro_voice:=bm_lewis
 ```
 
 ### First-Time Setup Troubleshooting
@@ -396,7 +398,7 @@ catkin_make
 source devel/setup.bash
 amixer -c 3 sset Mic cap on
 amixer -c 3 sset Mic 16
-export JUNO_TTS_BACKEND=coqui
+export JUNO_TTS_BACKEND=kokoro
 roslaunch juno_bringup juno_robot.launch
 ```
 
@@ -407,7 +409,7 @@ This launches:
 - `camera_node.py` — camera publisher for the dashboard stream
 - `microphone_node.py` — microphone publisher (device resolved by `JUNO_MIC_DEVICE_NAME`, 48 kHz → 16 kHz)
 - `transcriber.py` — Whisper primary / Moonshine fallback ASR
-- `tts_node.py` — Coqui TTS (offline, multi-speaker) with `/juno/tts_done` signal
+- `tts_node.py` — Kokoro TTS (offline, multi-speaker) with `/juno/tts_done` signal
 
 The normal camera view is now the web dashboard panel. Do **not** launch `camera_listener_node.py` for normal operation because it is only a diagnostic listener. If you need the old OpenCV pop-up for debugging, run it explicitly with `_display_window:=true`.
 
@@ -644,7 +646,7 @@ The backend ROS bridge is embedded inside the FastAPI backend process, so it may
 | File | Purpose |
 |---|---|
 | `src/language_pkg/scripts/transcriber.py` | ASR node — Whisper primary, Moonshine fallback, TTS mute/resume, manual relay. |
-| `src/language_pkg/scripts/tts_node.py` | TTS node — Coqui TTS (offline neural model), publishes `/juno/tts_done`. |
+| `src/language_pkg/scripts/tts_node.py` | TTS node — Kokoro-82M TTS, publishes `/juno/tts_done`. |
 | `src/language_pkg/scripts/helper.py` | Pre-downloads Whisper model assets into local cache. |
 | `src/language_pkg/scripts/example_transcriptor.py` | Manual text input that publishes to `/speech/raw_transcript`. |
 | `src/juno_bringup/launch/juno_robot.launch` | Launches all robot-side ROS nodes. |
