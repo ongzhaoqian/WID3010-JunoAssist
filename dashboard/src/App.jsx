@@ -200,8 +200,6 @@ export default function App() {
         </div>
       </header>
 
-      <DateTimePanel />
-
       {status?.break_suggested && (
         <section className="mt-5 rounded-[2rem] border border-[#ef4444]/50 bg-[#ef4444]/15 p-5 text-white shadow-[0_0_40px_rgba(239,68,68,0.18)] backdrop-blur-xl">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -225,47 +223,29 @@ export default function App() {
         </section>
       )}
 
-      <section className="mt-5">
-        <StatusPanel status={status} />
+      <section className="mt-5 grid gap-5 lg:grid-cols-2">
+        <DateTimePanel />
+        <TimerPanel status={status} />
       </section>
 
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
-        <TimerPanel status={status} />
-        <Card title="Most Recent Response from JUNO">
-          <p className="text-slate-200/85">{status?.last_response ?? "Loading..."}</p>
-          {lastCommand && (
-            <p className="mt-3 text-sm text-slate-300/75">
-              Last intent: {lastCommand.intent}
-            </p>
-          )}
+        <StatusPanel status={status} onSleep={sleepJuno} />
+        <Card title="Ask JUNO">
+          <CommandPanel onCommandResult={setLastCommand} bare />
+          <div className="mt-5 border-t border-white/10 pt-4">
+            <p className="section-kicker text-xs font-semibold">Most recent response from JUNO</p>
+            <p className="mt-2 text-slate-200/85">{status?.last_response ?? "Loading..."}</p>
+            {lastCommand && (
+              <p className="mt-3 text-sm text-slate-300/75">
+                Last intent: {lastCommand.intent}
+              </p>
+            )}
+          </div>
         </Card>
       </section>
 
       <section className="mt-5">
         <CameraPanel status={status} />
-      </section>
-
-      <section className="mt-5 grid gap-5 lg:grid-cols-2">
-        <CommandPanel onCommandResult={setLastCommand} />
-        <Card title="Quick Actions">
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={launchFitnessGame}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold"
-            >
-              Play Fitness Game
-            </button>
-            <button
-              onClick={sleepJuno}
-              className="btn-secondary px-5 py-2.5 text-sm font-semibold"
-            >
-              Put JUNO to Sleep
-            </button>
-          </div>
-          <p className="mt-3 text-sm text-slate-300/75">
-            Use the fitness game for a quick movement break, or put JUNO back to sleep when the session is done.
-          </p>
-        </Card>
       </section>
 
       <section className="mt-5">

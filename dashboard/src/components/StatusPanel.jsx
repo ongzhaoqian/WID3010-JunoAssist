@@ -1,3 +1,4 @@
+import { Power } from "lucide-react";
 import Card from "./Card";
 
 const EMOTION_VISUALS = {
@@ -50,7 +51,7 @@ export function isStressClassEmotion(...values) {
   return values.map(normaliseEmotion).some((label) => EMOTION_VISUALS.stress.labels.has(label));
 }
 
-export default function StatusPanel({ status }) {
+export default function StatusPanel({ status, onSleep }) {
   const mode = status?.mode ?? "loading";
   const emotion = status?.display_emotion ?? status?.current_emotion ?? "unknown";
   const rawEkmanEmotion = status?.raw_ekman_emotion ?? status?.current_emotion ?? "unknown";
@@ -67,14 +68,40 @@ export default function StatusPanel({ status }) {
     backgroundColor: `${visualState.colour}22`,
     boxShadow: `0 0 40px ${visualState.colour}33`,
   };
+  const isOn = mode !== "sleep";
 
   return (
-    <Card title="Robot Status" className={stressActive ? "ring-2 ring-[#ef4444]/45" : ""}>
-      <div className="grid gap-5 lg:grid-cols-[1.25fr_0.75fr] lg:items-stretch">
+    <Card
+      title="Robot Status"
+      className={stressActive ? "ring-2 ring-[#ef4444]/45" : ""}
+      headerAction={
+        onSleep && (
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-white">
+              <span
+                className={`h-2.5 w-2.5 rounded-full ${isOn ? "bg-[#4ade80] shadow-[0_0_8px_#4ade80]" : "bg-slate-500"}`}
+              />
+              JUNO is {isOn ? "On" : "Off"}
+            </span>
+            <button
+              onClick={onSleep}
+              disabled={!isOn}
+              title={isOn ? "Switch off" : "JUNO is already off"}
+              className="inline-flex items-center gap-2 rounded-full bg-[#ef4444] px-4 py-2 text-sm font-semibold text-white shadow-[0_0_20px_rgba(239,68,68,0.45)] ring-1 ring-[#ef4444]/60 transition hover:bg-[#dc2626] disabled:cursor-not-allowed disabled:bg-slate-600 disabled:shadow-none disabled:ring-slate-500/40"
+              type="button"
+            >
+              <Power className="h-4 w-4" />
+              Power Off
+            </button>
+          </div>
+        )
+      }
+    >
+      <div className="grid gap-5 items-stretch">
         <div className="soft-panel flex min-h-[15rem] flex-col items-center justify-center rounded-[2rem] p-6 text-center">
           <p className="section-kicker text-xs font-semibold">Current emotion estimate</p>
           <div
-            className={`mt-4 inline-flex min-w-[16rem] items-center justify-center rounded-[2rem] border px-8 py-5 text-[clamp(2.75rem,6vw,5rem)] font-black leading-none tracking-tight ${stressActive ? "animate-pulse" : ""}`}
+            className={`mt-4 inline-flex max-w-full items-center justify-center rounded-[2rem] border px-8 py-5 text-[clamp(2.25rem,8vw,5rem)] font-black leading-none tracking-tight ${stressActive ? "animate-pulse" : ""}`}
             style={badgeStyle}
             aria-live="polite"
           >
@@ -98,22 +125,22 @@ export default function StatusPanel({ status }) {
           )}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-          <div className="soft-panel rounded-2xl p-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="soft-panel min-w-0 rounded-2xl p-4">
             <p className="text-sm text-slate-300/75">Mode</p>
-            <p className="mt-1 text-3xl font-bold capitalize text-white">{mode}</p>
+            <p className="mt-1 truncate text-xl font-bold capitalize text-white">{mode}</p>
           </div>
-          <div className="soft-panel rounded-2xl p-4">
+          <div className="soft-panel min-w-0 rounded-2xl p-4">
             <p className="text-sm text-slate-300/75">Raw Ekman</p>
-            <p className="mt-1 text-2xl font-bold text-white">{formatEmotionLabel(rawEkmanEmotion)}</p>
+            <p className="mt-1 truncate text-xl font-bold text-white">{formatEmotionLabel(rawEkmanEmotion)}</p>
           </div>
-          <div className="soft-panel rounded-2xl p-4">
+          <div className="soft-panel min-w-0 rounded-2xl p-4">
             <p className="text-sm text-slate-300/75">JUNO Label</p>
-            <p className="mt-1 text-2xl font-bold text-white">{formatEmotionLabel(junoEmotion)}</p>
+            <p className="mt-1 truncate text-xl font-bold text-white">{formatEmotionLabel(junoEmotion)}</p>
           </div>
-          <div className="soft-panel rounded-2xl p-4">
+          <div className="soft-panel min-w-0 rounded-2xl p-4">
             <p className="text-sm text-slate-300/75">Break Prompt</p>
-            <p className="mt-1 text-2xl font-bold text-white">{breakSuggested ? "Suggested" : "Not active"}</p>
+            <p className="mt-1 truncate text-xl font-bold text-white">{breakSuggested ? "Suggested" : "Not active"}</p>
           </div>
         </div>
       </div>

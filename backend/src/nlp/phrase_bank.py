@@ -94,7 +94,7 @@ class PhraseBank:
         "timer_started": [
             "Study timer started for {duration}.",
             "Done. I have started a study timer for {duration}.",
-            "Your focus session is ready. The timer is set for {duration}.",
+            "Your study session is ready. The timer is set for {duration}.",
         ],
         "timer_finished": [
             "Time is up. Your {label} has finished.",

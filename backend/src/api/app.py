@@ -420,6 +420,7 @@ def create_app() -> FastAPI:
             "end the timer", "cancel timer", "cancel the timer", "delete timer",
             "reset timer", "clear timer", "stop countdown", "end countdown",
             "cancel countdown", "stop study timer", "stop focus session",
+            "stop study session", "cancel study session",
             "finish timer", "terminate timer", "turn off timer",
         )
         pause_phrases = ("pause timer", "pause the timer", "hold timer", "freeze timer")
@@ -954,7 +955,7 @@ def create_app() -> FastAPI:
         return [
             {"name": "Today's Schedule", "description": "Check classes, meetings, deadlines, and add structured schedule items by voice."},
             {"name": "Voice Schedule Capture", "description": "Accept date, time, purpose, and priority from speech, then format dates such as 2026-05-20 as 20 May, 2026."},
-            {"name": "Study Timer", "description": "Start a Pomodoro-style focus session."},
+            {"name": "Study Timer", "description": "Start a Pomodoro-style study session."},
             {"name": "Dashboard Camera View", "description": "Choose when to view the Jupiter webcam directly inside the dashboard, with a refreshable MJPEG stream."},
             {"name": "Optional Vision Module", "description": "Enable emotion recognition only when needed; camera-only monitoring remains available."},
             {"name": "Break Recommendation", "description": "Suggest breaks based on emotion and workload."},

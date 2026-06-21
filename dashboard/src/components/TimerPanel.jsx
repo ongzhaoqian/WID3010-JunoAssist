@@ -176,7 +176,7 @@ export default function TimerPanel({ status }) {
 
       {hasTimer && (
         <p className="mt-3 text-xs leading-5 text-slate-300/75">
-          Voice control is enabled. You can say “pause timer”, “resume timer”, “stop timer”, “end the countdown”, or “cancel the focus session”.
+          Voice control is enabled. You can say “pause timer”, “resume timer”, “stop timer”, “end the countdown”, or “cancel the study session”.
         </p>
       )}
     </Card>
